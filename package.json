@@ -1,0 +1,67 @@
+{
+  "name": "querium",
+  "version": "0.0.0",
+  "description": "Type-safe, class-based ORM for TypeScript — SQLAlchemy 2.0 ergonomics for the JS/TS world.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Mauricio Benjamin",
+  "keywords": [
+    "orm",
+    "typescript",
+    "sql",
+    "query-builder",
+    "sqlite",
+    "postgresql",
+    "type-safe",
+    "sqlalchemy"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./migrations": {
+      "types": "./dist/migrations/index.d.ts",
+      "import": "./dist/migrations/index.js",
+      "require": "./dist/migrations/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^26.0.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "*",
+    "postgres": "*"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  }
+}

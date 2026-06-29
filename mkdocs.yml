@@ -1,0 +1,141 @@
+site_name: Querium
+site_description: >-
+  ORM type-safe e class-based para TypeScript — ergonomia do SQLAlchemy 2.0
+  trazida pro mundo JS/TS. Schema declarativo por classes, query builder com
+  inferência forte, foco em SQLite e PostgreSQL. Base do futuro tempest-ts-sdk.
+site_url: https://mauriciobenjamin700.github.io/querium/
+repo_url: https://github.com/mauriciobenjamin700/querium
+repo_name: mauriciobenjamin700/querium
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Mauricio Benjamin — MIT License
+docs_dir: docs
+
+theme:
+  name: material
+  language: pt-BR
+  features:
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Mudar para tema claro
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Mudar para tema escuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Usar preferência do sistema
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+
+plugins:
+  - search
+  # Seletor PT-BR / EN-US no header. Arquivos sem sufixo são PT (default);
+  # traduções vivem em `<nome>.en.md`. Páginas sem tradução caem pro PT.
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - { locale: pt, name: "Português (BR)", default: true, build: true }
+        - locale: en
+          name: English (US)
+          build: true
+          nav_translations:
+            Início: Home
+            Instalação: Installation
+            Tutorial: Tutorial
+            Comece aqui: Start here
+            Modelos: Models
+            Consultas: Queries
+            Inserir, atualizar, deletar: Insert, update, delete
+            Executando queries: Running queries
+            Joins: Joins
+            Guia: Guide
+            Arquitetura: Architecture
+            Repository: Repository
+            Migrações: Migrations
+            Referência da API: API reference
+            Roadmap: Roadmap
+            Contribuindo: Contributing
+            Changelog: Changelog
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 4
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Início: index.md
+  - Instalação: installation.md
+  - Tutorial:
+      - Comece aqui: tutorial/index.md
+      - Modelos: tutorial/models.md
+      - Consultas: tutorial/queries.md
+      - Inserir, atualizar, deletar: tutorial/mutations.md
+      - Executando queries: tutorial/execution.md
+      - Joins: tutorial/joins.md
+  - Guia:
+      - Arquitetura: architecture.md
+      - Repository: repository.md
+      - Migrações: migrations.md
+      - Referência da API: reference.md
+  - Roadmap: roadmap.md
+  - Contribuindo: contributing.md
+  - Changelog: changelog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mauriciobenjamin700/querium
+    - icon: fontawesome/brands/npm
+      link: https://www.npmjs.com/package/querium
