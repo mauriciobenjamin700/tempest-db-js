@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6: the Schema IR (intermediate representation).
+ * tempest-db-js — Phase 6: the Schema IR (intermediate representation).
  *
  * A canonical, dialect-neutral description of a database schema. Every source of
  * truth — model reflection (here), migration replay, or DB introspection —

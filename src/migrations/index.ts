@@ -1,5 +1,5 @@
 /**
- * Querium — migrations public surface (Phase 6).
+ * tempest-db-js — migrations public surface (Phase 6).
  *
  * Alembic-style, anti-"SQL-stitching": a Schema IR + typed operations + a dialect
  * renderer. Reflect models → diff vs current → operations → migration file with

@@ -1,6 +1,6 @@
 # Architecture
 
-This page explains **the design decisions** behind Querium — why it is the way it
+This page explains **the design decisions** behind tempest-db-js — why it is the way it
 is. If you just want to use the ORM, the [Tutorial](tutorial/index.md) is enough.
 If you want to understand it (or contribute), start here.
 
@@ -24,7 +24,7 @@ class User {
 
 ## The solution: the column is a value
 
-Querium makes each column a **runtime value** that carries the type:
+tempest-db-js makes each column a **runtime value** that carries the type:
 
 ```ts
 class User extends Model {
@@ -54,7 +54,7 @@ type InferModel<C> = { [K in ColumnKeys<InstanceType<C>>]: ColValue<InstanceType
 !!! info "Same principle as Drizzle/Kysely"
 
     Drizzle and Kysely solved the same problem the same way: the column is a
-    builder-value, not an annotation. Querium adopts that foundation and wraps it
+    builder-value, not an annotation. tempest-db-js adopts that foundation and wraps it
     in a **declarative class**, to stay close to SQLAlchemy.
 
 ## The honest trade-off
@@ -114,7 +114,7 @@ Result: an `UPDATE`/`DELETE` without a `WHERE` and without an explicit opt-in is
 
 ## Why all of this is testable with `tsc`
 
-Because builders are pure type + AST, Querium's tests are mostly **type tests**
+Because builders are pure type + AST, tempest-db-js's tests are mostly **type tests**
 (`expectTypeOf`, `@ts-expect-error`). A filter with an invalid key or an update
 without a guard **fails to compile** — and that's exactly what the tests verify.
 In a typed ORM, the type **is** the product, so the type test is the product test.

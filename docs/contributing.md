@@ -1,16 +1,16 @@
 # Contribuindo
 
-Obrigado pelo interesse em contribuir com o Querium! 🙌 Esta página cobre o setup de
+Obrigado pelo interesse em contribuir com o tempest-db-js! 🙌 Esta página cobre o setup de
 desenvolvimento e as convenções do projeto.
 
 ## Setup
 
-O Querium ainda não está no npm — durante o desenvolvimento, trabalhe a partir do
+O tempest-db-js ainda não está no npm — durante o desenvolvimento, trabalhe a partir do
 repositório:
 
 ```bash
-git clone https://github.com/mauriciobenjamin700/querium.git
-cd querium
+git clone https://github.com/mauriciobenjamin700/tempest-db-js.git
+cd tempest-db-js
 npm install
 ```
 
@@ -35,7 +35,7 @@ npm install
 ## Estrutura
 
 ```text
-querium/
+tempest-db-js/
 ├── src/
 │   ├── index.ts        # Model, column, InferModel/InferInsert + re-exports
 │   ├── query.ts        # select, SelectBuilder, AST de SELECT
@@ -52,7 +52,7 @@ querium/
 - **Tudo tipado** — nada de `any` implícito; quando precisar de `any`, seja
   explícito.
 - **Docstrings em inglês** (JSDoc), no estilo do código existente.
-- **`strict: true`** — a inferência do Querium depende disso.
+- **`strict: true`** — a inferência do tempest-db-js depende disso.
 
 ## Documentação segue o código
 

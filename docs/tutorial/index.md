@@ -1,6 +1,6 @@
 # Tutorial — Comece aqui
 
-Bem-vindo! 🚀 Este é o **Tutorial — Guia do Usuário** do Querium. Ele é **linear**:
+Bem-vindo! 🚀 Este é o **Tutorial — Guia do Usuário** do tempest-db-js. Ele é **linear**:
 cada página ensina **um conceito**, em cima do anterior, com exemplos completos
 que você pode copiar e colar. Comece aqui e siga os links de "próxima página" — você
 nunca vai ficar travado.
@@ -9,16 +9,16 @@ Ao longo do tutorial vamos modelar **o mesmo mini-domínio**, página a página:
 gerenciador de tarefas com usuários. Nada de teoria solta — cada conceito entra
 porque o domínio precisa dele.
 
-## O que é o Querium?
+## O que é o tempest-db-js?
 
 É um ORM para TypeScript onde você declara suas tabelas como **classes** e o
 TypeScript infere o formato de cada linha automaticamente. Se você já usou o
 SQLAlchemy 2.0 em Python, vai se sentir em casa:
 
-=== "Querium (TypeScript)"
+=== "tempest-db-js (TypeScript)"
 
     ```ts
-    import { Model, column } from "querium";
+    import { Model, column } from "tempest-db-js";
 
     class User extends Model {
       static tablename = "users";
@@ -39,7 +39,7 @@ SQLAlchemy 2.0 em Python, vai se sentir em casa:
     ```
 
 A diferença-chave: o Python lê os tipos em runtime; o TypeScript apaga os tipos na
-compilação. Por isso, no Querium, **a coluna é um valor** (`column.integer()`) que
+compilação. Por isso, no tempest-db-js, **a coluna é um valor** (`column.integer()`) que
 carrega o tipo — não uma anotação. Você vai entender bem isso na próxima página.
 
 ## Antes de começar

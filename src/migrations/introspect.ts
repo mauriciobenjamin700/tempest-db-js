@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6d: SQLite introspection + drift detection.
+ * tempest-db-js — Phase 6d: SQLite introspection + drift detection.
  *
  * Reads the live schema from a SQLite database (via `PRAGMA table_info`) into a
  * `SchemaIR`, and compares it against the models to detect **drift** — the DB
@@ -59,7 +59,7 @@ interface PragmaColumn {
  */
 export function introspectSqlite(driver: SyncDriver): SchemaIR {
   const tablesRows = driver.execute(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'querium_migrations'",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'tempest_db_js_migrations'",
     [],
   ).rows;
 
@@ -179,7 +179,7 @@ function pgTypeToKind(dataType: string, udtName: string): ColumnType["kind"] {
  */
 export async function introspectPostgres(driver: AsyncDriver): Promise<SchemaIR> {
   const tablesResult = await driver.execute(
-    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name != 'querium_migrations'",
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name != 'tempest_db_js_migrations'",
     [],
   );
   const tables: Record<string, TableIR> = {};

@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 2: typed INSERT / UPDATE / DELETE builders.
+ * tempest-db-js — Phase 2: typed INSERT / UPDATE / DELETE builders.
  *
  * Like `select`, these are PURE AST + phantom types — no database access. They
  * are executed in Phase 4 via `session.execute`.

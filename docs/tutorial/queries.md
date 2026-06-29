@@ -1,7 +1,7 @@
 # Consultas
 
 Com o modelo `User` da página anterior, vamos montar consultas `SELECT`. No
-Querium, `select(...)` devolve um **builder encadeável** que carrega o tipo do
+tempest-db-js, `select(...)` devolve um **builder encadeável** que carrega o tipo do
 resultado — antes mesmo de tocar num banco.
 
 !!! info "O builder não executa (ainda)"
@@ -13,7 +13,7 @@ resultado — antes mesmo de tocar num banco.
 ## Passo 1 — Selecionar tudo
 
 ```ts
-import { select } from "querium";
+import { select } from "tempest-db-js";
 
 const q = select(User);
 ```
@@ -76,7 +76,7 @@ combinadores `and`/`or`/`not` — eles funcionam em `select`, `update`, `delete`
 `join`:
 
 ```ts
-import { and, or, not } from "querium";
+import { and, or, not } from "tempest-db-js";
 
 // (age < 18) OR (age > 65)
 select(User).where(or({ age: { lt: 18 } }, { age: { gt: 65 } }));

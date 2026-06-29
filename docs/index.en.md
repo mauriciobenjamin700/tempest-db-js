@@ -1,6 +1,6 @@
-# Querium
+# tempest-db-js
 
-**Querium** is a **type-safe**, **class-based** ORM for TypeScript. It brings the
+**tempest-db-js** is a **type-safe**, **class-based** ORM for TypeScript. It brings the
 ergonomics of **SQLAlchemy 2.0** — models declared as classes, schema as the
 single source of truth — to the JS/TS world, with strong type inference from
 start to finish: you define the table once and TypeScript knows the shape of
@@ -19,12 +19,12 @@ It's the data layer for the upcoming **`tempest-ts-sdk`**.
     published to npm**. Real execution against a database (SQLite/PostgreSQL)
     arrives in Phase 4 — see the [Roadmap](roadmap.md).
 
-## Why Querium?
+## Why tempest-db-js?
 
-You define the model **once**, as a class — and Querium infers everything else:
+You define the model **once**, as a class — and tempest-db-js infers everything else:
 
 ```ts
-import { Model, column, type InferModel, type InferInsert } from "querium";
+import { Model, column, type InferModel, type InferInsert } from "tempest-db-js";
 
 class User extends Model {
   static tablename = "users";
@@ -49,7 +49,7 @@ The class **is** the source of truth — just like SQLAlchemy's declarative
 And the inference propagates into your queries:
 
 ```ts
-import { select } from "querium";
+import { select } from "tempest-db-js";
 
 // The result is inferred as UserRow[] — no manual annotation
 const adults = select(User).where({ age: { gt: 18 } }).orderBy("age", "desc");
@@ -61,7 +61,7 @@ const names = select(User, ["id", "name"]);
 ## The TypeScript reality
 
 SQLAlchemy reads `Mapped[int]` at **runtime** via descriptors; TypeScript
-**erases the types** at compile time. Querium works around this by making each
+**erases the types** at compile time. tempest-db-js works around this by making each
 column a **builder with a runtime type** (`column.integer()`) that carries both
 the SQL type (runtime) and the static type (inference) at the same time.
 
@@ -73,11 +73,11 @@ with methods (active-record is a post-MVP goal). Details in
 ## Get started in 1 minute
 
 ```bash
-npm install querium
+npm install tempest-db-js
 ```
 
 ```ts
-import { Model, column, select } from "querium";
+import { Model, column, select } from "tempest-db-js";
 
 class Task extends Model {
   static tablename = "tasks";

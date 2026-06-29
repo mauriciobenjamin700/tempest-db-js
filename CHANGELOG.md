@@ -46,7 +46,7 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   on)` → linha composta `{ [alias]: Row }`; `leftJoin` torna o lado nullable.
   `on`/`where`/`orderBy` por refs `alias.column` tipadas. Dialeto compila JOIN com
   aliasing; execução faz split da linha em composto coagido por source.
-- **Fase 6 — migrações** (subpath `querium/migrations`), estilo Alembic: `reflectSchema`
+- **Fase 6 — migrações** (subpath `tempest-db-js/migrations`), estilo Alembic: `reflectSchema`
   (model→IR), `diffSchema` (IR×IR→operações tipadas), `invert`/`invertAll`,
   `renderOperation` (DDL por dialeto), `generateMigration` (codegen TS com `down()`
   invertido), grafo **DAG** (`topoOrder`/`heads`/ciclo), `MigrationRunner` (`Op` facade

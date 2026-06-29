@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6: migration replay → virtual schema IR.
+ * tempest-db-js — Phase 6: migration replay → virtual schema IR.
  *
  * Applies a migration's operations to an in-memory `SchemaIR`, building the
  * "current" schema without touching a database. This is the hybrid source of

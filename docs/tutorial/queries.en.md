@@ -1,7 +1,7 @@
 # Queries
 
 With the `User` model from the previous page, let's build `SELECT` queries. In
-Querium, `select(...)` returns a **chainable builder** that carries the result
+tempest-db-js, `select(...)` returns a **chainable builder** that carries the result
 type — before you ever touch a database.
 
 !!! info "The builder doesn't execute (yet)"
@@ -13,7 +13,7 @@ type — before you ever touch a database.
 ## Step 1 — Select everything
 
 ```ts
-import { select } from "querium";
+import { select } from "tempest-db-js";
 
 const q = select(User);
 ```
@@ -76,7 +76,7 @@ The object form is an **implicit AND**. For `OR`, `NOT`, or to nest logic, use t
 `join`:
 
 ```ts
-import { and, or, not } from "querium";
+import { and, or, not } from "tempest-db-js";
 
 // (age < 18) OR (age > 65)
 select(User).where(or({ age: { lt: 18 } }, { age: { gt: 65 } }));

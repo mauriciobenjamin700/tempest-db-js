@@ -1,4 +1,4 @@
-# Querium — Roadmap
+# tempest-db-js — Roadmap
 
 > ORM type-safe e class-based para TypeScript. Ergonomia do **SQLAlchemy 2.0** trazida pro mundo JS/TS.
 > Pacote npm base do futuro **`tempest-ts-sdk`**.
@@ -206,7 +206,7 @@ rico (`varchar`/`text`/`uuid`/`json`/`enum`...) já implementado na base aliment
 CLI espelhando Alembic: `revision --autogenerate`, `upgrade`/`downgrade`, `current`,
 `history`, `heads`, `merge`, `stamp`, `check` (gate de CI), `--sql` (offline).
 
-**Entrega:** ✅ **Núcleo (6a-6c) feito** (`querium/migrations`): `reflectSchema` (model→IR),
+**Entrega:** ✅ **Núcleo (6a-6c) feito** (`tempest-db-js/migrations`): `reflectSchema` (model→IR),
 `diffSchema` (IR×IR→ops), operações tipadas + `invert`, `renderOperation` (DDL por
 dialeto), `generateMigration` (codegen TS com `up`/`down` invertido), grafo **DAG**
 (`topoOrder`/`heads`/ciclo), `MigrationRunner` (`Op` facade + version table +
@@ -233,7 +233,7 @@ executável.
 `InferModel`/`InferInsert`/`WhereInput`, sobre `AsyncSession`. Convenção 404 honrada
 (`getById` lança `RecordNotFound`; coleções retornam `[]`). `PaginationFilter`/
 `PaginationResult` espelham `BasePagination*` do SDK Python. 7 testes reais (CRUD +
-paginação asc/desc). Falta: o pacote `tempest-ts-sdk` em si (consumir Querium) +
+paginação asc/desc). Falta: o pacote `tempest-ts-sdk` em si (consumir tempest-db-js) +
 receitas HTTP + deploy do site de docs.
 
 ---

@@ -1,11 +1,11 @@
-site_name: Querium
+site_name: tempest-db-js
 site_description: >-
   ORM type-safe e class-based para TypeScript — ergonomia do SQLAlchemy 2.0
   trazida pro mundo JS/TS. Schema declarativo por classes, query builder com
   inferência forte, foco em SQLite e PostgreSQL. Base do futuro tempest-ts-sdk.
-site_url: https://mauriciobenjamin700.github.io/querium/
-repo_url: https://github.com/mauriciobenjamin700/querium
-repo_name: mauriciobenjamin700/querium
+site_url: https://mauriciobenjamin700.github.io/tempest-db-js/
+repo_url: https://github.com/mauriciobenjamin700/tempest-db-js
+repo_name: mauriciobenjamin700/tempest-db-js
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; 2026 Mauricio Benjamin — MIT License
 docs_dir: docs
@@ -136,6 +136,6 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/mauriciobenjamin700/querium
+      link: https://github.com/mauriciobenjamin700/tempest-db-js
     - icon: fontawesome/brands/npm
-      link: https://www.npmjs.com/package/querium
+      link: https://www.npmjs.com/package/tempest-db-js

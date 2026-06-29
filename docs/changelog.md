@@ -31,7 +31,7 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   coerção de linha. SQLite via `node:sqlite`; PostgreSQL via `postgres.js`.
 - **Fase 5 — joins tipados**: `join(Model, alias).innerJoin/leftJoin(...)` → tipo
   composto `{ [alias]: Row }`, `leftJoin` nullable; refs `alias.column` tipadas.
-- **Fase 6 — migrações** (`querium/migrations`, estilo Alembic): `reflectSchema`,
+- **Fase 6 — migrações** (`tempest-db-js/migrations`, estilo Alembic): `reflectSchema`,
   `diffSchema`, operações tipadas + `invert`, `renderOperation` (DDL por dialeto),
   `generateMigration`, grafo DAG (`topoOrder`/`heads`), `MigrationRunner`
   (`upgrade`/`downgrade` reais). SQL só no renderer.

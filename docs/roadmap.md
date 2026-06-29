@@ -1,6 +1,6 @@
 # Roadmap
 
-O Querium é construído em fases, cada uma entregando uma fatia testável. As Fases
+O tempest-db-js é construído em fases, cada uma entregando uma fatia testável. As Fases
 0–2 estão concluídas (provadas por `tsc`); o resto é o caminho à frente.
 
 | Fase | Tema | Status |
@@ -68,7 +68,7 @@ declarativas (`hasMany`/`belongsTo`) pra eager-load.
 ### Fase 7 — Repository (feito) + SDK
 
 `BaseRepository<Model>` (CRUD + paginação tipada) + **relations** (`hasMany`/`belongsTo`).
-Ver [Repository](repository.md). Falta: o pacote `tempest-ts-sdk` consumindo o Querium
+Ver [Repository](repository.md). Falta: o pacote `tempest-ts-sdk` consumindo o tempest-db-js
 e receitas de integração HTTP (Express/Hono/Fastify).
 
 ## À frente

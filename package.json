@@ -1,10 +1,16 @@
 {
-  "name": "querium",
-  "version": "0.0.0",
+  "name": "tempest-db-js",
+  "version": "0.1.0",
   "description": "Type-safe, class-based ORM for TypeScript — SQLAlchemy 2.0 ergonomics for the JS/TS world.",
   "type": "module",
   "license": "MIT",
   "author": "Mauricio Benjamin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mauriciobenjamin700/tempest-db-js.git"
+  },
+  "homepage": "https://mauriciobenjamin700.github.io/tempest-db-js/",
+  "bugs": "https://github.com/mauriciobenjamin700/tempest-db-js/issues",
   "keywords": [
     "orm",
     "typescript",
@@ -38,6 +44,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",

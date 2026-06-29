@@ -1,17 +1,17 @@
 # Migrações
 
-O Querium tem um sistema de migrações inspirado no **Alembic** (SQLAlchemy), e
+O tempest-db-js tem um sistema de migrações inspirado no **Alembic** (SQLAlchemy), e
 **explicitamente diferente** da "costura de SQL" de outras ferramentas: tudo flui
 por uma **Schema IR + operações tipadas**, e o SQL só nasce no renderer do dialeto.
 Você nunca escreve nem versiona um `.sql` solto.
 
-Importe de `querium/migrations`:
+Importe de `tempest-db-js/migrations`:
 
 ```ts
 import {
   reflectSchema, diffSchema, generateMigration,
   MigrationRunner, type Migration,
-} from "querium/migrations";
+} from "tempest-db-js/migrations";
 ```
 
 !!! info "Estado"
@@ -36,7 +36,7 @@ const target = reflectSchema([User, Post]);
 `diffSchema(atual, alvo)` compara dois IR e emite **operações** — nunca SQL:
 
 ```ts
-import { emptySchema } from "querium/migrations";
+import { emptySchema } from "tempest-db-js/migrations";
 
 const ops = diffSchema(emptySchema(), target);
 // [ { kind: "create_table", table: {...} }, { kind: "create_table", ... } ]
@@ -62,10 +62,10 @@ const src = generateMigration({
 ## 4. Aplicar / reverter
 
 `MigrationRunner` renderiza as operações pro dialeto e executa via driver,
-rastreando revisões aplicadas na tabela `querium_migrations`:
+rastreando revisões aplicadas na tabela `tempest_db_js_migrations`:
 
 ```ts
-import { NodeSqliteDriver } from "querium";
+import { NodeSqliteDriver } from "tempest-db-js";
 
 const driver = NodeSqliteDriver.open("app.db");
 const runner = new MigrationRunner(driver, "sqlite");
@@ -92,7 +92,7 @@ Suporta branches paralelas e merge. `topoOrder` ordena pra aplicar (pais antes d
 filhos, determinístico); `heads` mostra as pontas:
 
 ```ts
-import { topoOrder, heads } from "querium/migrations";
+import { topoOrder, heads } from "tempest-db-js/migrations";
 
 topoOrder(migrations); // ordem de aplicação
 heads(migrations);      // revisões sem filhos (avisa se > 1)
@@ -100,7 +100,7 @@ heads(migrations);      // revisões sem filhos (avisa se > 1)
 
 ## 6. Mudanças de coluna no SQLite (batch-mode)
 
-O SQLite não faz `ALTER COLUMN`. O Querium resolve com **table-rebuild** (igual ao
+O SQLite não faz `ALTER COLUMN`. O tempest-db-js resolve com **table-rebuild** (igual ao
 batch mode do Alembic): a operação `recreate_table` cria uma tabela nova com o
 schema-alvo, copia as colunas comuns, e troca os nomes — **preservando os dados**.
 No PostgreSQL a mesma operação vira `ALTER/ADD/DROP` por coluna.
@@ -117,7 +117,7 @@ devolve uma lista de divergências (vazia = sem drift). A comparação é no ní
 **afinidade** do SQLite, então `varchar` vs `TEXT` **não** é falso-positivo:
 
 ```ts
-import { checkDrift } from "querium/migrations";
+import { checkDrift } from "tempest-db-js/migrations";
 
 const issues = checkDrift(driver, [User, Post]);
 if (issues.length > 0) {
@@ -131,7 +131,7 @@ if (issues.length > 0) {
 exit code (testável; um `bin` fino só liga em `process.argv`/`process.exit`):
 
 ```ts
-import { runMigrationCli } from "querium/migrations";
+import { runMigrationCli } from "tempest-db-js/migrations";
 
 const config = { driver, dialect: "sqlite" as const, migrations, models: [User, Post] };
 runMigrationCli(["upgrade"], config);                       // aplica pendentes

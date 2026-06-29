@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 5: typed joins with composite result types.
+ * tempest-db-js — Phase 5: typed joins with composite result types.
  *
  * `join(User, "user").innerJoin(Order, "order", { "user.id": "order.userId" })`
  * yields rows shaped `{ user: UserRow; order: OrderRow }`. A `leftJoin` makes the

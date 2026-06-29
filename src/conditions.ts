@@ -1,5 +1,5 @@
 /**
- * Querium — logical combinators for `where` (and/or/not).
+ * tempest-db-js — logical combinators for `where` (and/or/not).
  *
  * A `where` value is either the object form (an implicit AND of its fields) or a
  * `Condition` built with `and`/`or`/`not`. Both normalize to a `CondNode` tree
@@ -22,7 +22,7 @@ export type CondNode =
   | { readonly kind: "or"; readonly parts: readonly CondNode[] }
   | { readonly kind: "not"; readonly part: CondNode };
 
-const CONDITION = Symbol.for("querium.condition");
+const CONDITION = Symbol.for("tempest-db-js.condition");
 
 /** A composed condition produced by `and`/`or`/`not`. */
 export interface Condition {

@@ -1,6 +1,6 @@
 # Inserir, atualizar, deletar
 
-Ler é metade da história. Agora vamos **escrever** — e ver como o Querium usa o
+Ler é metade da história. Agora vamos **escrever** — e ver como o tempest-db-js usa o
 sistema de tipos pra evitar um erro clássico: apagar uma tabela inteira sem querer.
 
 ## INSERT
@@ -9,7 +9,7 @@ sistema de tipos pra evitar um erro clássico: apagar uma tabela inteira sem que
 [Modelos](models.md): PK e defaults são opcionais):
 
 ```ts
-import { insert } from "querium";
+import { insert } from "tempest-db-js";
 
 insert(User).values({ name: "Ben", age: 30, nickname: null });
 ```
@@ -57,7 +57,7 @@ const onlyId = insert(User)
 mudam):
 
 ```ts
-import { update } from "querium";
+import { update } from "tempest-db-js";
 
 update(User).set({ age: 31 }).where({ id: 1 });
 ```
@@ -72,7 +72,7 @@ update(User).set({ bogus: 1 });
 ### O guard tipado contra full-table writes
 
 Aqui está a parte importante. Um `UPDATE` **sem `WHERE`** altera **todas as linhas**
-— quase sempre um acidente. O Querium modela isso **no tipo**: um update começa no
+— quase sempre um acidente. O tempest-db-js modela isso **no tipo**: um update começa no
 estado `Guarded = false` e só vira **executável** depois de um `.where(...)`:
 
 ```ts
@@ -94,7 +94,7 @@ const all = update(User).set({ age: 0 }).unguarded();
 !!! danger "Por que isso importa"
 
     `UPDATE users SET age = 0` sem `WHERE` zera a idade de todo mundo. Em outros
-    ORMs isso compila sem reclamar. No Querium, ou você filtra com `.where()`, ou
+    ORMs isso compila sem reclamar. No tempest-db-js, ou você filtra com `.where()`, ou
     declara `.unguarded()` na cara — não tem caminho silencioso pro desastre.
 
 ## DELETE — mesmo guard
@@ -103,7 +103,7 @@ const all = update(User).set({ age: 0 }).unguarded();
 exatamente a mesma regra:
 
 ```ts
-import { del } from "querium";
+import { del } from "tempest-db-js";
 
 del(User).where({ id: 1 });        // ✅ guarded, seguro
 del(User).unguarded();             // ✅ apaga tudo, mas de propósito

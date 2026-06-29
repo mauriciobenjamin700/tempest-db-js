@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 7: typed repository + pagination.
+ * tempest-db-js — Phase 7: typed repository + pagination.
  *
  * `BaseRepository<Model>` mirrors the `tempest-fastapi-sdk` repository: a thin,
  * fully-typed CRUD + pagination layer over a model and an async session. The

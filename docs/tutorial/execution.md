@@ -6,7 +6,7 @@ rodar as queries.
 
 !!! info "Async por padrão, sync opcional"
 
-    O Querium é **async-first**: `createEngine` devolve um engine assíncrono, que
+    O tempest-db-js é **async-first**: `createEngine` devolve um engine assíncrono, que
     funciona pra SQLite e PostgreSQL. Pra SQLite há também `createSyncEngine`
     (síncrono) — ótimo pra scripts, seeds e testes. PostgreSQL é async-only (não
     existe driver sync sério no Node).
@@ -16,7 +16,7 @@ rodar as queries.
 O banco é identificado pela **URL** — trocar de banco é trocar a string:
 
 ```ts
-import { createEngine, createSyncEngine } from "querium";
+import { createEngine, createSyncEngine } from "tempest-db-js";
 
 const engine = createEngine("postgresql://app:app@localhost/app"); // async
 const sqlite = createEngine("sqlite:///app.db");                    // async, SQLite
@@ -118,7 +118,7 @@ engine.transaction((tx) => {
 
 !!! check "Tudo testado com banco real"
 
-    A execução SQLite do Querium é exercitada em testes contra um banco real
+    A execução SQLite do tempest-db-js é exercitada em testes contra um banco real
     (`node:sqlite`), incluindo coerção de tipos, `RETURNING`, e rollback de
     transação. Não é mock.
 

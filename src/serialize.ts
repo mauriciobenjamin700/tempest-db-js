@@ -1,7 +1,7 @@
 /**
- * Querium — row (de)serialization, à la Python's `model_dump` / `model_validate`.
+ * tempest-db-js — row (de)serialization, à la Python's `model_dump` / `model_validate`.
  *
- * Rows in Querium are plain inferred objects. This module converts between three
+ * Rows in tempest-db-js are plain inferred objects. This module converts between three
  * representations, coercing each field by its column type:
  *
  *   - **Row** — native JS values (`Date`, `bigint`, `Uint8Array`, parsed JSON).

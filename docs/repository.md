@@ -5,7 +5,7 @@ modelo e uma sessão async — espelhando o `BaseRepository` do `tempest-fastapi
 É a base de dados do futuro `tempest-ts-sdk`.
 
 ```ts
-import { BaseRepository, createEngine } from "querium";
+import { BaseRepository, createEngine } from "tempest-db-js";
 
 const engine = createEngine("sqlite:///app.db");
 const users = new BaseRepository(User, engine.session());
@@ -80,7 +80,7 @@ query por relação** (sem N+1). O tipo do resultado é ampliado: `hasMany` vira
 `belongsTo` vira `Row | null`.
 
 ```ts
-import { hasMany, belongsTo, loadRelations, select } from "querium";
+import { hasMany, belongsTo, loadRelations, select } from "tempest-db-js";
 
 const users = await session.execute(select(User)).all();
 const withPosts = await loadRelations(session, users, {

@@ -1,6 +1,6 @@
-# Querium — Design da Execução: Engine, Session, Pool, Transações (Fase 4)
+# tempest-db-js — Design da Execução: Engine, Session, Pool, Transações (Fase 4)
 
-> Como o Querium executa queries contra o banco. Inspiração: o modelo
+> Como o tempest-db-js executa queries contra o banco. Inspiração: o modelo
 > **Engine / Session / Connection Pool** do SQLAlchemy 2.0. **Async por padrão**,
 > com modo **sync opcional**.
 
@@ -33,7 +33,7 @@
 ## 1. Engine — criado a partir da URL
 
 ```ts
-import { createEngine, createSyncEngine } from "querium";
+import { createEngine, createSyncEngine } from "tempest-db-js";
 
 // Async (padrão) — funciona pra SQLite e PostgreSQL
 const engine = createEngine("postgresql://app:app@localhost/app");

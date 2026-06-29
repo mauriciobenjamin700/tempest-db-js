@@ -1,12 +1,12 @@
 # Models
 
-Every table in Querium is a **class** that extends `Model`. The class fields are
+Every table in tempest-db-js is a **class** that extends `Model`. The class fields are
 **columns**, created by the `column` factory. Let's model our first table: users.
 
 ## Step 1 — Declare the table
 
 ```ts
-import { Model, column } from "querium";
+import { Model, column } from "tempest-db-js";
 
 class User extends Model {
   static tablename = "users";
@@ -29,10 +29,10 @@ Three things to notice:
 !!! info "Why `column.integer()` and not `id: number`?"
 
     TypeScript erases types at compile time — `id: number` wouldn't exist at
-    runtime, so Querium would have no way to know that `id` is an `INTEGER`
+    runtime, so tempest-db-js would have no way to know that `id` is an `INTEGER`
     column. By making the column a **value** (`column.integer()`), the information
     survives at runtime **and** the static type is inferred from it. It's the core
-    trick of Querium. See [Architecture](../architecture.md) for the background.
+    trick of tempest-db-js. See [Architecture](../architecture.md) for the background.
 
 ## Step 2 — The column types
 
@@ -87,7 +87,7 @@ Beyond constant values, `.default()` accepts **portable expressions** from the
 `now()` on Postgres). It's the equivalent of SQLAlchemy's `func.now()`/`server_default`.
 
 ```ts
-import { Model, column, sql } from "querium";
+import { Model, column, sql } from "tempest-db-js";
 
 class Post extends Model {
   static tablename = "posts";
@@ -109,7 +109,7 @@ Phase 6.
 Here's the payoff. Use `InferModel` to extract the shape of a **read row**:
 
 ```ts
-import { type InferModel } from "querium";
+import { type InferModel } from "tempest-db-js";
 
 type UserRow = InferModel<typeof User>;
 // {
@@ -122,7 +122,7 @@ type UserRow = InferModel<typeof User>;
 ```
 
 Notice the nullability: `name` and `age` have `.notNull()`, so they are
-`string`/`number`. `nickname` and `createdAt` don't — so Querium infers `| null`,
+`string`/`number`. `nickname` and `createdAt` don't — so tempest-db-js infers `| null`,
 matching SQL semantics (a column without `NOT NULL` can hold `NULL`).
 
 !!! check "No repetition"
@@ -137,7 +137,7 @@ Inserting differs from reading: columns with a **default** (or the primary key) 
 optional, because the database fills them in. Use `InferInsert`:
 
 ```ts
-import { type InferInsert } from "querium";
+import { type InferInsert } from "tempest-db-js";
 
 type UserInsert = InferInsert<typeof User>;
 // {

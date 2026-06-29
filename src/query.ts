@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 2 feasibility spike: the typed query builder.
+ * tempest-db-js — Phase 2 feasibility spike: the typed query builder.
  *
  * The builder is PURE AST + phantom types. It does not touch a database — that is
  * Phase 4 (`session.execute`). This file proves that:

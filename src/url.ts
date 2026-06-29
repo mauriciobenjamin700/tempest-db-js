@@ -1,5 +1,5 @@
 /**
- * Querium — database URL parsing & dialect detection.
+ * tempest-db-js — database URL parsing & dialect detection.
  *
  * Mirrors SQLAlchemy's `make_url`: a single connection string identifies the
  * dialect (and optional driver), so switching databases is just swapping the
@@ -10,7 +10,7 @@
  * detection, so URLs copied from a Python service still work here.
  */
 
-/** A database dialect Querium can target. */
+/** A database dialect tempest-db-js can target. */
 export type Dialect = "sqlite" | "postgresql";
 
 /** A parsed database URL, dialect-neutral. */
@@ -43,7 +43,7 @@ export class InvalidDatabaseUrl extends Error {
   }
 }
 
-/** Map a scheme's base name to a Querium dialect. */
+/** Map a scheme's base name to a tempest-db-js dialect. */
 const DIALECT_ALIASES: Readonly<Record<string, Dialect>> = {
   sqlite: "sqlite",
   sqlite3: "sqlite",

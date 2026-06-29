@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6: the schema differ.
+ * tempest-db-js — Phase 6: the schema differ.
  *
  * Compares two `SchemaIR`s (current vs target) and emits the typed `Operation[]`
  * that turns one into the other. Purely structural — no SQL, no DB.

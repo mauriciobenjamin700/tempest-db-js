@@ -1,5 +1,5 @@
 /**
- * Querium — migration CLI (programmatic core).
+ * tempest-db-js — migration CLI (programmatic core).
  *
  * `runMigrationCli(argv, config)` dispatches Alembic-style commands against a
  * driver + a set of migrations + (optionally) the models. It returns lines and

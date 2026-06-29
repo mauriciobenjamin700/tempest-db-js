@@ -1,13 +1,13 @@
 # Referência da API
 
-Superfície pública do Querium nas Fases 1 e 2. Tudo é importado do nível do pacote:
+Superfície pública do tempest-db-js nas Fases 1 e 2. Tudo é importado do nível do pacote:
 
 ```ts
 import {
   Model, column,
   type InferModel, type InferInsert,
   select, insert, update, del,
-} from "querium";
+} from "tempest-db-js";
 ```
 
 !!! note "Referência viva"
@@ -195,7 +195,7 @@ Analisa uma string de conexão e identifica o dialeto, igual ao `make_url` do
 SQLAlchemy. Aceita (e ignora) sufixo de driver async (`+asyncpg`, `+aiosqlite`).
 
 ```ts
-import { parseDatabaseUrl, detectDialect } from "querium";
+import { parseDatabaseUrl, detectDialect } from "tempest-db-js";
 
 parseDatabaseUrl("postgresql://app:secret@localhost:5432/mydb");
 // { dialect: "postgresql", host: "localhost", port: 5432, user: "app",
@@ -218,7 +218,7 @@ Converte entre linha (valores nativos), dict e JSON, com coerção por tipo de
 coluna — à la `model_dump` / `model_validate` do Pydantic.
 
 ```ts
-import { toDict, toJSON, stringify, fromDict, parse } from "querium";
+import { toDict, toJSON, stringify, fromDict, parse } from "tempest-db-js";
 
 toJSON(User, row);        // { ...JSON-safe: Date→ISO, bigint→string, blob→base64 }
 toDict(User, row);        // { ...nativos, só colunas conhecidas }
@@ -243,7 +243,7 @@ SQL nasce. Sempre placeholders (`?` no SQLite, `$1` no Postgres), nunca interpol
 (injection-safe por construção). Não executa — execução é a Fase 4b.
 
 ```ts
-import { getDialect, select, Model, column } from "querium";
+import { getDialect, select, Model, column } from "tempest-db-js";
 
 const sqlite = getDialect("sqlite");
 const compiled = sqlite.compile(
@@ -320,7 +320,7 @@ modelo; `leftJoin` produz `null` quando não há correspondência.
 
 `hasMany` → `Row[]`; `belongsTo` → `Row | null`.
 
-## Migrações (`querium/migrations`)
+## Migrações (`tempest-db-js/migrations`)
 
 | Símbolo | Faz |
 | --- | --- |

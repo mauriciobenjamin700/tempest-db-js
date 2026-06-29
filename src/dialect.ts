@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 4a: dialect SQL compilation.
+ * tempest-db-js — Phase 4a: dialect SQL compilation.
  *
  * Turns the dialect-neutral AST (`SelectNode`, `InsertNode`, `UpdateNode`,
  * `DeleteNode` from Phases 1-2) into `{ sql, params }`. This is the ONLY place

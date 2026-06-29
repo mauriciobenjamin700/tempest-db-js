@@ -1,5 +1,5 @@
 /**
- * Querium — typed relations (hasMany / belongsTo) with eager loading.
+ * tempest-db-js — typed relations (hasMany / belongsTo) with eager loading.
  *
  * Relations are plain descriptors that reference another model plus the local /
  * foreign key. `loadRelations` fetches the related rows in **one query per

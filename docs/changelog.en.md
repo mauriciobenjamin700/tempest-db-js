@@ -31,7 +31,7 @@ project adopts [Semantic Versioning](https://semver.org/).
   row coercion. SQLite via `node:sqlite`; PostgreSQL via `postgres.js`.
 - **Phase 5 — typed joins**: `join(Model, alias).innerJoin/leftJoin(...)` →
   composite type `{ [alias]: Row }`, `leftJoin` nullable; typed `alias.column` refs.
-- **Phase 6 — migrations** (`querium/migrations`, Alembic-style): `reflectSchema`,
+- **Phase 6 — migrations** (`tempest-db-js/migrations`, Alembic-style): `reflectSchema`,
   `diffSchema`, typed operations + `invert`, `renderOperation` (per-dialect DDL),
   `generateMigration`, DAG graph (`topoOrder`/`heads`), `MigrationRunner`
   (real `upgrade`/`downgrade`). SQL only in the renderer.

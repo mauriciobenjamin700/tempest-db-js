@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 4b: engine, session, real execution.
+ * tempest-db-js — Phase 4b: engine, session, real execution.
  *
  * Async by default (`createEngine`), with an optional sync engine for SQLite
  * (`createSyncEngine`). The database is identified by its URL (Phase 4a's
@@ -79,7 +79,7 @@ export class NodeSqliteDriver implements SyncDriver {
 
   /** Open a `node:sqlite` database at the given path (or `:memory:`). */
   static open(path: string): NodeSqliteDriver {
-    // Lazy require so importing Querium never forces the built-in module to load.
+    // Lazy require so importing tempest-db-js never forces the built-in module to load.
     const { DatabaseSync } = nodeRequire("node:sqlite") as {
       DatabaseSync: new (path: string) => unknown;
     };

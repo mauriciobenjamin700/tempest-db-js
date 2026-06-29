@@ -6,7 +6,7 @@ run the queries.
 
 !!! info "Async by default, sync optional"
 
-    Querium is **async-first**: `createEngine` returns an async engine, which
+    tempest-db-js is **async-first**: `createEngine` returns an async engine, which
     works for SQLite and PostgreSQL. For SQLite there's also `createSyncEngine`
     (synchronous) — great for scripts, seeds, and tests. PostgreSQL is async-only
     (there's no serious sync driver in Node).
@@ -17,7 +17,7 @@ The database is identified by its **URL** — switching databases means switchin
 the string:
 
 ```ts
-import { createEngine, createSyncEngine } from "querium";
+import { createEngine, createSyncEngine } from "tempest-db-js";
 
 const engine = createEngine("postgresql://app:app@localhost/app"); // async
 const sqlite = createEngine("sqlite:///app.db");                    // async, SQLite
@@ -119,7 +119,7 @@ engine.transaction((tx) => {
 
 !!! check "All tested against a real database"
 
-    Querium's SQLite execution is exercised in tests against a real database
+    tempest-db-js's SQLite execution is exercised in tests against a real database
     (`node:sqlite`), including type coercion, `RETURNING`, and transaction
     rollback. It's not a mock.
 

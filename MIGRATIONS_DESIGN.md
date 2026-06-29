@@ -1,4 +1,4 @@
-# Querium — Design das Migrações (Fase 6)
+# tempest-db-js — Design das Migrações (Fase 6)
 
 > Design detalhado do sistema de migrações. Inspiração explícita: **Alembic**
 > (SQLAlchemy). Anti-inspiração explícita: a "costura de SQL" do **drizzle-kit**.
@@ -168,7 +168,7 @@ só chamadas `op.*`. O `op.execute()` existe pro caso de data migration.
 
 ```ts
 // migrations/20260629_143000_add_role_to_users.ts
-import type { Migration, Op } from "querium/migrations";
+import type { Migration, Op } from "tempest-db-js/migrations";
 
 export const revision = "7f3a9c2b";
 export const downRevision: string[] = ["a1b2c3d4"]; // lista → suporta merge (DAG)
@@ -222,7 +222,7 @@ a1 → b2 → c3 ─┐
   id (timestamp vai no nome do arquivo só pra ordenação visual).
 - **`downRevision: string[]`**: 0 pais = migração inicial; 1 pai = linear; 2+ =
   merge.
-- **head(s)**: revisões sem filhos. Duas branches paralelas = 2 heads → `querium
+- **head(s)**: revisões sem filhos. Duas branches paralelas = 2 heads → `tempest-db-js
   merge` cria uma revisão de merge com os dois como pais.
 - **Ordem de aplicação**: ordenação topológica do DAG. Empates resolvidos de forma
   determinística (por id) pra builds reprodutíveis.
@@ -231,7 +231,7 @@ a1 → b2 → c3 ─┐
 !!! info "Por que DAG desde já"
     Dois devs criam migração ao mesmo tempo → duas branches a partir do mesmo
     pai → dois heads. Sem DAG, isso é colisão e merge manual de arquivo. Com DAG,
-    `querium merge` resolve. Modelar isso depois exigiria refactor do loader e do
+    `tempest-db-js merge` resolve. Modelar isso depois exigiria refactor do loader e do
     runner; a estrutura de dados (lista de pais) custa o mesmo agora.
 
 ---
@@ -304,7 +304,7 @@ direto. **Mesma migração, dialetos diferentes** — o ponto-chave.
 Tabela de controle no banco, criada na primeira execução:
 
 ```sql
-CREATE TABLE querium_migrations (
+CREATE TABLE tempest_db_js_migrations (
   revision     TEXT PRIMARY KEY,
   applied_at   TIMESTAMP NOT NULL,
   -- guarda o caminho aplicado p/ auditoria do DAG
@@ -312,11 +312,11 @@ CREATE TABLE querium_migrations (
 );
 ```
 
-- `querium upgrade head`: calcula ordem topológica das revisões não aplicadas e
+- `tempest-db-js upgrade head`: calcula ordem topológica das revisões não aplicadas e
   aplica cada `up()` numa transação (onde o dialeto suporta DDL transacional —
   Postgres sim; SQLite sim; alguns DDL no MySQL não, mas MySQL está fora do escopo
   inicial).
-- `querium downgrade <rev>`: aplica `down()` na ordem inversa até a revisão alvo.
+- `tempest-db-js downgrade <rev>`: aplica `down()` na ordem inversa até a revisão alvo.
 - **Lock**: advisory lock (Postgres) ou arquivo-lock (SQLite) pra evitar duas
   migrações concorrentes em deploy.
 
@@ -328,20 +328,20 @@ Espelha o vocabulário do Alembic (familiaridade) com nomes claros:
 
 | Comando | Faz |
 |---|---|
-| `querium revision -m "msg"` | Cria migração **vazia** (up/down em branco). |
-| `querium revision --autogenerate -m "msg"` | Diff models × replay → migração preenchida. |
-| `querium upgrade head` | Aplica até o(s) head(s). |
-| `querium upgrade +1` / `<rev>` | Aplica N passos / até revisão. |
-| `querium downgrade -1` / `<rev>` / `base` | Reverte. |
-| `querium current` | Revisão(ões) aplicada(s) no banco. |
-| `querium history` | Mostra o DAG (ascii). |
-| `querium heads` | Lista heads (avisa se >1). |
-| `querium merge <rev1> <rev2> -m "msg"` | Cria revisão de merge. |
-| `querium stamp <rev>` | Marca como aplicada sem rodar (adoção em base existente). |
-| `querium check` | Falha se models divergem das migrações (gate de CI). |
-| `querium upgrade head --sql` | **Offline**: imprime o SQL em vez de executar. |
+| `tempest-db-js revision -m "msg"` | Cria migração **vazia** (up/down em branco). |
+| `tempest-db-js revision --autogenerate -m "msg"` | Diff models × replay → migração preenchida. |
+| `tempest-db-js upgrade head` | Aplica até o(s) head(s). |
+| `tempest-db-js upgrade +1` / `<rev>` | Aplica N passos / até revisão. |
+| `tempest-db-js downgrade -1` / `<rev>` / `base` | Reverte. |
+| `tempest-db-js current` | Revisão(ões) aplicada(s) no banco. |
+| `tempest-db-js history` | Mostra o DAG (ascii). |
+| `tempest-db-js heads` | Lista heads (avisa se >1). |
+| `tempest-db-js merge <rev1> <rev2> -m "msg"` | Cria revisão de merge. |
+| `tempest-db-js stamp <rev>` | Marca como aplicada sem rodar (adoção em base existente). |
+| `tempest-db-js check` | Falha se models divergem das migrações (gate de CI). |
+| `tempest-db-js upgrade head --sql` | **Offline**: imprime o SQL em vez de executar. |
 
-`querium check` no CI é o que impede "esqueci de gerar a migração": se o diff
+`tempest-db-js check` no CI é o que impede "esqueci de gerar a migração": se o diff
 models×replay não for vazio, falha o build.
 
 ---

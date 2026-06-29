@@ -1,6 +1,6 @@
 # Joins
 
-Pra combinar tabelas, o Querium tem `join(...)` — e o resultado é um **tipo
+Pra combinar tabelas, o tempest-db-js tem `join(...)` — e o resultado é um **tipo
 composto**: um objeto com uma chave por tabela, cada uma com sua linha tipada.
 
 ## Passo 1 — O join básico
@@ -8,7 +8,7 @@ composto**: um objeto com uma chave por tabela, cada uma com sua linha tipada.
 Comece pela tabela base com um **alias**, depois junte outras:
 
 ```ts
-import { join } from "querium";
+import { join } from "tempest-db-js";
 
 const q = join(User, "user")
   .innerJoin(Order, "order", { "user.id": "order.userId" })
@@ -95,5 +95,5 @@ direito vêm nulas, aquele lado vira `null`.
 - `leftJoin` torna o lado nullable (`Row | null`) — o tipo te força a tratar.
 - `on`/`where`/`orderBy` usam refs `alias.column` tipadas.
 
-Você cobriu o caminho principal do Querium! Veja a **[Referência](../reference.md)**
+Você cobriu o caminho principal do tempest-db-js! Veja a **[Referência](../reference.md)**
 pra API completa e o **[Roadmap](../roadmap.md)** pro que vem (migrações, relations).

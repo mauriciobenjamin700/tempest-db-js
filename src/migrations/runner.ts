@@ -1,9 +1,9 @@
 /**
- * Querium — Phase 6: the migration runner.
+ * tempest-db-js — Phase 6: the migration runner.
  *
  * The `Op` facade records operations; the `MigrationRunner` renders them to SQL
  * (per dialect) and runs them through a sync driver, tracking applied revisions
- * in a `querium_migrations` table. Upgrades/downgrades respect the revision DAG.
+ * in a `tempest_db_js_migrations` table. Upgrades/downgrades respect the revision DAG.
  *
  * SQLite execution is real (via `node:sqlite`); the same code path serves any
  * sync driver.
@@ -68,7 +68,7 @@ export interface Migration {
   down(op: Op): void;
 }
 
-const VERSION_TABLE = "querium_migrations";
+const VERSION_TABLE = "tempest_db_js_migrations";
 
 /** Runs migrations against a sync driver, tracking applied revisions. */
 export class MigrationRunner {

@@ -1,6 +1,6 @@
 # Roadmap
 
-Querium is built in phases, each one delivering a testable slice. Phases 0–2 are
+tempest-db-js is built in phases, each one delivering a testable slice. Phases 0–2 are
 done (proven by `tsc`); the rest is the path ahead.
 
 | Phase | Theme | Status |
@@ -69,7 +69,7 @@ declarative relations (`hasMany`/`belongsTo`) for eager-loading.
 
 `BaseRepository<Model>` (typed CRUD + pagination) + **relations** (`hasMany`/`belongsTo`).
 See [Repository](repository.md). Still to do: the `tempest-ts-sdk` package consuming
-Querium and HTTP integration recipes (Express/Hono/Fastify).
+tempest-db-js and HTTP integration recipes (Express/Hono/Fastify).
 
 ## Ahead
 

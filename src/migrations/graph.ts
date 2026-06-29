@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6: the revision DAG.
+ * tempest-db-js — Phase 6: the revision DAG.
  *
  * Migrations form a directed acyclic graph via `downRevision` (a list of parents,
  * so branches and merges are first-class). This module orders them for applying

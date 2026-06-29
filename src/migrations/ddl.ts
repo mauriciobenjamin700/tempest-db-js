@@ -1,5 +1,5 @@
 /**
- * Querium — Phase 6: DDL rendering.
+ * tempest-db-js — Phase 6: DDL rendering.
  *
  * Renders the dialect-neutral IR + operations to concrete SQL per dialect. This
  * is the ONLY place migration SQL is produced — the same operation yields the

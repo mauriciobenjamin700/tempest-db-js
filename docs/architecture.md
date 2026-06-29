@@ -1,6 +1,6 @@
 # Arquitetura
 
-Esta página explica **as decisões de design** do Querium — por que ele é do jeito
+Esta página explica **as decisões de design** do tempest-db-js — por que ele é do jeito
 que é. Se você só quer usar o ORM, o [Tutorial](tutorial/index.md) basta. Se quer
 entender (ou contribuir), comece aqui.
 
@@ -24,7 +24,7 @@ class User {
 
 ## A solução: a coluna é um valor
 
-O Querium faz cada coluna ser um **valor em runtime** que carrega o tipo:
+O tempest-db-js faz cada coluna ser um **valor em runtime** que carrega o tipo:
 
 ```ts
 class User extends Model {
@@ -54,7 +54,7 @@ type InferModel<C> = { [K in ColumnKeys<InstanceType<C>>]: ColValue<InstanceType
 !!! info "Mesmo princípio do Drizzle/Kysely"
 
     Drizzle e Kysely resolveram o mesmo problema do mesmo jeito: a coluna é um
-    builder-valor, não uma anotação. O Querium adota essa base e a embrulha numa
+    builder-valor, não uma anotação. O tempest-db-js adota essa base e a embrulha numa
     **classe declarativa**, pra ficar perto do SQLAlchemy.
 
 ## O trade-off honesto
@@ -112,7 +112,7 @@ compilação**, não um acidente em produção. Veja
 
 ## Por que tudo isso é testável com `tsc`
 
-Como builders são puro tipo + AST, os testes do Querium são majoritariamente
+Como builders são puro tipo + AST, os testes do tempest-db-js são majoritariamente
 **testes de tipo** (`expectTypeOf`, `@ts-expect-error`). Um filtro com chave inválida
 ou um update sem guard **falha a compilação** — e isso é exatamente o que os testes
 verificam. Num ORM tipado, o tipo **é** o produto, então o teste de tipo é o teste de

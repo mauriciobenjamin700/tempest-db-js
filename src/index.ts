@@ -1,5 +1,5 @@
 /**
- * Querium — feasibility spike for Phase 1.
+ * tempest-db-js — feasibility spike for Phase 1.
  *
  * Proves the central design claim: a class-based, SQLAlchemy-style model whose
  * fields are runtime column-builders can drive full static row-type inference in

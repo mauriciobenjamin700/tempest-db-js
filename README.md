@@ -1,18 +1,18 @@
-# Querium
+# tempest-db-js
 
 > Type-safe, class-based ORM for TypeScript — **SQLAlchemy 2.0 ergonomics** for the JS/TS world.
 > Foundation package for the future **`tempest-ts-sdk`**.
 
-📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/querium/) · [English (US)](https://mauriciobenjamin700.github.io/querium/en/)
+📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
 > ⚠️ **Status: pre-alpha (v0.0.0).** Phase 1 type-inference is proven; the public API is still taking shape. Not yet published to npm.
 
-## Why Querium
+## Why tempest-db-js
 
-You define a model **once**, as a class — Querium infers everything else:
+You define a model **once**, as a class — tempest-db-js infers everything else:
 
 ```ts
-import { Model, column, type InferModel, type InferInsert } from "querium";
+import { Model, column, type InferModel, type InferInsert } from "tempest-db-js";
 
 class User extends Model {
   static tablename = "users";
@@ -34,7 +34,7 @@ No manual `interface`, no codegen step, no schema/type drift. The class **is** t
 
 ## The TypeScript reality
 
-SQLAlchemy reads `Mapped[int]` at runtime via descriptors; TypeScript erases types at compile time. Querium bridges this by making each column a **runtime-typed builder** (`column.integer()`) that carries both its SQL type (runtime) and its static type (inference). You get class-based ergonomics **and** strong query-result inference — the trade-off being that returned rows are inferred plain objects, not active-record class instances (a post-MVP stretch goal).
+SQLAlchemy reads `Mapped[int]` at runtime via descriptors; TypeScript erases types at compile time. tempest-db-js bridges this by making each column a **runtime-typed builder** (`column.integer()`) that carries both its SQL type (runtime) and its static type (inference). You get class-based ergonomics **and** strong query-result inference — the trade-off being that returned rows are inferred plain objects, not active-record class instances (a post-MVP stretch goal).
 
 ## Roadmap
 
