@@ -75,6 +75,18 @@ plugins:
             Inserir, atualizar, deletar: Insert, update, delete
             Executando queries: Running queries
             Joins: Joins
+            Receitas: Recipes
+            Visão geral: Overview
+            created_at / updated_at: created_at / updated_at
+            Paginação tipada: Typed pagination
+            Transações e savepoints: Transactions & savepoints
+            Colunas JSON e enum: JSON & enum columns
+            Exemplos: Examples
+            Galeria: Gallery
+            Todo CLI (SQLite): Todo CLI (SQLite)
+            Blog (relations + joins): Blog (relations + joins)
+            REST API (Hono + Repository): REST API (Hono + Repository)
+            Fluxo de migrações: Migrations workflow
             Guia: Guide
             Arquitetura: Architecture
             Repository: Repository
@@ -124,6 +136,18 @@ nav:
       - Inserir, atualizar, deletar: tutorial/mutations.md
       - Executando queries: tutorial/execution.md
       - Joins: tutorial/joins.md
+  - Receitas:
+      - Visão geral: recipes/index.md
+      - created_at / updated_at: recipes/timestamps.md
+      - Paginação tipada: recipes/pagination.md
+      - Transações e savepoints: recipes/transactions.md
+      - Colunas JSON e enum: recipes/json-enum.md
+  - Exemplos:
+      - Galeria: examples/index.md
+      - Todo CLI (SQLite): examples/todo-cli.md
+      - Blog (relations + joins): examples/blog.md
+      - REST API (Hono + Repository): examples/rest-api.md
+      - Fluxo de migrações: examples/migrations-workflow.md
   - Guia:
       - Arquitetura: architecture.md
       - Repository: repository.md
