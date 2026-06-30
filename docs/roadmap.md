@@ -75,11 +75,23 @@ e receitas de integração HTTP (Express/Hono/Fastify).
 
 ## À frente
 
+### Bancos suportados — foco em 3
+
+O tempest-db-js mira **exatamente três bancos: SQLite, PostgreSQL e MySQL** — nessa
+ordem, e nenhum outro por enquanto.
+
+| Banco | Status |
+| --- | --- |
+| **SQLite** | ✅ Completo e testado (`node:sqlite`). |
+| **PostgreSQL** | 🟡 Implementado (`postgres.js`); falta validar introspecção/enum/pool contra um banco real no CI. |
+| **MySQL** | ⏳ Próximo dialeto, **após** o fluxo SQLite + PostgreSQL fechar. |
+
 ### Próximos refinamentos
 
-Joins: operadores tipados-por-coluna no `where`. Execução: `using`/asyncDispose,
-benchmark vs Drizzle/Kysely. Migrações: rename interativo, bin executável.
-PostgreSQL: validar introspecção/enum/pool contra um banco real.
+Fechar o fluxo **PostgreSQL** (validar introspecção/enum/pool contra um Postgres real)
+e então adicionar o dialeto **MySQL**. Joins: operadores tipados-por-coluna no `where`.
+Execução: `using`/asyncDispose, benchmark vs Drizzle/Kysely. Migrações: rename
+interativo, bin executável.
 
 !!! info "Detalhes completos no repositório"
 

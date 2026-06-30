@@ -75,11 +75,23 @@ tempest-db-js and HTTP integration recipes (Express/Hono/Fastify).
 
 ## Ahead
 
+### Supported databases — focused on 3
+
+tempest-db-js targets **exactly three databases: SQLite, PostgreSQL, and MySQL** — in
+that order, and no others for now.
+
+| Database | Status |
+| --- | --- |
+| **SQLite** | ✅ Complete and tested (`node:sqlite`). |
+| **PostgreSQL** | 🟡 Implemented (`postgres.js`); introspection/enum/pool still need validation against a real database in CI. |
+| **MySQL** | ⏳ Next dialect, **after** the SQLite + PostgreSQL flow is complete. |
+
 ### Next refinements
 
-Joins: per-column typed operators in `where`. Execution: `using`/asyncDispose,
-benchmark vs Drizzle/Kysely. Migrations: interactive rename, executable bin.
-PostgreSQL: validate introspection/enum/pool against a real database.
+Close the **PostgreSQL** flow (validate introspection/enum/pool against a real Postgres),
+then add the **MySQL** dialect. Joins: per-column typed operators in `where`. Execution:
+`using`/asyncDispose, benchmark vs Drizzle/Kysely. Migrations: interactive rename,
+executable bin.
 
 !!! info "Full details in the repository"
 
