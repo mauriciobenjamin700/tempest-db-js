@@ -14,7 +14,7 @@ import {
 } from "../src/migrations/index.js";
 
 class Account extends Model {
-  static tablename = "accounts";
+  static override tablename = "accounts";
   id = column.integer().primaryKey();
   big = column.bigInteger();
   owner = column.text().notNull();

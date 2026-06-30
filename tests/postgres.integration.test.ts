@@ -30,7 +30,7 @@ import {
 const url = process.env.TEST_DATABASE_URL;
 
 class Account extends Model {
-  static tablename = "accounts";
+  static override tablename = "accounts";
   id = column.integer().primaryKey();
   owner = column.text().notNull();
   role = column.enum("admin", "user").notNull();
