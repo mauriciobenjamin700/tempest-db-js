@@ -54,7 +54,20 @@ export interface AsyncDriver {
     sql: string,
     params: readonly unknown[],
   ): AsyncIterableIterator<Record<string, unknown>>;
+  /**
+   * Reserve a single pinned connection for the duration of a transaction.
+   * Pooled drivers (PostgreSQL) MUST implement this so `BEGIN`/`COMMIT` and the
+   * statements between them all run on the same connection. Single-connection
+   * drivers (SQLite) may omit it — `transaction` then runs on the shared handle.
+   */
+  reserve?(): Promise<ReservedAsyncDriver>;
   close(): Promise<void>;
+}
+
+/** An {@link AsyncDriver} pinned to one connection, used inside a transaction. */
+export interface ReservedAsyncDriver extends AsyncDriver {
+  /** Return the pinned connection to the pool. */
+  release(): Promise<void>;
 }
 
 /** Encode a JS value into something a SQLite driver can bind. */
@@ -383,6 +396,24 @@ export class AsyncSession {
   }
 
   async transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
+    // Pooled drivers (PostgreSQL) must pin one connection: BEGIN/COMMIT and every
+    // statement between them have to run on the same connection, or postgres.js
+    // rejects the raw transaction. Single-connection drivers (SQLite) skip this.
+    if (this.driver.reserve) {
+      const reserved = await this.driver.reserve();
+      const scoped = new AsyncSession(reserved, this.dialect);
+      try {
+        await reserved.execute("BEGIN", []);
+        const out = await fn(scoped);
+        await reserved.execute("COMMIT", []);
+        return out;
+      } catch (error) {
+        await reserved.execute("ROLLBACK", []);
+        throw error;
+      } finally {
+        await reserved.release();
+      }
+    }
     await this.driver.execute("BEGIN", []);
     try {
       const out = await fn(this);
@@ -522,10 +553,20 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
   return new AsyncEngine(createPostgresDriver(parsed.raw, options?.pool), "postgresql");
 }
 
+/** Shape a postgres.js result array into our `DriverResult`. */
+function toPostgresResult(rows: unknown): DriverResult {
+  const arr = rows as Record<string, unknown>[] & { count?: number };
+  return { rows: Array.from(arr), changes: arr.count ?? arr.length };
+}
+
 /**
- * PostgreSQL driver backed by postgres.js (lazy-loaded peer dependency). Not
- * exercised by the in-repo test suite (no Postgres in CI), but structurally
- * matches the `AsyncDriver` contract.
+ * PostgreSQL driver backed by postgres.js (lazy-loaded peer dependency).
+ *
+ * Transactions reserve a single connection via {@link AsyncDriver.reserve} —
+ * postgres.js pools connections, so a raw `BEGIN` on the shared client would run
+ * on a different connection than the statements that follow (and is rejected with
+ * `UNSAFE_TRANSACTION`). The reserved connection runs `BEGIN`/`COMMIT`/`ROLLBACK`
+ * and every statement between them on one socket, then is released back.
  */
 function createPostgresDriver(url: string, pool?: PoolOptions): AsyncDriver {
   // biome-ignore lint/suspicious/noExplicitAny: postgres.js client typed at call site.
@@ -550,13 +591,22 @@ function createPostgresDriver(url: string, pool?: PoolOptions): AsyncDriver {
     async execute(sql: string, params: readonly unknown[]): Promise<DriverResult> {
       await ensure();
       // postgres.js `unsafe` runs a parameterized string with positional params.
-      const rows = (await client.unsafe(sql, params as unknown[])) as Record<
-        string,
-        unknown
-      >[];
+      return toPostgresResult(await client.unsafe(sql, params as unknown[]));
+    },
+    async reserve(): Promise<ReservedAsyncDriver> {
+      await ensure();
+      // biome-ignore lint/suspicious/noExplicitAny: reserved connection from postgres.js.
+      const conn: any = await client.reserve();
       return {
-        rows: Array.from(rows),
-        changes: (rows as { count?: number }).count ?? rows.length,
+        async execute(sql: string, params: readonly unknown[]): Promise<DriverResult> {
+          return toPostgresResult(await conn.unsafe(sql, params as unknown[]));
+        },
+        async release(): Promise<void> {
+          conn.release();
+        },
+        async close(): Promise<void> {
+          conn.release();
+        },
       };
     },
     async close(): Promise<void> {
