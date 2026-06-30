@@ -79,9 +79,10 @@ Each one:
    `.node`;
 2. carries **phantom types** that describe the result, with no runtime cost.
 
-Execution is **Phase 4**'s responsibility (`session.execute` + dialects), which
-compiles the AST to parameterized SQL. Separating "build" from "execute" makes
-all the type safety testable with `tsc` alone, with no database needed.
+Execution is a **separate** layer (`session.execute` + dialects), which compiles
+the AST to parameterized SQL and runs it against the database. Separating "build"
+from "execute" makes all the type safety testable with `tsc` alone (no database
+needed) and makes each builder reusable in any session.
 
 ### Two type parameters in `select`
 
@@ -106,7 +107,7 @@ class UpdateBuilder<Full, Guarded extends boolean, Ret = number> { ... }
 
 - they start with `Guarded = false`;
 - `.where(...)` or `.unguarded()` produce `Guarded = true`;
-- Phase 4's `session.execute` will accept **only** `Guarded = true` builders.
+- `session.execute` accepts **only** `Guarded = true` builders (type `Executable`).
 
 Result: an `UPDATE`/`DELETE` without a `WHERE` and without an explicit opt-in is a
 **compile-time error**, not a production accident. See
@@ -123,15 +124,23 @@ In a typed ORM, the type **is** the product, so the type test is the product tes
 
 | Module | Responsibility |
 | --- | --- |
-| `src/index.ts` | `Model`, `column`, `InferModel`, `InferInsert` + re-exports |
-| `src/query.ts` | `select`, `SelectBuilder`, the SELECT AST, `WhereInput` |
+| `src/index.ts` | `Model`, `column`, `InferModel`/`InferInsert`, `sql` + re-exports |
+| `src/query.ts` | `select`, `SelectBuilder`, the SELECT AST, `WhereInput`, operators |
 | `src/mutations.ts` | `insert`/`update`/`del`, builders, state guard, AST |
+| `src/conditions.ts` | `and`/`or`/`not` combinators and the `Condition` tree |
+| `src/dialect.ts` | compiles AST → parameterized SQL (`SqliteDialect`/`PostgresDialect`) |
+| `src/engine.ts` | `createEngine`/`createSyncEngine`, session, transactions, drivers |
+| `src/join.ts` | `join`, composite types per alias, `leftJoin` nullability |
+| `src/relations.ts` | `hasMany`/`belongsTo` + `loadRelations` (eager-load, no N+1) |
+| `src/repository.ts` | `BaseRepository<Model>` — CRUD + typed pagination |
+| `src/serialize.ts` | row ↔ dict ↔ JSON coercion per column type |
+| `src/migrations/*` | Schema IR, diff, codegen, DAG, runner, CLI (Alembic-style) |
 
 ## Recap
 
 - TS erases types → the column must be a **value** that carries the type.
 - Rows are inferred plain objects; active-record is post-MVP.
-- Builders are **pure AST + phantom types**; execution is Phase 4.
+- Builders are **pure AST + phantom types**; execution is a separate layer.
 - `SelectBuilder<Full, Proj>` separates the filter key from the projected result.
 - `Guarded extends boolean` turns an accidental full-table write into a
   compile-time error.

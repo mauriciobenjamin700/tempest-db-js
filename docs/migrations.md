@@ -14,12 +14,13 @@ import {
 } from "tempest-db-js/migrations";
 ```
 
-!!! info "Estado"
+!!! success "Estado"
 
-    O núcleo (reflect, diff, render, codegen, grafo DAG, runner) está pronto e roda
-    de verdade contra SQLite (`node:sqlite`). Introspecção/drift e o batch-mode do
-    SQLite pra `alter_column` são refinamentos seguintes — veja o
-    [Roadmap](roadmap.md).
+    Tudo nesta página funciona e é testado contra SQLite real (`node:sqlite`):
+    reflect, diff, render, codegen, grafo DAG, runner, **CLI**, **drift**
+    (`checkDrift`/`introspectSqlite`) e **batch-mode** do SQLite pra mudanças de
+    coluna. PostgreSQL (introspecção, enum nomeado, pool) existe estruturalmente,
+    mas ainda não é exercitado no CI — veja o [Roadmap](roadmap.md).
 
 ## 1. Do modelo ao IR
 

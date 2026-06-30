@@ -34,7 +34,7 @@ insert(User).values([
 
 ### `.returning()` — get back what was inserted
 
-Without `returning`, the execution result (Phase 4) is the **number of affected
+Without `returning`, the execution result is the **number of affected
 rows**. With `returning`, it's the row (or a projection of it):
 
 ```ts
@@ -77,7 +77,7 @@ in the `Guarded = false` state and only becomes **executable** after a `.where(.
 
 ```ts
 const safe = update(User).set({ age: 31 }).where({ id: 1 });
-//    ^ Guarded = true  → session.execute (Phase 4) accepts it
+//    ^ Guarded = true  → session.execute accepts it
 
 const unsafe = update(User).set({ age: 0 });
 //    ^ Guarded = false → session.execute will REJECT it at compile time

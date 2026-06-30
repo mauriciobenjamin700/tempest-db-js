@@ -1,7 +1,8 @@
 # Roadmap
 
-tempest-db-js is built in phases, each one delivering a testable slice. Phases 0–2 are
-done (proven by `tsc`); the rest is the path ahead.
+tempest-db-js is built in phases, each one delivering a testable slice. **Phases 0–7
+are complete** and shipped in `v0.1.0`; what's left are refinements and the
+integration with `tempest-ts-sdk`.
 
 | Phase | Theme | Status |
 | --- | --- | --- |
@@ -26,7 +27,7 @@ nullability and optionality. See [Models](tutorial/models.md).
 
 `select` with `Pick` projection, `where`/`orderBy`/`limit`/`offset`; `insert` typed
 by `InferInsert` with `.returning()`; `update`/`del` with a **typed state guard**
-against full-table writes. All as pure AST, executable in Phase 4. See
+against full-table writes. Pure AST, executed by the session layer (Phase 4). See
 [Queries](tutorial/queries.md) and [Mutations](tutorial/mutations.md).
 
 ### Phase 3 — Typed operators
@@ -52,12 +53,13 @@ select(User).where({
 [Running queries](tutorial/execution.md). Still to do: 4c-4e (pool tuning, `using`,
 `.stream()`, benchmark).
 
-### Phase 5 — Joins (MVP done)
+### Phase 5 — Joins + relations
 
 `join(Model, alias).innerJoin/leftJoin(...)` → composite types
-(`{ user: UserRow; order: OrderRow }`), with correct nullability on outer joins. See
-[Joins](tutorial/joins.md). Still to do: typed operators in the join `where` and
-declarative relations (`hasMany`/`belongsTo`) for eager-loading.
+(`{ user: UserRow; order: OrderRow }`), with correct nullability on outer joins, plus
+declarative relations `hasMany`/`belongsTo` + `loadRelations` (eager-load, no N+1) and
+the `and`/`or`/`not` combinators. See [Joins](tutorial/joins.md) and
+[Repository](repository.md). Still to do: per-column typed operators in the join `where`.
 
 ### Phase 6 — Migrations (done)
 

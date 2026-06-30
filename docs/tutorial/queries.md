@@ -4,11 +4,12 @@ Com o modelo `User` da página anterior, vamos montar consultas `SELECT`. No
 tempest-db-js, `select(...)` devolve um **builder encadeável** que carrega o tipo do
 resultado — antes mesmo de tocar num banco.
 
-!!! info "O builder não executa (ainda)"
+!!! info "Montar é separado de executar"
 
-    Nesta fase, `select(...)` monta uma **AST tipada**. Quem executa é o
-    `session.execute` da Fase 4. O valor de hoje é a **segurança de tipos**: o
-    compilador já sabe o formato exato do que a query vai retornar.
+    `select(...)` monta uma **AST tipada** — não toca no banco sozinho. Quem roda é
+    o `session.execute(...)`, que você vê em **[Executando queries](execution.md)**.
+    Separar as duas coisas deixa toda a segurança de tipos testável só com o
+    compilador, e o `select` reaproveitável em qualquer sessão.
 
 ## Passo 1 — Selecionar tudo
 
@@ -141,7 +142,7 @@ select(User, ["id", "missing"]);
 ## Inspecionando a AST
 
 O builder expõe sua AST em `.node` — útil pra debug e pra entender o que será
-compilado pra SQL na Fase 4:
+compilado pra SQL pelo dialeto:
 
 ```ts
 const q = select(User, ["id", "name"]).where({ age: { gt: 18 } }).limit(10);
@@ -162,8 +163,8 @@ console.log(q.node);
 
 - `select(Model)` → builder com resultado `Row[]`.
 - `select(Model, [cols])` → resultado projetado `Pick<Row, cols>[]`.
-- `.where({...})` valida as **chaves** contra as colunas (operadores: Fase 3).
+- `.where({...})` valida as **chaves** contra as colunas e os **operadores por tipo**.
 - `.orderBy(col, dir)`, `.limit(n)`, `.offset(n)` encadeiam e são imutáveis.
-- A AST fica em `.node`; a execução é a Fase 4.
+- A AST fica em `.node`; rodar é com `session.execute` — **[próxima parte](mutations.md)**.
 
 Agora vamos **escrever** dados. 👉 **[Inserir, atualizar, deletar](mutations.md)**

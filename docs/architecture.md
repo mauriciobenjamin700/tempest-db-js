@@ -78,9 +78,10 @@ Os builders (`select`, `insert`, `update`, `del`) **não executam nada**. Cada u
    `.node`;
 2. carrega **tipos fantasma** que descrevem o resultado, sem custo de runtime.
 
-A execução é responsabilidade da **Fase 4** (`session.execute` + dialetos), que
-compila a AST pra SQL parametrizado. Separar "montar" de "executar" deixa toda a
-type-safety testável só com `tsc`, sem precisar de banco.
+A execução é uma camada **separada** (`session.execute` + dialetos), que compila a
+AST pra SQL parametrizado e roda contra o banco. Separar "montar" de "executar"
+deixa toda a type-safety testável só com `tsc` (sem precisar de banco) e torna cada
+builder reaproveitável em qualquer sessão.
 
 ### Dois parâmetros de tipo no `select`
 
@@ -104,7 +105,7 @@ class UpdateBuilder<Full, Guarded extends boolean, Ret = number> { ... }
 
 - nascem com `Guarded = false`;
 - `.where(...)` ou `.unguarded()` produzem `Guarded = true`;
-- o `session.execute` da Fase 4 vai aceitar **só** builders `Guarded = true`.
+- o `session.execute` aceita **só** builders `Guarded = true` (tipo `Executable`).
 
 Resultado: um `UPDATE`/`DELETE` sem `WHERE` e sem opt-in explícito é **erro de
 compilação**, não um acidente em produção. Veja
@@ -122,15 +123,23 @@ produto.
 
 | Módulo | Responsabilidade |
 | --- | --- |
-| `src/index.ts` | `Model`, `column`, `InferModel`, `InferInsert` + re-exports |
-| `src/query.ts` | `select`, `SelectBuilder`, AST de SELECT, `WhereInput` |
+| `src/index.ts` | `Model`, `column`, `InferModel`/`InferInsert`, `sql` + re-exports |
+| `src/query.ts` | `select`, `SelectBuilder`, AST de SELECT, `WhereInput`, operadores |
 | `src/mutations.ts` | `insert`/`update`/`del`, builders, guard de estado, AST |
+| `src/conditions.ts` | combinadores `and`/`or`/`not` e a árvore `Condition` |
+| `src/dialect.ts` | compila AST → SQL parametrizado (`SqliteDialect`/`PostgresDialect`) |
+| `src/engine.ts` | `createEngine`/`createSyncEngine`, sessão, transações, drivers |
+| `src/join.ts` | `join`, tipos compostos por alias, nullability de `leftJoin` |
+| `src/relations.ts` | `hasMany`/`belongsTo` + `loadRelations` (eager-load sem N+1) |
+| `src/repository.ts` | `BaseRepository<Model>` — CRUD + paginação tipada |
+| `src/serialize.ts` | coerção linha ↔ dict ↔ JSON por tipo de coluna |
+| `src/migrations/*` | Schema IR, diff, codegen, DAG, runner, CLI (estilo Alembic) |
 
 ## Recap
 
 - TS apaga tipos → a coluna precisa ser um **valor** que carrega o tipo.
 - Linhas são objetos planos inferidos; active-record é pós-MVP.
-- Builders são **AST pura + tipos fantasma**; execução é a Fase 4.
+- Builders são **AST pura + tipos fantasma**; a execução é uma camada separada.
 - `SelectBuilder<Full, Proj>` separa chave de filtro do resultado projetado.
 - `Guarded extends boolean` transforma full-table write acidental em erro de
   compilação.

@@ -5,7 +5,7 @@ desenvolvimento e as convenções do projeto.
 
 ## Setup
 
-O tempest-db-js ainda não está no npm — durante o desenvolvimento, trabalhe a partir do
+Pra desenvolver (em vez de só consumir o pacote do npm), trabalhe a partir do
 repositório:
 
 ```bash

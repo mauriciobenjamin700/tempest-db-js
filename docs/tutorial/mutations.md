@@ -34,8 +34,8 @@ insert(User).values([
 
 ### `.returning()` — recuperar o que foi inserido
 
-Sem `returning`, o resultado da execução (Fase 4) é o **número de linhas afetadas**.
-Com `returning`, é a linha (ou uma projeção dela):
+Sem `returning`, o resultado da execução é o **número de linhas afetadas**. Com
+`returning`, é a linha (ou uma projeção dela):
 
 ```ts
 // linha completa
@@ -77,10 +77,10 @@ estado `Guarded = false` e só vira **executável** depois de um `.where(...)`:
 
 ```ts
 const safe = update(User).set({ age: 31 }).where({ id: 1 });
-//    ^ Guarded = true  → o session.execute (Fase 4) aceita
+//    ^ Guarded = true  → o session.execute aceita
 
 const unsafe = update(User).set({ age: 0 });
-//    ^ Guarded = false → o session.execute vai REJEITAR em tempo de compilação
+//    ^ Guarded = false → o session.execute REJEITA em tempo de compilação
 ```
 
 Precisa mesmo atualizar a tabela inteira? Diga isso **explicitamente** com

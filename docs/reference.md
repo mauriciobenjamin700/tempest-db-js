@@ -1,20 +1,27 @@
 # Referência da API
 
-Superfície pública do tempest-db-js nas Fases 1 e 2. Tudo é importado do nível do pacote:
+Superfície pública completa do tempest-db-js. O núcleo importa do nível do pacote; as
+migrações vivem no subcaminho `tempest-db-js/migrations`:
 
 ```ts
 import {
-  Model, column,
+  Model, column, sql,
   type InferModel, type InferInsert,
   select, insert, update, del,
+  and, or, not,
+  createEngine, createSyncEngine,
+  join, hasMany, belongsTo, loadRelations,
+  BaseRepository,
 } from "tempest-db-js";
+
+import { reflectSchema, diffSchema, MigrationRunner } from "tempest-db-js/migrations";
 ```
 
 !!! note "Referência viva"
 
-    Esta página cobre o que existe hoje (Fases 1-2). Conforme novas fases entram
-    (execução, operadores tipados, joins, migrações), a referência cresce junto. A
-    fonte da verdade são os docstrings no código.
+    Esta página resume toda a superfície pública atual. A **fonte da verdade** são
+    os docstrings JSDoc no código — o editor mostra a assinatura completa de cada
+    símbolo no autocomplete.
 
 ## Schema
 
@@ -78,7 +85,7 @@ Expressões server-side, renderizadas por dialeto (à la `func` do SQLAlchemy):
 | `sql.raw(expr)` | verbatim | escape hatch |
 
 O default fica guardado em `column.<campo>.defaultValue` / `.onUpdateValue` —
-alimenta o IR de migração (Fase 6).
+alimenta o IR de migração.
 
 ### `columnsOf(Model)`
 
@@ -184,8 +191,8 @@ Retorna `DeleteBuilder<Full, false>` (`del` porque `delete` é reservado).
 
 ## Tipos da AST
 
-Expostos pra ferramentas e dialetos (Fase 4): `SelectNode`, `InsertNode`,
-`UpdateNode`, `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`.
+Expostos pra ferramentas e dialetos: `SelectNode`, `InsertNode`, `UpdateNode`,
+`DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`.
 
 ## URL do banco
 
@@ -240,7 +247,8 @@ parse(User, jsonString);  // fromDict(JSON.parse(...))
 
 A AST de um builder vira SQL **parametrizado** via um dialeto — o único lugar onde
 SQL nasce. Sempre placeholders (`?` no SQLite, `$1` no Postgres), nunca interpolação
-(injection-safe por construção). Não executa — execução é a Fase 4b.
+(injection-safe por construção). O `compile` só monta a SQL; quem roda é a sessão
+(veja **Execução** abaixo).
 
 ```ts
 import { getDialect, select, Model, column } from "tempest-db-js";

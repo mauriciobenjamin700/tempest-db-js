@@ -6,17 +6,12 @@
 - **TypeScript ≥ 5.7** — o tempest-db-js depende de recursos modernos de inferência de
   tipos. Versões mais antigas podem não inferir as linhas corretamente.
 
-!!! warning "Pré-alpha — ainda não está no npm"
+!!! success "Disponível no npm (`v0.1.0`)"
 
-    O tempest-db-js está em `v0.0.0` e **ainda não foi publicado**. Os comandos abaixo
-    são a forma como a instalação vai funcionar quando a primeira versão sair. Por
-    enquanto, use via repositório local (veja [Contribuindo](contributing.md)).
+    O tempest-db-js já está publicado no [npm](https://www.npmjs.com/package/tempest-db-js)
+    e é usável de ponta a ponta. Instale com seu gerenciador favorito:
 
 ## Instalar
-
-```bash
-npm install tempest-db-js
-```
 
 === "npm"
 
@@ -44,15 +39,15 @@ não puxa nenhum banco junto.
 
 | Banco | Driver | Pacote |
 | --- | --- | --- |
-| SQLite | `better-sqlite3` | `npm install better-sqlite3` |
+| SQLite | `node:sqlite` (embutido no Node) | **nada a instalar** |
+| SQLite (alternativa) | `better-sqlite3` | `npm install better-sqlite3` |
 | PostgreSQL | `postgres` (postgres.js) | `npm install postgres` |
 
-!!! info "A execução chega na Fase 4"
+!!! tip "SQLite funciona sem instalar nada"
 
-    Hoje o tempest-db-js monta a **AST tipada** das queries, mas ainda não executa
-    contra um banco — isso é a Fase 4 do [Roadmap](roadmap.md). Você já pode
-    instalar e usar toda a tipagem de schema e query builder; o `session.execute`
-    e os dialetos SQLite/PostgreSQL vêm em seguida.
+    Por padrão o tempest-db-js usa o módulo **`node:sqlite` embutido no Node ≥ 20** —
+    então você já consegue executar queries SQLite reais sem nenhum pacote extra.
+    `better-sqlite3` é uma alternativa opcional; PostgreSQL precisa do `postgres`.
 
 ## Configuração do TypeScript
 
@@ -79,23 +74,46 @@ O tempest-db-js assume um `tsconfig.json` em modo **strict**. O mínimo recomend
 
 ## Verifique a instalação
 
+Um programa completo que **cria a tabela, insere e lê** — só com API pública:
+
 ```ts
-import { Model, column, select } from "tempest-db-js";
+import {
+  Model, column, select, insert, createSyncEngine, NodeSqliteDriver,
+} from "tempest-db-js";
+import { MigrationRunner, reflectTable, type Migration } from "tempest-db-js/migrations";
 
 class Ping extends Model {
   static tablename = "ping";
   id = column.integer().primaryKey();
+  label = column.text().notNull();
 }
 
-const q = select(Ping);
-console.log(q.node.table); // "ping"
+// 1. cria a tabela com uma migração pontual (detalhes em "Migrações")
+const driver = NodeSqliteDriver.open("verify.db");
+const migration: Migration = {
+  revision: "init",
+  downRevision: [],
+  up: (op) => op.createTable(reflectTable(Ping)),
+  down: (op) => op.dropTable(reflectTable(Ping)),
+};
+new MigrationRunner(driver, "sqlite").upgrade([migration], new Date().toISOString());
+
+// 2. executa queries tipadas contra o mesmo banco
+const session = createSyncEngine("sqlite:///verify.db").session();
+session.execute(insert(Ping).values({ label: "ok" }));
+console.log(session.execute(select(Ping)).all()); // [{ id: 1, label: "ok" }]
 ```
 
-Se isso compila com `tsc --noEmit` sem erros, está tudo certo. ✅
+Se isso roda sem erros (e compila com `tsc --noEmit`), está tudo certo. ✅
+
+!!! tip "Só quer um smoke test rápido?"
+
+    Pra confirmar só o import e a tipagem, sem tocar em disco, monte uma query e
+    inspecione a AST: `console.log(select(Ping).node.table) // "ping"`.
 
 ## Recap
 
 - Node ≥ 20, TypeScript ≥ 5.7, `strict: true`.
-- `npm install tempest-db-js` — sem driver embutido.
-- Instale `better-sqlite3` e/ou `postgres` conforme o banco.
+- `npm install tempest-db-js` — já no npm (`v0.1.0`).
+- SQLite roda direto (`node:sqlite` embutido); pra PostgreSQL, `npm install postgres`.
 - Próximo: monte seu primeiro modelo no **[Tutorial](tutorial/index.md)**.
