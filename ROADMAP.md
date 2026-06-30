@@ -10,7 +10,7 @@
 | Definição de schema | **Class-based** (herança de `Model`, `static tablename`) | Espelhar SQLAlchemy declarativo. |
 | Captura de tipo | **Column-builders como campos** (`id = column.integer()`) | TS apaga tipos em runtime — o builder carrega runtime-type + tipo estático. Inferência de query forte. |
 | Linha retornada | Objeto plano inferido (`InferModel`) | Active-record com métodos na instância = stretch goal. |
-| Drivers (ordem) | **1. SQLite** (`better-sqlite3`) → **2. PostgreSQL** (`postgres.js`) | Performance máxima; espelha dev=SQLite / prod=Postgres dos serviços Python. |
+| Bancos (foco em 3, nessa ordem) | **1. SQLite** (`node:sqlite`/`better-sqlite3`) → **2. PostgreSQL** (`postgres.js`) → **3. MySQL** | Escopo fechado nesses 3, sem outros por ora. SQLite/Postgres espelham dev/prod dos serviços Python; MySQL entra depois do fluxo SQLite+Postgres fechar. |
 | Runtime | Node ≥ 20 | Bun/Deno/browser depois. |
 | Async | API `async` por padrão; SQLite sync por baixo, exposto via Promise | Consistência com o ecossistema. |
 
