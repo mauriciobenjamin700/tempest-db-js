@@ -18,6 +18,8 @@ recipes show you how to apply them in real day-to-day situations.
 | [Typed pagination](pagination.en.md) | Paginated lists with total/pages, aligned with `tempest-fastapi-sdk`. |
 | [Transactions and savepoints](transactions.en.md) | Atomic operations with automatic commit/rollback and savepoints. |
 | [JSON and enum columns](json-enum.en.md) | Store typed objects and literal unions with type safety. |
+| [Serialization (row ↔ JSON)](serialization.en.md) | Convert rows to JSON and validate JSON back into a row. |
+| [Connecting to PostgreSQL](postgres.en.md) | Swap SQLite for Postgres via the URL and tune the pool. |
 
 ## Looking for something bigger?
 

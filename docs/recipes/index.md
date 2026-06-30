@@ -18,6 +18,8 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Paginação tipada](pagination.md) | Listas paginadas com total/páginas, alinhadas ao `tempest-fastapi-sdk`. |
 | [Transações e savepoints](transactions.md) | Operações atômicas com commit/rollback automático e pontos de salvamento. |
 | [Colunas JSON e enum](json-enum.md) | Guardar objetos tipados e uniões literais com segurança de tipos. |
+| [Serialização (linha ↔ JSON)](serialization.md) | Converter linhas pra JSON e validar JSON de volta pra linha. |
+| [Conectando ao PostgreSQL](postgres.md) | Trocar SQLite por Postgres pela URL e ajustar o pool. |
 
 ## Procurando algo maior?
 

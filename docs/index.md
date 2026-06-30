@@ -108,7 +108,7 @@ modelo a executar queries contra um banco, um conceito por página.
 | Área | Páginas |
 | --- | --- |
 | **Tutorial** | [Comece aqui](tutorial/index.md) · [Modelos](tutorial/models.md) · [Consultas](tutorial/queries.md) · [Inserir, atualizar, deletar](tutorial/mutations.md) · [Executando queries](tutorial/execution.md) · [Joins](tutorial/joins.md) |
-| **Receitas** | [created_at/updated_at](recipes/timestamps.md) · [Paginação](recipes/pagination.md) · [Transações](recipes/transactions.md) · [JSON e enum](recipes/json-enum.md) |
+| **Receitas** | [created_at/updated_at](recipes/timestamps.md) · [Paginação](recipes/pagination.md) · [Transações](recipes/transactions.md) · [JSON e enum](recipes/json-enum.md) · [Serialização](recipes/serialization.md) · [PostgreSQL](recipes/postgres.md) |
 | **Exemplos** | [Todo CLI](examples/todo-cli.md) · [Blog](examples/blog.md) · [REST API](examples/rest-api.md) · [Fluxo de migrações](examples/migrations-workflow.md) |
 | **Guia** | [Arquitetura](architecture.md) · [Repository](repository.md) · [Migrações](migrations.md) · [Referência da API](reference.md) |
 | **Projeto** | [Roadmap](roadmap.md) · [Contribuindo](contributing.md) · [Changelog](changelog.md) |

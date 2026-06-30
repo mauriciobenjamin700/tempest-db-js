@@ -109,7 +109,7 @@ first model to running queries against a database, one concept per page.
 | Area | Pages |
 | --- | --- |
 | **Tutorial** | [Start here](tutorial/index.md) · [Models](tutorial/models.md) · [Queries](tutorial/queries.md) · [Insert, update, delete](tutorial/mutations.md) · [Running queries](tutorial/execution.md) · [Joins](tutorial/joins.md) |
-| **Recipes** | [created_at/updated_at](recipes/timestamps.md) · [Pagination](recipes/pagination.md) · [Transactions](recipes/transactions.md) · [JSON & enum](recipes/json-enum.md) |
+| **Recipes** | [created_at/updated_at](recipes/timestamps.md) · [Pagination](recipes/pagination.md) · [Transactions](recipes/transactions.md) · [JSON & enum](recipes/json-enum.md) · [Serialization](recipes/serialization.md) · [PostgreSQL](recipes/postgres.md) |
 | **Examples** | [Todo CLI](examples/todo-cli.md) · [Blog](examples/blog.md) · [REST API](examples/rest-api.md) · [Migrations workflow](examples/migrations-workflow.md) |
 | **Guide** | [Architecture](architecture.md) · [Repository](repository.md) · [Migrations](migrations.md) · [API reference](reference.md) |
 | **Project** | [Roadmap](roadmap.md) · [Contributing](contributing.md) · [Changelog](changelog.md) |
