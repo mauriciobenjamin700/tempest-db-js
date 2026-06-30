@@ -3,7 +3,9 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.1.0] — 2026-06-29
+
+Primeira versão pública, publicada no [npm](https://www.npmjs.com/package/tempest-db-js).
 
 ### Adicionado
 
@@ -58,6 +60,5 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Notas
 
-- Pré-alpha (`v0.0.0`). A superfície pública ainda muda. Não publicado no npm.
-- Execução real contra banco (dialetos SQLite/PostgreSQL, `Session`) chega na
-  Fase 4 — ver [Roadmap](roadmap.md).
+- Alpha (`v0.1.0`). A superfície pública pode ainda mudar antes da `v1.0`.
+- Execução SQLite real e testada (`node:sqlite`); PostgreSQL via `postgres.js`.

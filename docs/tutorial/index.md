@@ -47,12 +47,12 @@ carrega o tipo — não uma anotação. Você vai entender bem isso na próxima 
 Garanta os pré-requisitos da [Instalação](../installation.md): Node ≥ 20,
 TypeScript ≥ 5.7 e `strict: true` no `tsconfig.json`.
 
-!!! info "Você não precisa de um banco ainda"
+!!! info "As primeiras páginas nem precisam de banco"
 
-    Tudo neste tutorial — declarar modelos, montar `select`/`insert`/`update`/
-    `delete` — acontece **no nível de tipos**, sem tocar em banco nenhum. A
-    execução real (`session.execute`) chega na Fase 4. Então você pode seguir o
-    tutorial inteiro só com o compilador do TypeScript.
+    Declarar modelos e montar `select`/`insert`/`update`/`delete` acontece **no
+    nível de tipos** — você consegue acompanhar só com o compilador do TypeScript.
+    A partir de **[Executando queries](execution.md)** a gente conecta um SQLite de
+    verdade (o `node:sqlite` embutido, zero instalação) e roda tudo contra um banco.
 
 ## O caminho
 
@@ -62,5 +62,9 @@ TypeScript ≥ 5.7 e `strict: true` no `tsconfig.json`.
    ordenação.
 3. **[Inserir, atualizar, deletar](mutations.md)** — `INSERT`/`UPDATE`/`DELETE`
    tipados, incluindo o guard que evita apagar uma tabela inteira sem querer.
+4. **[Executando queries](execution.md)** — crie um engine, abra uma sessão e
+   **rode as queries** contra SQLite/PostgreSQL, com transações e streaming.
+5. **[Joins](joins.md)** — combine tabelas em tipos compostos, com nullability
+   correta no `leftJoin`.
 
 Pronto? Vamos pro primeiro modelo. 👉 **[Modelos](models.md)**

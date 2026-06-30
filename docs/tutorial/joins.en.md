@@ -81,12 +81,19 @@ the driver's flat row is **split** back into `{ user: {...}, order: {...} }`,
 coercing each side by its model. For `leftJoin`, when all of the right side's
 columns come back null, that side becomes `null`.
 
-!!! note "Evolving"
+!!! tip "Declarative relations as an alternative"
 
-    The typed-per-column operators (Phase 3) don't yet apply to the join `where` —
-    today the `alias.column` keys are typed, but the value accepts a match or an
-    operator without type restriction. Declarative relations (`hasMany`/`belongsTo`)
-    and the `and`/`or` combinators are also on the roadmap.
+    Joins give you the composite type `{ user, order }`. When you'd rather **navigate
+    relations** (`user.posts`, `post.author`) without writing the join by hand, use
+    `hasMany`/`belongsTo` + `loadRelations` — typed eager-loading, one query per
+    relation, no N+1. See **[Repository](../repository.md#relations-typed-eager-loading)**.
+
+!!! note "Current limitation of join `where`"
+
+    The `and`/`or`/`not` combinators work in the join `where`, but the
+    **typed-per-column operators** don't apply there yet: the `alias.column` keys are
+    checked, and the value accepts an exact match or an operator, but without the
+    per-type restriction that `select` has. It's the next refinement for joins.
 
 ## Recap
 

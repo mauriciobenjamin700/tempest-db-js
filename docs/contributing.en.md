@@ -5,7 +5,7 @@ development setup and the project conventions.
 
 ## Setup
 
-tempest-db-js isn't on npm yet — during development, work from the repository:
+To develop (rather than just consume the npm package), work from the repository:
 
 ```bash
 git clone https://github.com/mauriciobenjamin700/tempest-db-js.git

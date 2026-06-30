@@ -1,21 +1,27 @@
 # API reference
 
-tempest-db-js's public surface in Phases 1 and 2. Everything is imported from the package
-level:
+tempest-db-js's complete public surface. The core is imported from the package level;
+migrations live under the `tempest-db-js/migrations` subpath:
 
 ```ts
 import {
-  Model, column,
+  Model, column, sql,
   type InferModel, type InferInsert,
   select, insert, update, del,
+  and, or, not,
+  createEngine, createSyncEngine,
+  join, hasMany, belongsTo, loadRelations,
+  BaseRepository,
 } from "tempest-db-js";
+
+import { reflectSchema, diffSchema, MigrationRunner } from "tempest-db-js/migrations";
 ```
 
 !!! note "Living reference"
 
-    This page covers what exists today (Phases 1-2). As new phases land (execution,
-    typed operators, joins, migrations), the reference grows alongside. The source of
-    truth is the docstrings in the code.
+    This page summarizes the entire current public surface. The **source of truth**
+    is the JSDoc docstrings in the code — the editor shows the full signature of each
+    symbol in autocomplete.
 
 ## Schema
 
@@ -79,7 +85,7 @@ Server-side expressions, rendered per dialect (à la SQLAlchemy's `func`):
 | `sql.raw(expr)` | verbatim | escape hatch |
 
 The default is stored in `column.<field>.defaultValue` / `.onUpdateValue` — it feeds
-the migration IR (Phase 6).
+the migration IR.
 
 ### `columnsOf(Model)`
 
@@ -185,7 +191,7 @@ Returns `DeleteBuilder<Full, false>` (`del` because `delete` is reserved).
 
 ## AST types
 
-Exposed for tooling and dialects (Phase 4): `SelectNode`, `InsertNode`,
+Exposed for tooling and dialects: `SelectNode`, `InsertNode`,
 `UpdateNode`, `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`.
 
 ## Database URL
@@ -241,8 +247,8 @@ parse(User, jsonString);  // fromDict(JSON.parse(...))
 
 A builder's AST becomes **parameterized** SQL via a dialect — the only place where
 SQL is born. Always placeholders (`?` in SQLite, `$1` in Postgres), never
-interpolation (injection-safe by construction). It does not execute — execution is
-Phase 4b.
+interpolation (injection-safe by construction). `compile` only builds the SQL; the
+session runs it (see **Execution** below).
 
 ```ts
 import { getDialect, select, Model, column } from "tempest-db-js";

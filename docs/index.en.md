@@ -12,12 +12,12 @@ It's the data layer for the upcoming **`tempest-ts-sdk`**.
 > Use the language selector at the top of the page to switch between
 > **Português (BR)** and **English (US)**.
 
-!!! warning "Status: pre-alpha (`v0.0.0`)"
+!!! success "Status: alpha (`v0.1.0`) — published on [npm](https://www.npmjs.com/package/tempest-db-js)"
 
-    The type inference for Phases 1 and 2 is **proven and tested**, but the
-    public surface is still under construction and the package has **not yet been
-    published to npm**. Real execution against a database (SQLite/PostgreSQL)
-    arrives in Phase 4 — see the [Roadmap](roadmap.md).
+    The full path works end to end: declarative schema, typed query builder,
+    **real execution on SQLite** (tested against `node:sqlite`), joins,
+    relations, Alembic-style migrations, and a typed `BaseRepository`. The
+    public surface may still change before `v1.0` — see the [Roadmap](roadmap.md).
 
 ## Why tempest-db-js?
 
@@ -76,8 +76,11 @@ with methods (active-record is a post-MVP goal). Details in
 npm install tempest-db-js
 ```
 
+SQLite needs no extra driver (it uses Node's built-in `node:sqlite`). For
+PostgreSQL, `npm install postgres`.
+
 ```ts
-import { Model, column, select } from "tempest-db-js";
+import { Model, column, select, insert, createSyncEngine } from "tempest-db-js";
 
 class Task extends Model {
   static tablename = "tasks";
@@ -86,24 +89,34 @@ class Task extends Model {
   done = column.boolean().notNull();
 }
 
-const pending = select(Task).where({ done: false }).orderBy("id");
-// `pending` carries the result type { id: number; title: string; done: boolean }[]
+const engine = createSyncEngine("sqlite://:memory:");
+const session = engine.session();
+
+session.execute(insert(Task).values({ title: "write docs", done: false }));
+
+const pending = session.execute(select(Task).where({ done: false })).all();
+// `pending` is { id: number; title: string; done: boolean }[] — no manual annotation
 ```
 
+Execution is real and tested against an actual SQLite database (`node:sqlite`):
+type coercion, `RETURNING`, transactions, and rollback. PostgreSQL runs via `postgres.js`.
+
 New here? Follow the **[Tutorial — Start here](tutorial/index.md)**: from your
-first model to typed queries, one concept per page.
+first model to running queries against a database, one concept per page.
 
 ## What's inside
 
 | Area | Pages |
 | --- | --- |
 | **Tutorial** | [Start here](tutorial/index.md) · [Models](tutorial/models.md) · [Queries](tutorial/queries.md) · [Insert, update, delete](tutorial/mutations.md) · [Running queries](tutorial/execution.md) · [Joins](tutorial/joins.md) |
+| **Recipes** | [created_at/updated_at](recipes/timestamps.md) · [Pagination](recipes/pagination.md) · [Transactions](recipes/transactions.md) · [JSON & enum](recipes/json-enum.md) |
+| **Examples** | [Todo CLI](examples/todo-cli.md) · [Blog](examples/blog.md) · [REST API](examples/rest-api.md) · [Migrations workflow](examples/migrations-workflow.md) |
 | **Guide** | [Architecture](architecture.md) · [Repository](repository.md) · [Migrations](migrations.md) · [API reference](reference.md) |
 | **Project** | [Roadmap](roadmap.md) · [Contributing](contributing.md) · [Changelog](changelog.md) |
 
 ## Principles
 
 1. **The type is the product.** Every feature ships type tests, not just runtime tests.
-2. **Zero string SQL.** Always parameterized (starting in Phase 4).
+2. **Zero string SQL.** Always parameterized — injection-safe by construction.
 3. **Class-first, but honest with TS.** We embrace what TS does well.
 4. **Docs follow the code.** Bilingual, tutorial-style, in the same commit.

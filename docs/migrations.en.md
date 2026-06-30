@@ -14,12 +14,13 @@ import {
 } from "tempest-db-js/migrations";
 ```
 
-!!! info "State"
+!!! success "State"
 
-    The core (reflect, diff, render, codegen, DAG graph, runner) is ready and really
-    runs against SQLite (`node:sqlite`). Introspection/drift and SQLite's batch-mode
-    for `alter_column` are the next refinements — see the
-    [Roadmap](roadmap.md).
+    Everything on this page works and is tested against real SQLite (`node:sqlite`):
+    reflect, diff, render, codegen, DAG graph, runner, **CLI**, **drift**
+    (`checkDrift`/`introspectSqlite`), and SQLite's **batch-mode** for column changes.
+    PostgreSQL (introspection, named enum, pool) exists structurally, but is not yet
+    exercised in CI — see the [Roadmap](roadmap.md).
 
 ## 1. From the model to the IR
 

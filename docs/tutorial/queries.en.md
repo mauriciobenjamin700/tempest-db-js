@@ -4,11 +4,12 @@ With the `User` model from the previous page, let's build `SELECT` queries. In
 tempest-db-js, `select(...)` returns a **chainable builder** that carries the result
 type — before you ever touch a database.
 
-!!! info "The builder doesn't execute (yet)"
+!!! info "Building is separate from executing"
 
-    At this stage, `select(...)` builds a **typed AST**. The one that executes is
-    Phase 4's `session.execute`. Today's value is **type safety**: the compiler
-    already knows the exact shape of what the query will return.
+    `select(...)` builds a **typed AST** — it doesn't touch the database on its own.
+    The one that runs it is `session.execute(...)`, which you'll see in
+    **[Running queries](execution.md)**. Separating the two keeps all the type
+    safety testable with just the compiler, and the `select` reusable in any session.
 
 ## Step 1 — Select everything
 
@@ -140,7 +141,7 @@ select(User, ["id", "missing"]);
 ## Inspecting the AST
 
 The builder exposes its AST at `.node` — useful for debugging and for
-understanding what will be compiled to SQL in Phase 4:
+understanding what will be compiled to SQL by the dialect:
 
 ```ts
 const q = select(User, ["id", "name"]).where({ age: { gt: 18 } }).limit(10);
@@ -161,8 +162,8 @@ console.log(q.node);
 
 - `select(Model)` → a builder with a `Row[]` result.
 - `select(Model, [cols])` → a projected `Pick<Row, cols>[]` result.
-- `.where({...})` validates the **keys** against the columns (operators: Phase 3).
+- `.where({...})` validates the **keys** against the columns and the **per-type operators**.
 - `.orderBy(col, dir)`, `.limit(n)`, `.offset(n)` chain and are immutable.
-- The AST lives at `.node`; execution is Phase 4.
+- The AST lives at `.node`; running it is `session.execute` — **[next part](mutations.md)**.
 
 Now let's **write** data. 👉 **[Insert, update, delete](mutations.md)**

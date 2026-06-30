@@ -81,12 +81,19 @@ linha plana do driver é **dividida** de volta em `{ user: {...}, order: {...} }
 coagindo cada lado pelo seu modelo. Pra `leftJoin`, quando todas as colunas do lado
 direito vêm nulas, aquele lado vira `null`.
 
-!!! note "Em evolução"
+!!! tip "Relations declarativas como alternativa"
 
-    Os operadores tipados-por-coluna (Fase 3) ainda não se aplicam ao `where` de
-    join — hoje as chaves `alias.column` são tipadas, mas o valor aceita match ou
-    operador sem restrição por tipo. Relations declarativas (`hasMany`/`belongsTo`)
-    e combinadores `and`/`or` também estão no roadmap.
+    Joins te dão o tipo composto `{ user, order }`. Quando você prefere **navegar
+    relações** (`user.posts`, `post.author`) sem montar o join na mão, use
+    `hasMany`/`belongsTo` + `loadRelations` — eager-load tipado, uma query por
+    relação, sem N+1. Veja **[Repository](../repository.md#relations-eager-load-tipado)**.
+
+!!! note "Limitação atual do `where` de join"
+
+    Os combinadores `and`/`or`/`not` funcionam no `where` de join, mas os
+    **operadores tipados-por-coluna** ainda não se aplicam ali: as chaves
+    `alias.column` são checadas, e o valor aceita match exato ou operador, porém sem
+    a restrição por tipo que o `select` tem. É o próximo refinamento de joins.
 
 ## Recap
 

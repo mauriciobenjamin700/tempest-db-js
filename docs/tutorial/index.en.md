@@ -48,12 +48,12 @@ this well on the next page.
 Make sure you have the prerequisites from [Installation](../installation.md):
 Node ≥ 20, TypeScript ≥ 5.7, and `strict: true` in your `tsconfig.json`.
 
-!!! info "You don't need a database yet"
+!!! info "The first pages don't even need a database"
 
-    Everything in this tutorial — declaring models, building
-    `select`/`insert`/`update`/`delete` — happens **at the type level**, without
-    touching any database. Real execution (`session.execute`) arrives in Phase 4.
-    So you can follow the entire tutorial with just the TypeScript compiler.
+    Declaring models and building `select`/`insert`/`update`/`delete` happens **at
+    the type level** — you can follow along with just the TypeScript compiler.
+    From **[Running queries](execution.md)** onward we connect a real SQLite (the
+    built-in `node:sqlite`, zero install) and run everything against a database.
 
 ## The path
 
@@ -63,5 +63,9 @@ Node ≥ 20, TypeScript ≥ 5.7, and `strict: true` in your `tsconfig.json`.
    and ordering.
 3. **[Insert, update, delete](mutations.md)** — typed `INSERT`/`UPDATE`/`DELETE`,
    including the guard that prevents accidentally wiping out an entire table.
+4. **[Running queries](execution.md)** — create an engine, open a session, and
+   **run the queries** against SQLite/PostgreSQL, with transactions and streaming.
+5. **[Joins](joins.md)** — combine tables into composite types, with correct
+   nullability on `leftJoin`.
 
 Ready? Let's get to the first model. 👉 **[Models](models.md)**
