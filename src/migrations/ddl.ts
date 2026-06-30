@@ -125,6 +125,25 @@ function enumTypeName(table: string, column: string): string {
   return `${table}_${column}`;
 }
 
+/** True when a column is the sole integer-family PK with no explicit default. */
+function isAutoIncrementPk(table: TableIR, col: ColumnIR): boolean {
+  return (
+    table.primaryKey.length === 1 &&
+    table.primaryKey[0] === col.name &&
+    col.default === null &&
+    (col.type.kind === "smallint" ||
+      col.type.kind === "integer" ||
+      col.type.kind === "bigint")
+  );
+}
+
+/** The PostgreSQL auto-incrementing serial type for an integer-family kind. */
+function postgresSerialType(kind: ColumnType["kind"]): string {
+  if (kind === "bigint") return "BIGSERIAL";
+  if (kind === "smallint") return "SMALLSERIAL";
+  return "SERIAL";
+}
+
 /**
  * Render a CREATE TABLE (plus, on PostgreSQL, any `CREATE TYPE ... AS ENUM` for
  * enum columns, which must precede the table). Returns the statement list.
@@ -140,6 +159,13 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
       if (c.notNull) def += " NOT NULL";
       if (c.default !== null) def += ` DEFAULT ${renderDefault(c.default, dialect)}`;
       return def;
+    }
+    // A lone integer-family primary key auto-increments (SQLAlchemy semantics).
+    // SQLite gets that for free from `INTEGER PRIMARY KEY` (rowid alias); on
+    // PostgreSQL it must be SERIAL/BIGSERIAL, or inserts without an explicit id
+    // fail the NOT NULL constraint.
+    if (dialect === "postgresql" && isAutoIncrementPk(table, c)) {
+      return `${quoteId(c.name)} ${postgresSerialType(c.type.kind)}`;
     }
     return renderColumnDef(c, dialect);
   });

@@ -453,6 +453,7 @@ export {
   NoResultError,
   NodeSqliteDriver,
   type PoolOptions,
+  type ReservedAsyncDriver,
   type RowOf,
   type SyncDriver,
   SyncEngine,
