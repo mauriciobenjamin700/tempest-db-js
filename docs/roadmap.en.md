@@ -83,15 +83,16 @@ that order, and no others for now.
 | Database | Status |
 | --- | --- |
 | **SQLite** | ✅ Complete and tested (`node:sqlite`). |
-| **PostgreSQL** | 🟡 Implemented (`postgres.js`); introspection/enum/pool still need validation against a real database in CI. |
+| **PostgreSQL** | 🟢 Real execution, transactions (reserved connection), auto-increment PK (`SERIAL`), named enum, introspection and drift — **tested against a real Postgres in CI**. The async migration runner is still pending (today's `MigrationRunner` is sync/SQLite). |
 | **MySQL** | ⏳ Next dialect, **after** the SQLite + PostgreSQL flow is complete. |
 
 ### Next refinements
 
-Close the **PostgreSQL** flow (validate introspection/enum/pool against a real Postgres),
-then add the **MySQL** dialect. Joins: per-column typed operators in `where`. Execution:
-`using`/asyncDispose, benchmark vs Drizzle/Kysely. Migrations: interactive rename,
-executable bin.
+Close the last **PostgreSQL** item — an **async migration runner** (the current
+`MigrationRunner` is synchronous, so Postgres migrations are still applied by rendering
+the DDL and executing it through the session) — then add the **MySQL** dialect. Joins:
+per-column typed operators in `where`. Execution: `using`/asyncDispose, benchmark vs
+Drizzle/Kysely. Migrations: interactive rename, executable bin.
 
 !!! info "Full details in the repository"
 

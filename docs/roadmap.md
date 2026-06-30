@@ -83,15 +83,16 @@ ordem, e nenhum outro por enquanto.
 | Banco | Status |
 | --- | --- |
 | **SQLite** | ✅ Completo e testado (`node:sqlite`). |
-| **PostgreSQL** | 🟡 Implementado (`postgres.js`); falta validar introspecção/enum/pool contra um banco real no CI. |
+| **PostgreSQL** | 🟢 Execução real, transações (conexão reservada), PK auto-incremento (`SERIAL`), enum nomeado, introspecção e drift — **testados contra um Postgres real no CI**. Falta o runner de migração async (hoje o `MigrationRunner` é síncrono/SQLite). |
 | **MySQL** | ⏳ Próximo dialeto, **após** o fluxo SQLite + PostgreSQL fechar. |
 
 ### Próximos refinamentos
 
-Fechar o fluxo **PostgreSQL** (validar introspecção/enum/pool contra um Postgres real)
-e então adicionar o dialeto **MySQL**. Joins: operadores tipados-por-coluna no `where`.
-Execução: `using`/asyncDispose, benchmark vs Drizzle/Kysely. Migrações: rename
-interativo, bin executável.
+Fechar o último item do **PostgreSQL** — um **runner de migração assíncrono** (o
+`MigrationRunner` atual é síncrono, então migrações em Postgres ainda são aplicadas
+renderizando o DDL e executando pela sessão) — e então adicionar o dialeto **MySQL**.
+Joins: operadores tipados-por-coluna no `where`. Execução: `using`/asyncDispose,
+benchmark vs Drizzle/Kysely. Migrações: rename interativo, bin executável.
 
 !!! info "Detalhes completos no repositório"
 
