@@ -6,12 +6,14 @@ import {
   QueryExecutionError,
   type SyncEngine,
   column,
+  count,
   createEngine,
   createSyncEngine,
   del,
   insert,
   select,
   sql,
+  sum,
   update,
 } from "../src/index.js";
 
@@ -297,6 +299,101 @@ describe("stream() — lazy iteration", () => {
     }
     expect(seen).toEqual([5, 6]);
     await engine.close();
+  });
+});
+
+describe("aggregate / GROUP BY (real SQLite)", () => {
+  class Sale extends Model {
+    static override tablename = "sales";
+    id = column.integer().primaryKey();
+    region = column.text().notNull();
+    amount = column.integer().notNull();
+  }
+  const DDL_SALES =
+    "CREATE TABLE sales (id INTEGER PRIMARY KEY, region TEXT NOT NULL, amount INTEGER NOT NULL)";
+
+  function seeded(): SyncEngine {
+    const e = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (e as any).driver.execute(DDL_SALES, []);
+    e.session().execute(
+      insert(Sale).values([
+        { id: 1, region: "north", amount: 100 },
+        { id: 2, region: "north", amount: 50 },
+        { id: 3, region: "south", amount: 70 },
+      ]),
+    );
+    return e;
+  }
+
+  it("groups and sums per region", () => {
+    const engine = seeded();
+    const rows = engine
+      .session()
+      .execute(
+        select(Sale)
+          .aggregate(["region"], { n: count(), total: sum("amount") })
+          .orderBy("region"),
+      )
+      .all() as { region: string; n: number; total: number | null }[];
+    expect(rows).toEqual([
+      { region: "north", n: 2, total: 150 },
+      { region: "south", n: 1, total: 70 },
+    ]);
+    engine.close();
+  });
+
+  it("whole-table aggregate returns one row; scalar reads the count", () => {
+    const engine = seeded();
+    const total = engine
+      .session()
+      .execute(select(Sale).aggregate([], { n: count() }))
+      .scalar();
+    expect(total).toBe(3);
+    engine.close();
+  });
+});
+
+describe("upsert — ON CONFLICT (real SQLite)", () => {
+  class Kv extends Model {
+    static override tablename = "kv";
+    key = column.text().primaryKey();
+    value = column.integer().notNull();
+  }
+  const DDL_KV = "CREATE TABLE kv (key TEXT PRIMARY KEY, value INTEGER NOT NULL)";
+
+  function fresh(): SyncEngine {
+    const e = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (e as any).driver.execute(DDL_KV, []);
+    return e;
+  }
+
+  it("DO UPDATE overwrites the conflicting row", () => {
+    const engine = fresh();
+    const s = engine.session();
+    s.execute(insert(Kv).values({ key: "a", value: 1 }));
+    s.execute(
+      insert(Kv)
+        .values({ key: "a", value: 99 })
+        .onConflictDoUpdate(["key"], { value: 99 }),
+    );
+    const row = s.execute(select(Kv).where({ key: "a" })).one() as {
+      key: string;
+      value: number;
+    };
+    expect(row.value).toBe(99);
+    engine.close();
+  });
+
+  it("DO NOTHING keeps the existing row", () => {
+    const engine = fresh();
+    const s = engine.session();
+    s.execute(insert(Kv).values({ key: "a", value: 1 }));
+    s.execute(insert(Kv).values({ key: "a", value: 99 }).onConflictDoNothing(["key"]));
+    const row = s.execute(select(Kv).where({ key: "a" })).one() as { value: number };
+    expect(row.value).toBe(1);
+    engine.close();
   });
 });
 

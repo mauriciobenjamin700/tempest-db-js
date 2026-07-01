@@ -25,12 +25,24 @@ export type Returning = readonly string[] | "*" | null;
 // INSERT
 // --------------------------------------------------------------------------
 
+/**
+ * Conflict-resolution clause for an INSERT (`ON CONFLICT`). `target` is the
+ * conflicting column(s) (a unique/PK constraint); `update` is `"nothing"` for
+ * `DO NOTHING`, or the columns to overwrite for `DO UPDATE SET`.
+ */
+export interface OnConflict {
+  readonly target: readonly string[];
+  readonly update: Record<string, unknown> | "nothing";
+}
+
 /** Serializable AST for an INSERT. */
 export interface InsertNode {
   readonly kind: "insert";
   readonly table: string;
   readonly values: readonly Record<string, unknown>[];
   readonly returning: Returning;
+  /** Conflict handling (`ON CONFLICT ...`), or `undefined` for none. */
+  readonly onConflict?: OnConflict;
 }
 
 /**
@@ -60,6 +72,32 @@ export class InsertBuilder<Full, Ins, Ret = number> {
       unknown
     >[];
     return this.with<Ret>({ values: list });
+  }
+
+  /**
+   * On a unique/PK conflict on `target`, do nothing (skip the row).
+   *
+   * @param target The conflicting column(s) — a unique or primary key.
+   */
+  onConflictDoNothing(
+    target: readonly (keyof Full & string)[],
+  ): InsertBuilder<Full, Ins, Ret> {
+    return this.with<Ret>({ onConflict: { target, update: "nothing" } });
+  }
+
+  /**
+   * On a unique/PK conflict on `target`, overwrite the given columns (upsert).
+   *
+   * @param target The conflicting column(s) — a unique or primary key.
+   * @param set The columns to update with new values.
+   */
+  onConflictDoUpdate(
+    target: readonly (keyof Full & string)[],
+    set: Partial<Full>,
+  ): InsertBuilder<Full, Ins, Ret> {
+    return this.with<Ret>({
+      onConflict: { target, update: set as Record<string, unknown> },
+    });
   }
 
   /** Return the full inserted row(s). */

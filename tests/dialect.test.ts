@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   Model,
+  avg,
   column,
+  count,
   del,
   getDialect,
   insert,
+  max,
   select,
   sql,
+  sum,
   update,
 } from "../src/index.js";
 
@@ -74,12 +78,48 @@ describe("SELECT compilation", () => {
     });
   });
 
+  it("emits SELECT DISTINCT", () => {
+    expect(sqlite.compile(select(User).distinct().node).sql).toBe(
+      'SELECT DISTINCT * FROM "users"',
+    );
+    expect(
+      sqlite.compile(select(User, ["age"]).distinct().where({ active: true }).node).sql,
+    ).toBe('SELECT DISTINCT "age" FROM "users" WHERE "active" = ?');
+  });
+
   it("renders empty IN / NOT IN safely", () => {
     expect(sqlite.compile(select(User).where({ id: { in: [] } }).node).sql).toContain(
       "1 = 0",
     );
     expect(sqlite.compile(select(User).where({ id: { notIn: [] } }).node).sql).toContain(
       "1 = 1",
+    );
+  });
+});
+
+describe("aggregate / GROUP BY compilation", () => {
+  it("compiles grouped aggregates with aliases", () => {
+    const q = select(User).aggregate(["active"], {
+      n: count(),
+      avgAge: avg("age"),
+      oldest: max("age"),
+    });
+    expect(sqlite.compile(q.node).sql).toBe(
+      'SELECT "active", COUNT(*) AS "n", AVG("age") AS "avgAge", MAX("age") AS "oldest" FROM "users" GROUP BY "active"',
+    );
+  });
+
+  it("compiles a whole-table aggregate (no group by)", () => {
+    const q = select(User).aggregate([], { total: count(), sumAge: sum("age") });
+    expect(sqlite.compile(q.node).sql).toBe(
+      'SELECT COUNT(*) AS "total", SUM("age") AS "sumAge" FROM "users"',
+    );
+  });
+
+  it("keeps WHERE before GROUP BY", () => {
+    const q = select(User).where({ active: true }).aggregate(["age"], { n: count() });
+    expect(sqlite.compile(q.node).sql).toBe(
+      'SELECT "age", COUNT(*) AS "n" FROM "users" WHERE "active" = ? GROUP BY "age"',
     );
   });
 });
@@ -118,6 +158,27 @@ describe("INSERT compilation", () => {
     expect(a.sql).toBe(b.sql);
     expect(a.params).toEqual(["A", 1, true]);
     expect(b.params).toEqual(["B", 2, false]);
+  });
+
+  it("compiles ON CONFLICT DO NOTHING", () => {
+    const q = insert(User)
+      .values({ name: "Ben", age: 30, active: true })
+      .onConflictDoNothing(["name"]);
+    expect(sqlite.compile(q.node)).toEqual({
+      sql: 'INSERT INTO "users" ("name", "age", "active") VALUES (?, ?, ?) ON CONFLICT ("name") DO NOTHING',
+      params: ["Ben", 30, true],
+    });
+  });
+
+  it("compiles ON CONFLICT DO UPDATE (upsert), binding SET values last", () => {
+    const q = insert(User)
+      .values({ name: "Ben", age: 30, active: true })
+      .onConflictDoUpdate(["name"], { age: 31, active: false })
+      .returning(["id"]);
+    expect(pg.compile(q.node)).toEqual({
+      sql: 'INSERT INTO "users" ("name", "age", "active") VALUES ($1, $2, $3) ON CONFLICT ("name") DO UPDATE SET "age" = $4, "active" = $5 RETURNING "id"',
+      params: ["Ben", 30, true, 31, false],
+    });
   });
 
   it("binds a null value as a placeholder (not IS NULL) in INSERT", () => {

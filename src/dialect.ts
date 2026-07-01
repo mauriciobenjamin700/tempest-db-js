@@ -125,12 +125,27 @@ export abstract class BaseDialect {
   // ---- statements -------------------------------------------------------
 
   private compileSelect(node: SelectNode, params: Params): string {
-    const cols =
-      node.columns === "*" ? "*" : node.columns.map((c) => this.quoteId(c)).join(", ");
-    let sql = `SELECT ${cols} FROM ${this.quoteId(node.table)}`;
+    let cols: string;
+    if (node.aggregates.length > 0) {
+      // Grouped/aggregate query: SELECT group cols + `FN(col) AS "alias"`.
+      const groupSel = node.groupBy.map((c) => this.quoteId(c));
+      const aggSel = node.aggregates.map((a) => {
+        const inner = a.column === "*" ? "*" : this.quoteId(a.column);
+        return `${a.fn.toUpperCase()}(${inner}) AS ${this.quoteId(a.alias)}`;
+      });
+      cols = [...groupSel, ...aggSel].join(", ");
+    } else {
+      cols =
+        node.columns === "*" ? "*" : node.columns.map((c) => this.quoteId(c)).join(", ");
+    }
+    let sql = `SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
 
     const where = this.compileCondition(node.where, params, (k) => this.quoteId(k));
     if (where) sql += ` WHERE ${where}`;
+
+    if (node.groupBy.length > 0) {
+      sql += ` GROUP BY ${node.groupBy.map((c) => this.quoteId(c)).join(", ")}`;
+    }
 
     if (node.orderBy.length > 0) {
       const terms = node.orderBy
@@ -153,25 +168,40 @@ export abstract class BaseDialect {
     for (const row of node.values) {
       for (const c of columns) params.bind((row as Record<string, unknown>)[c] ?? null);
     }
-    return this.insertTemplate(node, columns);
+    // ON CONFLICT DO UPDATE binds its SET values after the row values, in key order.
+    const conflictCols =
+      node.onConflict && node.onConflict.update !== "nothing"
+        ? Object.keys(node.onConflict.update)
+        : [];
+    for (const c of conflictCols) {
+      params.bind((node.onConflict?.update as Record<string, unknown>)[c]);
+    }
+    return this.insertTemplate(node, columns, conflictCols);
   }
 
   /**
    * The INSERT SQL template for a given structure, cached across calls.
    *
-   * The text depends only on (dialect, table, columns, row count, returning) —
-   * never on the bound values — and placeholder positions are deterministic from
-   * the row/column counts (a fresh statement always starts binding at 1). So a
-   * per-row insert loop compiles the string once and reuses it every row.
+   * The text depends only on (dialect, table, columns, row count, returning,
+   * conflict shape) — never on the bound values — and placeholder positions are
+   * deterministic from the counts (a fresh statement always starts binding at 1).
+   * So a per-row insert loop compiles the string once and reuses it every row.
    */
-  private insertTemplate(node: InsertNode, columns: readonly string[]): string {
+  private insertTemplate(
+    node: InsertNode,
+    columns: readonly string[],
+    conflictCols: readonly string[],
+  ): string {
     const returningKey =
       node.returning === null
         ? ""
         : node.returning === "*"
           ? "*"
           : node.returning.join(",");
-    const key = `${this.name}|${node.table}|${columns.join(",")}|${node.values.length}|${returningKey}`;
+    const conflictKey = node.onConflict
+      ? `${node.onConflict.target.join(",")}>${node.onConflict.update === "nothing" ? "nothing" : conflictCols.join(",")}`
+      : "";
+    const key = `${this.name}|${node.table}|${columns.join(",")}|${node.values.length}|${returningKey}|${conflictKey}`;
     const cached = BaseDialect.insertTemplates.get(key);
     if (cached !== undefined) return cached;
 
@@ -180,7 +210,19 @@ export abstract class BaseDialect {
     const rowsSql = node.values
       .map(() => `(${columns.map(() => this.placeholder(++position)).join(", ")})`)
       .join(", ");
-    const sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}${this.compileReturning(node.returning)}`;
+    let sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}`;
+    if (node.onConflict) {
+      const target = node.onConflict.target.map((c) => this.quoteId(c)).join(", ");
+      if (node.onConflict.update === "nothing") {
+        sql += ` ON CONFLICT (${target}) DO NOTHING`;
+      } else {
+        const assignments = conflictCols
+          .map((c) => `${this.quoteId(c)} = ${this.placeholder(++position)}`)
+          .join(", ");
+        sql += ` ON CONFLICT (${target}) DO UPDATE SET ${assignments}`;
+      }
+    }
+    sql += this.compileReturning(node.returning);
     BaseDialect.insertTemplates.set(key, sql);
     return sql;
   }

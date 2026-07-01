@@ -370,6 +370,12 @@ export {
 } from "./conditions.js";
 
 export {
+  Agg,
+  type AggregateTerm,
+  avg,
+  count,
+  max,
+  min,
   type Operator,
   type OperatorsFor,
   OPERATORS,
@@ -378,6 +384,7 @@ export {
   SelectBuilder,
   select,
   type SortDirection,
+  sum,
   type WhereInput,
 } from "./query.js";
 
@@ -388,6 +395,7 @@ export {
   InsertBuilder,
   type InsertNode,
   insert,
+  type OnConflict,
   type Returning,
   UpdateBuilder,
   type UpdateNode,
