@@ -448,6 +448,12 @@ export {
 } from "./repository.js";
 
 export {
+  ActiveRecord,
+  type ActiveRecordManager,
+  activeRecord,
+} from "./active-record.js";
+
+export {
   type BelongsTo,
   belongsTo,
   type HasMany,

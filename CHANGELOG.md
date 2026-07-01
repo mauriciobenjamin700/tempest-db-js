@@ -109,6 +109,23 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **Benchmark** — `npm run bench` (`bench/sqlite-bench.mjs`) compara insert/scan/
   filter/lookup vs Drizzle e Kysely; resultados e metodologia em `BENCHMARKS.md`.
 
+### DX & API
+
+- **Erros de query com contexto** — `QueryExecutionError` envolve o erro do
+  driver e anexa o SQL que falhou + os params. Todo statement do session
+  (execute/stream/transaction/savepoint) reporta contexto no throw.
+- **Logging opcional de query** — `EngineOptions.onQuery` (`QueryLogger`),
+  chamado por statement com `{ sql, params }`. Erros do logger são engolidos.
+- **`SELECT DISTINCT`** — `select(...).distinct()`.
+- **Agregações tipadas** — helpers `count`/`sum`/`avg`/`min`/`max` +
+  `select(M).aggregate(groupBy, spec)`. Linha resultante = colunas de grupo
+  (do modelo) + `{ [alias]: resultado }`; compila `GROUP BY`.
+- **Upsert** — `insert(M).onConflictDoNothing(target)` /
+  `onConflictDoUpdate(target, set)` → `ON CONFLICT (...) DO NOTHING | DO UPDATE`.
+- **Active-record opt-in** — `activeRecord(Model, session)` +
+  `ActiveRecord` com `save`/`update`/`delete`/`reload` sobre `.data` (linha
+  plana). Não altera o retorno plano default — é explícito.
+
 ### Performance
 
 - **Cache de prepared-statement** no `NodeSqliteDriver` — `prepare()` por texto
