@@ -18,9 +18,14 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import type { CliConfig } from "./migrations/cli.js";
 import { runMigrationCli } from "./migrations/cli.js";
+import { diffSchema } from "./migrations/diff.js";
+import { reflectSchema } from "./migrations/ir.js";
+import { type RenameCandidate, detectRenames } from "./migrations/renames.js";
+import { replaySchema } from "./migrations/replay.js";
 
 /** Config file names looked up in the current directory, in order. */
 const DEFAULT_CONFIG_NAMES: readonly string[] = [
@@ -94,6 +99,63 @@ async function loadConfig(path: string): Promise<CliConfig> {
   return config;
 }
 
+/** Turn a confirmed candidate into the `--rename-*` flag args the CLI parses. */
+function renameToFlags(r: RenameCandidate): string[] {
+  return r.kind === "table"
+    ? ["--rename-table", `${r.from}:${r.to}`]
+    : ["--rename-column", `${r.table}.${r.from}:${r.to}`];
+}
+
+/**
+ * When running `revision --autogenerate` at an interactive TTY, detect rename
+ * candidates and ask the user to confirm each; return the `--rename-*` flags for
+ * the accepted ones. No-op when not autogenerating, when `--autorename` or
+ * explicit `--rename-*` flags are already present, when there are no models, or
+ * when stdin is not a TTY (CI, pipes).
+ *
+ * @param config The loaded migration config.
+ * @param rest The CLI command arguments.
+ * @returns Extra `--rename-*` args to append before dispatching.
+ */
+async function promptRenames(
+  config: CliConfig,
+  rest: readonly string[],
+): Promise<string[]> {
+  const decided =
+    rest.includes("--autorename") ||
+    rest.includes("--rename-table") ||
+    rest.includes("--rename-column");
+  if (
+    rest[0] !== "revision" ||
+    !rest.includes("--autogenerate") ||
+    decided ||
+    !config.models ||
+    !process.stdin.isTTY
+  ) {
+    return [];
+  }
+
+  const ops = diffSchema(replaySchema(config.migrations), reflectSchema(config.models));
+  const candidates = detectRenames(ops);
+  if (candidates.length === 0) return [];
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const flags: string[] = [];
+  try {
+    for (const c of candidates) {
+      const what =
+        c.kind === "table"
+          ? `table "${c.from}" → "${c.to}"`
+          : `column "${c.table}.${c.from}" → "${c.table}.${c.to}"`;
+      const answer = (await rl.question(`Rename ${what}? [y/N] `)).trim().toLowerCase();
+      if (answer === "y" || answer === "yes") flags.push(...renameToFlags(c));
+    }
+  } finally {
+    rl.close();
+  }
+  return flags;
+}
+
 /**
  * Run the `tempest-db` CLI end to end: discover + load the config, dispatch the
  * command, print output, and exit with the CLI's status code.
@@ -127,7 +189,8 @@ export async function main(argv: readonly string[]): Promise<void> {
     ...config,
     appliedAt: config.appliedAt ?? new Date().toISOString(),
   };
-  const result = runMigrationCli(rest, withClock);
+  const renameFlags = await promptRenames(withClock, rest);
+  const result = runMigrationCli([...rest, ...renameFlags], withClock);
   const sink = result.code === 0 ? process.stdout : process.stderr;
   for (const line of result.lines) sink.write(`${line}\n`);
   process.exitCode = result.code;

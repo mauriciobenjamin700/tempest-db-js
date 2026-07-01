@@ -16,6 +16,8 @@ import { diffSchema } from "./diff.js";
 import { heads as graphHeads, topoOrder } from "./graph.js";
 import { checkDrift } from "./introspect.js";
 import { reflectSchema } from "./ir.js";
+import type { Operation } from "./operations.js";
+import { type RenameCandidate, applyRenames, detectRenames } from "./renames.js";
 import { replaySchema } from "./replay.js";
 import { type Migration, MigrationRunner, Op } from "./runner.js";
 
@@ -67,6 +69,40 @@ function ok(lines: string[]): CliResult {
 }
 function fail(lines: string[]): CliResult {
   return { code: 1, lines };
+}
+
+/**
+ * Parse rename flags into explicit rename candidates.
+ *
+ * `--rename-table <from>:<to>` and `--rename-column <table>.<from>:<to>` may each
+ * be repeated. Malformed specs are ignored (the safe drop + add stays).
+ *
+ * @param rest The command arguments.
+ * @returns The explicitly requested renames.
+ */
+function parseRenameFlags(rest: readonly string[]): RenameCandidate[] {
+  const out: RenameCandidate[] = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i];
+    if (arg === "--rename-table") {
+      const [from, to] = (rest[i + 1] ?? "").split(":");
+      i += 1;
+      if (from && to) out.push({ kind: "table", from, to });
+    } else if (arg === "--rename-column") {
+      const [left, to] = (rest[i + 1] ?? "").split(":");
+      i += 1;
+      const dot = left?.lastIndexOf(".") ?? -1;
+      if (left && to && dot > 0) {
+        out.push({
+          kind: "column",
+          table: left.slice(0, dot),
+          from: left.slice(dot + 1),
+          to,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** Pending migrations (DAG order) not yet applied. */
@@ -160,9 +196,17 @@ export function runMigrationCli(argv: readonly string[], config: CliConfig): Cli
       const msgIndex = rest.indexOf("-m");
       const label = msgIndex >= 0 ? (rest[msgIndex + 1] ?? "revision") : "revision";
       const parents = graphHeads(config.migrations);
-      const ops = rest.includes("--autogenerate")
+      let ops: Operation[] = rest.includes("--autogenerate")
         ? diffSchema(replaySchema(config.migrations), reflectSchema(config.models))
         : [];
+      if (rest.includes("--autogenerate")) {
+        // Fold add/drop pairs into renames: `--autorename` accepts every
+        // detected candidate; otherwise only the explicit `--rename-*` flags.
+        const confirmed = rest.includes("--autorename")
+          ? detectRenames(ops)
+          : parseRenameFlags(rest);
+        if (confirmed.length > 0) ops = applyRenames(ops, confirmed);
+      }
       const source = generateMigration({
         revision: makeRevisionId(label, parents),
         downRevision: parents,

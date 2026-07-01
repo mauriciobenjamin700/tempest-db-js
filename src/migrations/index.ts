@@ -60,6 +60,12 @@ export {
 export { applyOperation, replaySchema } from "./replay.js";
 
 export {
+  applyRenames,
+  detectRenames,
+  type RenameCandidate,
+} from "./renames.js";
+
+export {
   type CliConfig,
   type CliResult,
   defineMigrationConfig,
