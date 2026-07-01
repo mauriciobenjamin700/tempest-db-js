@@ -119,9 +119,13 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **Row-mapper compilado** — `coerceRow` monta um mapa de decoders por coluna
   (só as que precisam de coerção), memoizado por modelo, em vez de re-dispatchar
   o switch de tipo por linha.
-- Efeito medido (20k linhas, `node:sqlite`): insert 64ms→26ms, scan 22ms→10ms,
-  lookups 5ms→1.8ms. tempest-db-js passa a ser o mais próximo do piso `node:sqlite`
-  entre os ORMs comparados.
+- **Cache do template SQL de INSERT** por estrutura (`dialeto|tabela|colunas|
+  nº de linhas|returning`) — o texto do INSERT independe dos valores, então o
+  loop de insert por linha compila a string uma vez e reusa; params seguem
+  extraídos por chamada.
+- Efeito medido (20k linhas, `node:sqlite`): insert 64ms→18ms, scan 22ms→9ms,
+  lookups 5ms→1.9ms. tempest-db-js passa a ser o mais próximo do piso `node:sqlite`
+  entre os ORMs comparados (~10× mais rápido que Drizzle no insert).
 
 ### Notas
 

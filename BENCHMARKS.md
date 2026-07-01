@@ -35,17 +35,18 @@ biblioteca e reporta a **mediana** do tempo de parede:
 
 | library | insert 20k | scan all | filter scan | 1000 lookups |
 |---|--:|--:|--:|--:|
-| raw node:sqlite | 7.2ms | 6.2ms | 2.5ms | 0.8ms |
-| **tempest-db-js** | **26ms** | **10ms** | **3.5ms** | **1.8ms** |
-| drizzle | 207ms | 6.5ms | 2.5ms | 17ms |
-| kysely | 122ms | 4.8ms | 2.0ms | 6.4ms |
+| raw node:sqlite | 7.0ms | 6.4ms | 2.5ms | 0.7ms |
+| **tempest-db-js** | **18ms** | **9ms** | **3.3ms** | **1.9ms** |
+| drizzle | 208ms | 6.8ms | 2.6ms | 19ms |
+| kysely | 123ms | 4.6ms | 1.9ms | 6.4ms |
 
 ## Leitura
 
-- **Insert / lookups:** tempest-db-js é **~5–8× mais rápido que Drizzle** e
-  ~3–4× mais rápido que Kysely. Fica logo acima do piso `node:sqlite`. A
-  ausência de overhead de Promise no caminho sync + o cache de prepared
-  statement (reuso do `prepare()` por texto SQL) dominam o ganho.
+- **Insert / lookups:** tempest-db-js é **~10× mais rápido que Drizzle** e ~7×
+  mais rápido que Kysely no insert. Fica logo acima do piso `node:sqlite`. A
+  ausência de overhead de Promise no caminho sync + cache de prepared statement
+  (reuso do `prepare()`) + cache do template SQL de INSERT por estrutura dominam
+  o ganho.
 - **Scan / filter:** perto do piso e à frente de Drizzle/Kysely nos scans
   grandes. A coerção de linha por tipo (`Date`/`bigint`/`json`/`boolean`) usa um
   **row-mapper compilado por modelo** (decoders pré-resolvidos por coluna,
@@ -59,7 +60,11 @@ biblioteca e reporta a **mediana** do tempo de parede:
   cada linha lida.
 - **Row-mapper compilado**: `coerceRow` usa um mapa de decoders por coluna
   (só as que precisam de coerção), montado uma vez por modelo.
+- **Cache do template SQL de INSERT** por estrutura (`dialeto|tabela|colunas|
+  nº de linhas|returning`): o loop de insert por linha compila a string uma vez
+  e reusa em todas; params seguem extraídos por chamada.
 
 > ⚠️ Benchmark é diagnóstico, não marketing. O objetivo é guiar otimização e
-> detectar regressão, não declarar vencedor. Próximos candidatos: cache da
-> compilação AST → SQL por forma de query, e batch de INSERT multi-row.
+> detectar regressão, não declarar vencedor. Próximos candidatos: cache de
+> template para SELECT/UPDATE/DELETE (cuidando das ramificações null/IN que
+> alteram o SQL) e INSERT multi-row em chunks.
