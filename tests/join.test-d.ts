@@ -76,3 +76,47 @@ describe("Phase 5 — on/where/orderBy refs are typed", () => {
       .orderBy("order.amount", "desc");
   });
 });
+
+describe("Phase 5 — operators typed per join column", () => {
+  it("accepts ordered operators on a numeric join column", () => {
+    join(User, "user")
+      .innerJoin(Order, "order", { "user.id": "order.userId" })
+      .where({ "order.amount": { gte: 100, lt: 500 } });
+  });
+
+  it("accepts string operators on a string join column", () => {
+    join(User, "user")
+      .innerJoin(Order, "order", { "user.id": "order.userId" })
+      .where({ "order.status": { like: "%paid%" }, "user.name": { ilike: "%ben%" } });
+  });
+
+  it("accepts bare-value shorthand (eq) mixed with operator objects", () => {
+    join(User, "user")
+      .innerJoin(Order, "order", { "user.id": "order.userId" })
+      .where({ "user.id": 1, "order.amount": { gt: 0 } });
+  });
+
+  it("rejects `like` on a numeric join column", () => {
+    const q = join(User, "user").innerJoin(Order, "order", {
+      "user.id": "order.userId",
+    });
+    // @ts-expect-error - like is not valid on a number column
+    q.where({ "order.amount": { like: "%x%" } });
+  });
+
+  it("rejects `gt` on a string join column", () => {
+    const q = join(User, "user").innerJoin(Order, "order", {
+      "user.id": "order.userId",
+    });
+    // @ts-expect-error - gt is not valid on a string column
+    q.where({ "order.status": { gt: "a" } });
+  });
+
+  it("rejects a wrong-typed eq value", () => {
+    const q = join(User, "user").innerJoin(Order, "order", {
+      "user.id": "order.userId",
+    });
+    // @ts-expect-error - amount is a number, not a string
+    q.where({ "order.amount": "lots" });
+  });
+});

@@ -11,7 +11,7 @@
 
 import { type CondNode, type Condition, toCondNode } from "./conditions.js";
 import { type InferModel, type ModelClass, columnsOf } from "./index.js";
-import type { SortDirection } from "./query.js";
+import type { OperatorsFor, SortDirection } from "./query.js";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -32,8 +32,31 @@ export interface JoinSelection {
   readonly column: string;
 }
 
-/** `where` filter for a join: keys are `alias.column` refs (object form). */
-export type JoinWhereInput = Record<string, unknown>;
+/** Collapse a union of object types into their intersection. */
+type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (
+  k: infer I,
+) => void
+  ? I
+  : never;
+
+/**
+ * `where` filter for a join. Keys are `alias.column` refs; each value accepts a
+ * bare value (shorthand for `eq`) or an operator object restricted to the
+ * operators valid for that column's type — exactly like the single-table
+ * {@link WhereInput}, but qualified per source. `like` on a numeric join column,
+ * or `gt` on a string one, is a compile error.
+ */
+export type JoinWhereInput<S extends Sources> = Partial<
+  UnionToIntersection<
+    {
+      [A in keyof S]: {
+        [C in keyof NonNullable<S[A]> & string as `${A & string}.${C}`]:
+          | NonNullable<S[A]>[C]
+          | OperatorsFor<NonNullable<NonNullable<S[A]>[C]>>;
+      };
+    }[keyof S]
+  >
+>;
 
 /** Serializable AST for a multi-table SELECT. */
 export interface JoinNode {
@@ -150,7 +173,7 @@ export class JoinBuilder<S extends Sources> {
   }
 
   /** Filter by `alias.column` references (object form) or an `and`/`or`/`not`. */
-  where(input: Partial<Record<ColRef<S>, unknown>> | Condition): JoinBuilder<S> {
+  where(input: JoinWhereInput<S> | Condition): JoinBuilder<S> {
     return new JoinBuilder<S>(
       { ...this.node, where: toCondNode(input as Record<string, unknown>) },
       this.sources,
