@@ -463,6 +463,8 @@ export {
   NoResultError,
   NodeSqliteDriver,
   type PoolOptions,
+  QueryExecutionError,
+  type QueryLogger,
   type ReservedAsyncDriver,
   type RowOf,
   type SyncDriver,

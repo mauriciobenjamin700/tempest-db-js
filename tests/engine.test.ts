@@ -3,6 +3,7 @@ import {
   type InferModel,
   Model,
   NoResultError,
+  QueryExecutionError,
   type SyncEngine,
   column,
   createEngine,
@@ -296,6 +297,67 @@ describe("stream() — lazy iteration", () => {
     }
     expect(seen).toEqual([5, 6]);
     await engine.close();
+  });
+});
+
+describe("DX — query logging + error context", () => {
+  class Item extends Model {
+    static override tablename = "items";
+    id = column.integer().primaryKey();
+    name = column.text().notNull();
+  }
+  const DDL_ITEMS = "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)";
+
+  it("invokes onQuery for every statement with sql + params", () => {
+    const seen: { sql: string; params: readonly unknown[] }[] = [];
+    const engine = createSyncEngine("sqlite://:memory:", {
+      onQuery: (e) => seen.push(e),
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    s.execute(insert(Item).values({ id: 1, name: "a" }));
+    s.execute(select(Item).where({ id: 1 }));
+    const insertLog = seen.find((e) => e.sql.startsWith("INSERT"));
+    const selectLog = seen.find((e) => e.sql.startsWith("SELECT"));
+    expect(insertLog?.params).toEqual([1, "a"]);
+    expect(selectLog?.params).toEqual([1]);
+    engine.close();
+  });
+
+  it("wraps driver errors in QueryExecutionError with sql + params", () => {
+    const engine = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    let caught: unknown;
+    try {
+      // duplicate PK → driver throws; session wraps it
+      s.execute(insert(Item).values({ id: 1, name: "a" }));
+      s.execute(insert(Item).values({ id: 1, name: "b" }));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(QueryExecutionError);
+    const qe = caught as QueryExecutionError;
+    expect(qe.sql).toContain("INSERT INTO");
+    expect(qe.params).toEqual([1, "b"]);
+    expect(qe.message).toContain("SQL:");
+    expect(qe.cause).toBeDefined();
+    engine.close();
+  });
+
+  it("a logger that throws does not break execution", () => {
+    const engine = createSyncEngine("sqlite://:memory:", {
+      onQuery: () => {
+        throw new Error("logger boom");
+      },
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    expect(() => s.execute(insert(Item).values({ id: 1, name: "a" }))).not.toThrow();
+    engine.close();
   });
 });
 

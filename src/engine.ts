@@ -235,6 +235,61 @@ export class NoResultError extends Error {
   }
 }
 
+/** A short, safe preview of a bound parameter for an error message. */
+function previewParam(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (value instanceof Uint8Array) return `<${value.length} bytes>`;
+  const text = typeof value === "string" ? value : String(value);
+  return text.length > 64 ? `${text.slice(0, 61)}...` : text;
+}
+
+/**
+ * Raised when the driver rejects a statement. Wraps the original driver error
+ * and attaches the offending SQL and its bound parameters, so a failure points
+ * at the exact query instead of an opaque driver message.
+ */
+export class QueryExecutionError extends Error {
+  constructor(
+    /** The original error thrown by the driver. */
+    override readonly cause: unknown,
+    /** The SQL that failed. */
+    readonly sql: string,
+    /** The bound parameters, in order. */
+    readonly params: readonly unknown[],
+  ) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(
+      `Query failed: ${reason}\n  SQL: ${sql}\n  params: [${params
+        .map(previewParam)
+        .join(", ")}]`,
+    );
+    this.name = "QueryExecutionError";
+  }
+}
+
+/**
+ * A hook invoked for every statement a session runs (query logging / tracing).
+ * Errors thrown by the logger are ignored so logging never breaks execution.
+ */
+export type QueryLogger = (event: {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+}) => void;
+
+/** Invoke a query logger, swallowing any error it throws. */
+function emitLog(
+  logger: QueryLogger | undefined,
+  sql: string,
+  params: readonly unknown[],
+): void {
+  if (!logger) return;
+  try {
+    logger({ sql, params });
+  } catch {
+    // logging must never break execution
+  }
+}
+
 function firstScalar(row: Record<string, unknown> | undefined): unknown {
   if (!row) return null;
   const keys = Object.keys(row);
@@ -315,27 +370,39 @@ export class SyncSession {
   constructor(
     private readonly driver: SyncDriver,
     private readonly dialect: BaseDialect,
+    /** Optional per-statement logger (query tracing). */
+    private readonly logger?: QueryLogger,
   ) {}
+
+  /** Log, run, and error-wrap one raw statement. */
+  private exec(sql: string, params: readonly unknown[]): DriverResult {
+    emitLog(this.logger, sql, params);
+    try {
+      return this.driver.execute(sql, params);
+    } catch (error) {
+      throw new QueryExecutionError(error, sql, params);
+    }
+  }
 
   /** Compile, run, and coerce a builder into a result. */
   execute<B extends Executable>(builder: B): SyncResult<RowOf<B>> {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
-    const result = this.driver.execute(sql, params);
+    const result = this.exec(sql, params);
     const rows = mapRows(builder, result.rows) as RowOf<B>[];
     return new SyncResult<RowOf<B>>(rows, result.changes);
   }
 
   /** Run `fn` inside a transaction: commit on success, rollback on throw. */
   transaction<T>(fn: (tx: SyncSession) => T): T {
-    this.driver.execute("BEGIN", []);
+    this.exec("BEGIN", []);
     try {
       const out = fn(this);
-      this.driver.execute("COMMIT", []);
+      this.exec("COMMIT", []);
       return out;
     } catch (error) {
-      this.driver.execute("ROLLBACK", []);
+      this.exec("ROLLBACK", []);
       throw error;
     }
   }
@@ -344,13 +411,13 @@ export class SyncSession {
   beginNested<T>(fn: (sp: SyncSession) => T): T {
     savepointCounter += 1;
     const name = `qsp_${savepointCounter}`;
-    this.driver.execute(`SAVEPOINT ${name}`, []);
+    this.exec(`SAVEPOINT ${name}`, []);
     try {
       const out = fn(this);
-      this.driver.execute(`RELEASE ${name}`, []);
+      this.exec(`RELEASE ${name}`, []);
       return out;
     } catch (error) {
-      this.driver.execute(`ROLLBACK TO ${name}`, []);
+      this.exec(`ROLLBACK TO ${name}`, []);
       throw error;
     }
   }
@@ -363,13 +430,18 @@ export class SyncSession {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
+    emitLog(this.logger, sql, params);
     if (this.driver.iterate) {
-      for (const raw of this.driver.iterate(sql, params)) {
-        yield coerceOne(builder, raw) as RowOf<B>;
+      try {
+        for (const raw of this.driver.iterate(sql, params)) {
+          yield coerceOne(builder, raw) as RowOf<B>;
+        }
+      } catch (error) {
+        throw new QueryExecutionError(error, sql, params);
       }
       return;
     }
-    for (const raw of this.driver.execute(sql, params).rows) {
+    for (const raw of this.exec(sql, params).rows) {
       yield coerceOne(builder, raw) as RowOf<B>;
     }
   }
@@ -389,13 +461,25 @@ export class AsyncSession {
   constructor(
     private readonly driver: AsyncDriver,
     private readonly dialect: BaseDialect,
+    /** Optional per-statement logger (query tracing). */
+    private readonly logger?: QueryLogger,
   ) {}
+
+  /** Log, run, and error-wrap one raw statement. */
+  private async exec(sql: string, params: readonly unknown[]): Promise<DriverResult> {
+    emitLog(this.logger, sql, params);
+    try {
+      return await this.driver.execute(sql, params);
+    } catch (error) {
+      throw new QueryExecutionError(error, sql, params);
+    }
+  }
 
   execute<B extends Executable>(builder: B): AsyncResult<RowOf<B>> {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
-    const inner = this.driver.execute(sql, params).then((result) => {
+    const inner = this.exec(sql, params).then((result) => {
       const rows = mapRows(builder, result.rows) as RowOf<B>[];
       return new SyncResult<RowOf<B>>(rows, result.changes);
     });
@@ -407,13 +491,18 @@ export class AsyncSession {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
+    emitLog(this.logger, sql, params);
     if (this.driver.iterate) {
-      for await (const raw of this.driver.iterate(sql, params)) {
-        yield coerceOne(builder, raw) as RowOf<B>;
+      try {
+        for await (const raw of this.driver.iterate(sql, params)) {
+          yield coerceOne(builder, raw) as RowOf<B>;
+        }
+      } catch (error) {
+        throw new QueryExecutionError(error, sql, params);
       }
       return;
     }
-    const result = await this.driver.execute(sql, params);
+    const result = await this.exec(sql, params);
     for (const raw of result.rows) {
       yield coerceOne(builder, raw) as RowOf<B>;
     }
@@ -425,26 +514,26 @@ export class AsyncSession {
     // rejects the raw transaction. Single-connection drivers (SQLite) skip this.
     if (this.driver.reserve) {
       const reserved = await this.driver.reserve();
-      const scoped = new AsyncSession(reserved, this.dialect);
+      const scoped = new AsyncSession(reserved, this.dialect, this.logger);
       try {
-        await reserved.execute("BEGIN", []);
+        await scoped.exec("BEGIN", []);
         const out = await fn(scoped);
-        await reserved.execute("COMMIT", []);
+        await scoped.exec("COMMIT", []);
         return out;
       } catch (error) {
-        await reserved.execute("ROLLBACK", []);
+        await scoped.exec("ROLLBACK", []);
         throw error;
       } finally {
         await reserved.release();
       }
     }
-    await this.driver.execute("BEGIN", []);
+    await this.exec("BEGIN", []);
     try {
       const out = await fn(this);
-      await this.driver.execute("COMMIT", []);
+      await this.exec("COMMIT", []);
       return out;
     } catch (error) {
-      await this.driver.execute("ROLLBACK", []);
+      await this.exec("ROLLBACK", []);
       throw error;
     }
   }
@@ -479,16 +568,24 @@ export interface EngineOptions {
   readonly driver?: string;
   /** Connection-pool tuning (PostgreSQL only). */
   readonly pool?: PoolOptions;
+  /**
+   * Called for every statement a session runs — SQL + bound params. Use for
+   * query logging/tracing. Thrown errors are swallowed so it never breaks a query.
+   */
+  readonly onQuery?: QueryLogger;
 }
 
 /** A synchronous engine (SQLite only). */
 export class SyncEngine {
   readonly dialect: Dialect = "sqlite";
 
-  constructor(private readonly driver: SyncDriver) {}
+  constructor(
+    private readonly driver: SyncDriver,
+    private readonly logger?: QueryLogger,
+  ) {}
 
   session(): SyncSession {
-    return new SyncSession(this.driver, getDialect("sqlite"));
+    return new SyncSession(this.driver, getDialect("sqlite"), this.logger);
   }
 
   transaction<T>(fn: (tx: SyncSession) => T): T {
@@ -510,10 +607,11 @@ export class AsyncEngine {
   constructor(
     private readonly driver: AsyncDriver,
     readonly dialect: Dialect,
+    private readonly logger?: QueryLogger,
   ) {}
 
   session(): AsyncSession {
-    return new AsyncSession(this.driver, getDialect(this.dialect));
+    return new AsyncSession(this.driver, getDialect(this.dialect), this.logger);
   }
 
   transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
@@ -567,7 +665,10 @@ export function createSyncEngine(url: string, options?: EngineOptions): SyncEngi
       `createSyncEngine supports only SQLite; ${parsed.dialect} is async-only — use createEngine.`,
     );
   }
-  return new SyncEngine(openSqliteDriver(parsed.database ?? ":memory:", options));
+  return new SyncEngine(
+    openSqliteDriver(parsed.database ?? ":memory:", options),
+    options?.onQuery,
+  );
 }
 
 /**
@@ -586,10 +687,15 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
     return new AsyncEngine(
       asAsync(openSqliteDriver(parsed.database ?? ":memory:", options)),
       "sqlite",
+      options?.onQuery,
     );
   }
   // PostgreSQL: postgres.js is lazy-loaded the first time a query runs.
-  return new AsyncEngine(createPostgresDriver(parsed.raw, options?.pool), "postgresql");
+  return new AsyncEngine(
+    createPostgresDriver(parsed.raw, options?.pool),
+    "postgresql",
+    options?.onQuery,
+  );
 }
 
 /** Shape a postgres.js result array into our `DriverResult`. */
