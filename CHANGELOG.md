@@ -109,6 +109,20 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **Benchmark** — `npm run bench` (`bench/sqlite-bench.mjs`) compara insert/scan/
   filter/lookup vs Drizzle e Kysely; resultados e metodologia em `BENCHMARKS.md`.
 
+### Performance
+
+- **Cache de prepared-statement** no `NodeSqliteDriver` — `prepare()` por texto
+  SQL, reusado entre execuções (tempest sempre parametriza, então a forma de
+  query mapeia pra um SQL estável). Maior ganho em insert/lookup.
+- **`columnsOf` memoizado** por classe (WeakMap) — antes reinstanciava o modelo
+  a cada linha lida.
+- **Row-mapper compilado** — `coerceRow` monta um mapa de decoders por coluna
+  (só as que precisam de coerção), memoizado por modelo, em vez de re-dispatchar
+  o switch de tipo por linha.
+- Efeito medido (20k linhas, `node:sqlite`): insert 64ms→26ms, scan 22ms→10ms,
+  lookups 5ms→1.8ms. tempest-db-js passa a ser o mais próximo do piso `node:sqlite`
+  entre os ORMs comparados.
+
 ### Notas
 
 - Pré-alpha (`v0.0.0`). A superfície pública ainda muda. Não publicado no npm.

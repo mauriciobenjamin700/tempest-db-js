@@ -84,6 +84,14 @@ function encodeSqliteParam(value: unknown): unknown {
 export class NodeSqliteDriver implements SyncDriver {
   // biome-ignore lint/suspicious/noExplicitAny: node:sqlite DatabaseSync has no shipped types here.
   private readonly db: any;
+  /**
+   * Prepared-statement cache keyed by SQL text. tempest-db-js always
+   * parameterizes, so a query shape maps to one stable SQL string — reusing the
+   * compiled statement avoids re-`prepare()` on every call (the dominant cost of
+   * per-row inserts and point lookups).
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: node:sqlite StatementSync has no shipped types here.
+  private readonly statements = new Map<string, any>();
 
   // biome-ignore lint/suspicious/noExplicitAny: accept an already-open DatabaseSync handle.
   constructor(database: any) {
@@ -99,8 +107,18 @@ export class NodeSqliteDriver implements SyncDriver {
     return new NodeSqliteDriver(new DatabaseSync(path));
   }
 
-  execute(sql: string, params: readonly unknown[]): DriverResult {
+  /** Return the cached prepared statement for `sql`, preparing it on first use. */
+  // biome-ignore lint/suspicious/noExplicitAny: statement type is unavailable here.
+  private prepare(sql: string): any {
+    const cached = this.statements.get(sql);
+    if (cached) return cached;
     const stmt = this.db.prepare(sql);
+    this.statements.set(sql, stmt);
+    return stmt;
+  }
+
+  execute(sql: string, params: readonly unknown[]): DriverResult {
+    const stmt = this.prepare(sql);
     const bound = params.map(encodeSqliteParam);
     if (returnsRows(sql)) {
       return { rows: stmt.all(...bound) as Record<string, unknown>[], changes: 0 };
@@ -113,12 +131,13 @@ export class NodeSqliteDriver implements SyncDriver {
     sql: string,
     params: readonly unknown[],
   ): IterableIterator<Record<string, unknown>> {
-    const stmt = this.db.prepare(sql);
+    const stmt = this.prepare(sql);
     const bound = params.map(encodeSqliteParam);
     yield* stmt.iterate(...bound) as IterableIterator<Record<string, unknown>>;
   }
 
   close(): void {
+    this.statements.clear();
     this.db.close();
   }
 }

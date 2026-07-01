@@ -35,23 +35,31 @@ biblioteca e reporta a **mediana** do tempo de parede:
 
 | library | insert 20k | scan all | filter scan | 1000 lookups |
 |---|--:|--:|--:|--:|
-| raw node:sqlite | 7.2ms | 6.5ms | 2.5ms | 0.8ms |
-| **tempest-db-js** | **64ms** | 22ms | 7ms | **5ms** |
-| drizzle | 201ms | 6.9ms | 2.4ms | 16ms |
-| kysely | 120ms | 4.7ms | 1.9ms | 6ms |
+| raw node:sqlite | 7.2ms | 6.2ms | 2.5ms | 0.8ms |
+| **tempest-db-js** | **26ms** | **10ms** | **3.5ms** | **1.8ms** |
+| drizzle | 207ms | 6.5ms | 2.5ms | 17ms |
+| kysely | 122ms | 4.8ms | 2.0ms | 6.4ms |
 
 ## Leitura
 
-- **Insert / lookups:** tempest-db-js é **~2–3× mais rápido que Drizzle** e mais
-  rápido que Kysely, apesar de recompilar o AST → SQL a cada query (sem cache de
-  prepared statement ainda). A ausência de overhead de Promise no caminho sync
-  ajuda bastante aqui.
-- **Scan / filter:** tempest-db-js fica atrás nos scans grandes. O custo é a
-  **coerção de linha por tipo** (`Date`/`bigint`/`json`/`boolean`), feita
-  por-coluna-por-linha; Drizzle/Kysely retornam linhas mais próximas do cru.
-  Otimizações candidatas: cache de compilação por query e um mapper de linha
-  especializado por modelo (gerado uma vez, não por linha).
+- **Insert / lookups:** tempest-db-js é **~5–8× mais rápido que Drizzle** e
+  ~3–4× mais rápido que Kysely. Fica logo acima do piso `node:sqlite`. A
+  ausência de overhead de Promise no caminho sync + o cache de prepared
+  statement (reuso do `prepare()` por texto SQL) dominam o ganho.
+- **Scan / filter:** perto do piso e à frente de Drizzle/Kysely nos scans
+  grandes. A coerção de linha por tipo (`Date`/`bigint`/`json`/`boolean`) usa um
+  **row-mapper compilado por modelo** (decoders pré-resolvidos por coluna,
+  memoizados), em vez de re-refletir o modelo e re-dispatchar o switch por linha.
 
-> ⚠️ Benchmark é diagnóstico, não marketing. O objetivo é guiar otimização
-> (prepared-statement cache, row-mapper compilado) e detectar regressão, não
-> declarar vencedor.
+### O que mudou (otimizações aplicadas)
+
+- **Cache de prepared-statement** no `NodeSqliteDriver`: `prepare()` por texto
+  SQL, reusado entre execuções. Maior ganho no insert/lookup.
+- **`columnsOf` memoizado** por classe (WeakMap): antes reinstanciava o modelo a
+  cada linha lida.
+- **Row-mapper compilado**: `coerceRow` usa um mapa de decoders por coluna
+  (só as que precisam de coerção), montado uma vez por modelo.
+
+> ⚠️ Benchmark é diagnóstico, não marketing. O objetivo é guiar otimização e
+> detectar regressão, não declarar vencedor. Próximos candidatos: cache da
+> compilação AST → SQL por forma de query, e batch de INSERT multi-row.

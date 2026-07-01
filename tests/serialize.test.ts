@@ -4,11 +4,13 @@ import {
   Model,
   ValidationError,
   column,
+  columnsOf,
   fromDict,
   sql,
   toDict,
   toJSON,
 } from "../src/index.js";
+import { coerceRow } from "../src/serialize.js";
 
 interface Prefs {
   theme: "light" | "dark";
@@ -116,6 +118,50 @@ describe("fromDict — builds and validates a row", () => {
     });
     expect(built.handle).toBe("ben");
     expect(built.id).toBeNull(); // default applied at DB layer (Phase 4), null here
+  });
+});
+
+describe("coerceRow — compiled row-mapper (perf path)", () => {
+  it("coerces raw driver values by column type", () => {
+    const raw = {
+      id: "11111111-1111-1111-1111-111111111111",
+      handle: "ben",
+      followers: "9007199254740993", // string → bigint
+      balance: 1234.56, // number → string (numeric)
+      prefs: '{"theme":"dark"}', // json string → object
+      avatar: new Uint8Array([1, 2, 3]),
+      role: "admin",
+      createdAt: "2026-06-29T12:00:00.000Z", // ISO → Date
+      updatedAt: "2026-06-29T12:00:00.000Z",
+    };
+    const coerced = coerceRow(Account, raw);
+    expect(coerced.followers).toBe(9007199254740993n);
+    expect(coerced.balance).toBe("1234.56");
+    expect(coerced.prefs).toEqual({ theme: "dark" });
+    expect(coerced.createdAt).toEqual(new Date("2026-06-29T12:00:00.000Z"));
+    expect(coerced.handle).toBe("ben"); // passthrough string
+  });
+
+  it("passes through null and unknown keys untouched", () => {
+    const coerced = coerceRow(Account, {
+      followers: null,
+      notAColumn: "kept",
+    } as never) as Record<string, unknown>;
+    expect(coerced.followers).toBeNull();
+    expect(coerced.notAColumn).toBe("kept");
+  });
+
+  it("is stable across repeated calls (memoized decoders)", () => {
+    const a = coerceRow(Account, { followers: "1" } as never);
+    const b = coerceRow(Account, { followers: "2" } as never);
+    expect(a.followers).toBe(1n);
+    expect(b.followers).toBe(2n);
+  });
+});
+
+describe("columnsOf — memoized per class", () => {
+  it("returns the same column map reference for a class", () => {
+    expect(columnsOf(Account)).toBe(columnsOf(Account));
   });
 });
 
