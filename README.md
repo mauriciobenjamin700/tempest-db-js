@@ -67,6 +67,15 @@ Real execution is tested against a live SQLite database (`node:sqlite`) — type
 
 Sessions and engines are **disposable** — `using session = engine.session()` (or `await using engine = createEngine(...)`) closes the driver/pool automatically at scope exit.
 
+## Beyond CRUD
+
+Typed extras, each with a [docs recipe](https://mauriciobenjamin700.github.io/tempest-db-js/):
+
+- **Aggregations** — `select(Order).aggregate(["status"], { n: count(), total: sum("amount") })` → rows typed as `{ status; n; total }`. Plus `.distinct()`.
+- **Upsert** — `insert(Row).values(...).onConflictDoUpdate(["key"], { ... })` / `.onConflictDoNothing(["key"])` (portable SQLite ↔ PostgreSQL).
+- **Active-record (opt-in)** — `activeRecord(User, session)` → `save`/`update`/`delete`/`reload` over `.data`; the plain-object default is unchanged.
+- **Query logging & errors** — `createEngine(url, { onQuery })` traces every statement; a failed statement throws `QueryExecutionError` carrying the SQL + params.
+
 ## Migrations CLI
 
 Alembic-style migrations ship with a `tempest-db` binary. Point it at a config that exports your driver, dialect, migrations, and models:

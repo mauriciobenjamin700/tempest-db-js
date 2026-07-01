@@ -79,6 +79,10 @@ plugins:
             Visão geral: Overview
             created_at / updated_at: created_at / updated_at
             Paginação tipada: Typed pagination
+            Agregações e DISTINCT: Aggregations & DISTINCT
+            Upsert (ON CONFLICT): Upsert (ON CONFLICT)
+            Active-record (opt-in): Active-record (opt-in)
+            Logging e erros: Logging & errors
             Transações e savepoints: Transactions & savepoints
             Colunas JSON e enum: JSON & enum columns
             Serialização (linha ↔ JSON): Serialization (row ↔ JSON)
@@ -144,6 +148,10 @@ nav:
       - recipes/index.md
       - created_at / updated_at: recipes/timestamps.md
       - Paginação tipada: recipes/pagination.md
+      - Agregações e DISTINCT: recipes/aggregations.md
+      - Upsert (ON CONFLICT): recipes/upsert.md
+      - Active-record (opt-in): recipes/active-record.md
+      - Logging e erros: recipes/logging.md
       - Transações e savepoints: recipes/transactions.md
       - Colunas JSON e enum: recipes/json-enum.md
       - Serialização (linha ↔ JSON): recipes/serialization.md
