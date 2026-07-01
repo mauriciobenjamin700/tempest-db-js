@@ -358,6 +358,11 @@ export class SyncSession {
   close(): void {
     this.driver.close();
   }
+
+  /** `using session = ...` closes the driver when the scope exits. */
+  [Symbol.dispose](): void {
+    this.close();
+  }
 }
 
 /** An asynchronous unit of work. */
@@ -428,6 +433,11 @@ export class AsyncSession {
   async close(): Promise<void> {
     await this.driver.close();
   }
+
+  /** `await using session = ...` closes the driver when the scope exits. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +479,11 @@ export class SyncEngine {
   close(): void {
     this.driver.close();
   }
+
+  /** `using engine = createSyncEngine(...)` closes the pool when the scope exits. */
+  [Symbol.dispose](): void {
+    this.close();
+  }
 }
 
 /** An asynchronous engine. */
@@ -488,6 +503,11 @@ export class AsyncEngine {
 
   async close(): Promise<void> {
     await this.driver.close();
+  }
+
+  /** `await using engine = createEngine(...)` closes the pool when the scope exits. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
   }
 }
 

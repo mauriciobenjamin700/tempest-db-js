@@ -298,3 +298,56 @@ describe("stream() — lazy iteration", () => {
     await engine.close();
   });
 });
+
+describe("disposable — using / await using", () => {
+  const DDL3 = "CREATE TABLE nums (id INTEGER PRIMARY KEY, n INTEGER NOT NULL)";
+  class Num extends Model {
+    static override tablename = "nums";
+    id = column.integer().primaryKey();
+    n = column.integer().notNull();
+  }
+
+  it("sync engine closes its driver at scope exit (Symbol.dispose)", () => {
+    let closed = false;
+    {
+      using engine = createSyncEngine("sqlite://:memory:");
+      // biome-ignore lint/suspicious/noExplicitAny: wrap the driver to observe close().
+      const driver = (engine as any).driver;
+      const realClose = driver.close.bind(driver);
+      driver.close = () => {
+        closed = true;
+        realClose();
+      };
+    }
+    expect(closed).toBe(true);
+  });
+
+  it("async engine closes its driver at scope exit (Symbol.asyncDispose)", async () => {
+    let closed = false;
+    {
+      await using engine = createEngine("sqlite://:memory:");
+      // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+      await (engine as any).driver.execute(DDL3, []);
+      // biome-ignore lint/suspicious/noExplicitAny: wrap the driver to observe close().
+      const driver = (engine as any).driver;
+      const realClose = driver.close.bind(driver);
+      driver.close = async () => {
+        closed = true;
+        await realClose();
+      };
+    }
+    expect(closed).toBe(true);
+  });
+
+  it("sync session is disposable and closes the driver", () => {
+    const engine = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL3, []);
+    {
+      using session = engine.session();
+      session.execute(insert(Num).values({ id: 1, n: 1 }));
+    }
+    // The driver was closed by the session dispose — a further query throws.
+    expect(() => engine.session().execute(select(Num))).toThrow();
+  });
+});
