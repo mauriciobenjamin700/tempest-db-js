@@ -88,6 +88,8 @@ plugins:
             Todo CLI (SQLite): Todo CLI (SQLite)
             Blog (relations + joins): Blog (relations + joins)
             REST API (Hono + Repository): REST API (Hono + Repository)
+            REST API (Express + Repository): REST API (Express + Repository)
+            REST API (Fastify + Repository): REST API (Fastify + Repository)
             Fluxo de migrações: Migrations workflow
             Guia: Guide
             Arquitetura: Architecture
@@ -151,6 +153,8 @@ nav:
       - Todo CLI (SQLite): examples/todo-cli.md
       - Blog (relations + joins): examples/blog.md
       - REST API (Hono + Repository): examples/rest-api.md
+      - REST API (Express + Repository): examples/express-api.md
+      - REST API (Fastify + Repository): examples/fastify-api.md
       - Fluxo de migrações: examples/migrations-workflow.md
   - Guia:
       - guide/index.md

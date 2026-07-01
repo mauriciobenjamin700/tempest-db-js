@@ -23,6 +23,16 @@ as peças encaixadas. Cada um é copy-paste e auto-contido.
     Endpoints HTTP backed por `BaseRepository`, com paginação tipada e convenção 404.
     A ponte com o mundo `tempest-fastapi-sdk` / `tempest-ts-sdk`.
 
+- :material-server: **[REST API (Express + Repository)](express-api.md)**
+
+    A mesma API sobre o framework HTTP mais difundido do Node. A camada de dados é
+    idêntica — só muda a casca.
+
+- :material-lightning-bolt: **[REST API (Fastify + Repository)](fastify-api.md)**
+
+    A mesma API sobre Fastify, com `Params`/`Body`/`Querystring` tipados por rota
+    combinando com os tipos do repositório.
+
 - :material-database-sync: **[Fluxo de migrações](migrations-workflow.md)**
 
     O ciclo de vida do schema: `autogenerate`, `upgrade`/`downgrade` e um **gate de

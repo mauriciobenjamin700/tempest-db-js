@@ -92,6 +92,22 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **PostgreSQL** (estrutural, sem PG no CI): `introspectPostgres`/`checkDriftPostgres`
   via `information_schema`; **enum nomeado** (`CREATE TYPE ... AS ENUM`); `PoolOptions`
   (`size`/`idleTimeoutMs`/`connectTimeoutMs`) repassados ao `postgres.js`.
+- **`using` / `await using`** — `Session` e `Engine` (sync e async) implementam
+  `Symbol.dispose`/`Symbol.asyncDispose`, fechando driver/pool ao sair do escopo.
+- **Binário `tempest-db`** — CLI executável que carrega um config
+  (`tempest-db.config.{mjs,js,cjs}` ou `--config <path>`) e despacha os comandos de
+  migração; `defineMigrationConfig` para config tipada.
+- **Rename interativo** — `detectRenames`/`applyRenames` reconhecem pares add/drop
+  de shape idêntico como rename (1:1 sem ambiguidade) e os fundem em
+  `rename_column`/`rename_table`. CLI: `--autorename`, `--rename-table from:to`,
+  `--rename-column tbl.from:to`; o bin pergunta por candidato quando em TTY.
+- **Operadores tipados-por-coluna no `where` de join** — cada ref `alias.column`
+  aceita `OperatorsFor<T>` da coluna (como o `WhereInput` single-table); `like` em
+  número / `gt` em string = erro de compilação.
+- **Receitas HTTP** — exemplos bilíngues de REST API com `BaseRepository` sobre
+  **Hono**, **Express** e **Fastify**.
+- **Benchmark** — `npm run bench` (`bench/sqlite-bench.mjs`) compara insert/scan/
+  filter/lookup vs Drizzle e Kysely; resultados e metodologia em `BENCHMARKS.md`.
 
 ### Notas
 

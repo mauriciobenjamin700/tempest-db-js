@@ -65,6 +65,35 @@ const pending = session.execute(select(Task).where({ done: false })).all();
 
 Real execution is tested against a live SQLite database (`node:sqlite`) — type coercion, `RETURNING`, transactions, and rollback included. PostgreSQL runs via `postgres.js`.
 
+Sessions and engines are **disposable** — `using session = engine.session()` (or `await using engine = createEngine(...)`) closes the driver/pool automatically at scope exit.
+
+## Migrations CLI
+
+Alembic-style migrations ship with a `tempest-db` binary. Point it at a config that exports your driver, dialect, migrations, and models:
+
+```ts
+// tempest-db.config.mjs
+import { defineMigrationConfig } from "tempest-db-js/migrations";
+import { NodeSqliteDriver } from "tempest-db-js";
+import { migrations } from "./migrations/index.js";
+import { User } from "./models.js";
+
+export default defineMigrationConfig({
+  driver: NodeSqliteDriver.open("app.db"),
+  dialect: "sqlite",
+  migrations,
+  models: [User],
+});
+```
+
+```bash
+npx tempest-db revision -m "add users" --autogenerate   # detects renames interactively
+npx tempest-db upgrade                                   # apply pending migrations
+npx tempest-db current | history | heads | check
+```
+
+HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mauriciobenjamin700.github.io/tempest-db-js/).
+
 ## Roadmap
 
 See [ROADMAP.md](./ROADMAP.md). Shipped: SQLite + PostgreSQL execution, joins, relations, migrations, repository. Next: `tempest-ts-sdk` integration and PostgreSQL CI against a live database.
@@ -76,6 +105,7 @@ npm install
 npm run test:types   # tsc --noEmit — the type-level test suite
 npm test             # vitest runtime tests
 npm run build        # tsup → dual ESM + CJS + .d.ts
+npm run bench        # SQLite benchmark vs Drizzle/Kysely (see BENCHMARKS.md)
 ```
 
 ## License

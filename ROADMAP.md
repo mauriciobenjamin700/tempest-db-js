@@ -156,8 +156,9 @@ const user   = await session.execute(select(User).where({ id: 1 })).first();    
 (commit/rollback) + `beginNested` (savepoints); coerção de linha por tipo. SQLite
 roda de verdade via `node:sqlite` (zero install nos testes); Postgres via `postgres.js`
 (lazy). 23 runtime-tests. ✅ **`.stream()`** (sync/async, iteração preguiçosa) e
-**`PoolOptions`** (passthrough postgres.js) feitos. Falta: `using`/asyncDispose e
-benchmark vs Drizzle/Kysely.
+**`PoolOptions`** (passthrough postgres.js) feitos. ✅ **`using`/`await using`**
+(`Symbol.dispose`/`asyncDispose` em Session/Engine) e ✅ **benchmark vs Drizzle/Kysely**
+(`npm run bench` + [`BENCHMARKS.md`](BENCHMARKS.md)) feitos.
 
 ---
 
@@ -183,8 +184,9 @@ alias, on)` → tipo composto `{ [alias]: Row }`; `leftJoin` torna o lado nullab
 compila com aliasing (`"a"."c" AS "a.c"`); execução faz split da linha plana em
 composto, coagindo cada source. 12 testes (type + execução real, incl. leftJoin null).
 ✅ **Relations feitas** (`hasMany`/`belongsTo` + `loadRelations`, eager-load tipado
-sem N+1) e **combinadores `and`/`or`/`not`** (também no join). Pendente: operadores
-tipados-por-coluna no `where` de join.
+sem N+1) e **combinadores `and`/`or`/`not`** (também no join). ✅ **Operadores
+tipados-por-coluna no `where` de join** feitos (`OperatorsFor<T>` por ref
+`alias.column`; `like` em number / `gt` em string = erro de compilação).
 
 ---
 
@@ -216,8 +218,10 @@ tabela → insere → downgrade derruba). ✅ **6d parcial**: `introspectSqlite`
 preservando dados); **enum nomeado PG** (`CREATE TYPE`). ✅ **CLI** (`runMigrationCli`:
 `upgrade`/`downgrade`/`current`/`history`/`heads`/`check`/`revision --autogenerate`,
 `--sql`) + `replaySchema`. ✅ **introspecção/drift Postgres** (`introspectPostgres`/
-`checkDriftPostgres`, estrutural — sem PG no CI). Falta: rename interativo, bin
-executável.
+`checkDriftPostgres`, estrutural — sem PG no CI). ✅ **rename interativo**
+(`detectRenames`/`applyRenames`; CLI `--autorename`/`--rename-table`/`--rename-column`;
+prompt por candidato no bin quando TTY) e ✅ **bin executável** (`tempest-db`, carrega
+`tempest-db.config.{mjs,js,cjs}`) feitos.
 
 ---
 
@@ -233,8 +237,10 @@ executável.
 `InferModel`/`InferInsert`/`WhereInput`, sobre `AsyncSession`. Convenção 404 honrada
 (`getById` lança `RecordNotFound`; coleções retornam `[]`). `PaginationFilter`/
 `PaginationResult` espelham `BasePagination*` do SDK Python. 7 testes reais (CRUD +
-paginação asc/desc). Falta: o pacote `tempest-ts-sdk` em si (consumir tempest-db-js) +
-receitas HTTP + deploy do site de docs.
+paginação asc/desc). ✅ **Receitas HTTP** feitas (Hono, **Express**, **Fastify** —
+bilíngues) e ✅ **deploy do site de docs** (workflow `docs.yml` → GitHub Pages,
+`mkdocs build --strict`). Falta: o pacote `tempest-ts-sdk` em si (repo próprio,
+consumindo tempest-db-js).
 
 ---
 
