@@ -62,5 +62,6 @@ export { applyOperation, replaySchema } from "./replay.js";
 export {
   type CliConfig,
   type CliResult,
+  defineMigrationConfig,
   runMigrationCli,
 } from "./cli.js";

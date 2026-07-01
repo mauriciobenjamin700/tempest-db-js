@@ -35,6 +35,33 @@ export interface CliResult {
   readonly lines: string[];
 }
 
+/**
+ * Identity helper for authoring a typed migration config file. Gives editor
+ * autocompletion and type-checking on the object the `tempest-db` bin loads.
+ *
+ * @example
+ * ```ts
+ * // tempest-db.config.mjs
+ * import { defineMigrationConfig } from "tempest-db-js/migrations";
+ * import { NodeSqliteDriver } from "tempest-db-js";
+ * import { migrations } from "./migrations/index.js";
+ * import { User } from "./models.js";
+ *
+ * export default defineMigrationConfig({
+ *   driver: NodeSqliteDriver.open("app.db"),
+ *   dialect: "sqlite",
+ *   migrations,
+ *   models: [User],
+ * });
+ * ```
+ *
+ * @param config The migration config to pass through unchanged.
+ * @returns The same config, typed as `CliConfig`.
+ */
+export function defineMigrationConfig(config: CliConfig): CliConfig {
+  return config;
+}
+
 function ok(lines: string[]): CliResult {
   return { code: 0, lines };
 }
