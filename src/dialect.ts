@@ -66,15 +66,29 @@ export abstract class BaseDialect {
    */
   private static readonly insertTemplates = new Map<string, string>();
 
+  /** Quoted-identifier cache (see {@link quoteId}). Shared across dialects. */
+  private static readonly quotedIds = new Map<string, string>();
+
   /** Render the n-th (1-based) placeholder. */
   protected abstract placeholder(index: number): string;
 
   /** Render a case-insensitive LIKE for the active dialect. */
   protected abstract ilike(column: string, param: string): string;
 
-  /** Quote an identifier (column/table) for the active dialect. */
+  /**
+   * Quote an identifier (column/table) for the active dialect.
+   *
+   * Memoized: identifiers form a small, stable set (column/table names), but this
+   * runs for every identifier on every compile. Caching the quoted form removes a
+   * regex-replace + string allocation from the hot path. The standard double-quote
+   * form is identical across both dialects, so one shared cache is correct.
+   */
   protected quoteId(name: string): string {
-    return `"${name.replace(/"/g, '""')}"`;
+    const cached = BaseDialect.quotedIds.get(name);
+    if (cached !== undefined) return cached;
+    const quoted = `"${name.replace(/"/g, '""')}"`;
+    BaseDialect.quotedIds.set(name, quoted);
+    return quoted;
   }
 
   /** Compile any node to `{ sql, params }`. */
