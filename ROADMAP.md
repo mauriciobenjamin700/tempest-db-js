@@ -268,6 +268,7 @@ consumindo tempest-db-js).
 ## Riscos / questões abertas
 
 - **Inferência de operador por coluna** (Fase 3) é a parte mais pesada de type-gymnastics — pode exigir branded types e prototipagem cedo.
-- **Active-record real** (métodos na instância de linha) fica fora do MVP — reavaliar pós-Fase 5.
+- **Active-record** — ✅ feito como camada **opt-in** (`activeRecord`/`ActiveRecord`
+  com `save`/`update`/`delete`/`reload` sobre `.data`), sem mudar o retorno plano default.
 - **Decorators**: decidir campos-puros vs `@table/@column` no spike da Fase 1.
 - **Performance do mapeamento linha→objeto** em result sets grandes — medir cedo na Fase 4.
