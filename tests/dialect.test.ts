@@ -105,6 +105,33 @@ describe("INSERT compilation", () => {
       params: ["A", 1, true, "B", 2, false],
     });
   });
+
+  it("reuses the SQL template across same-shape inserts, with per-row params", () => {
+    // The template cache keys on structure, so two different-value inserts of the
+    // same shape yield identical SQL but their own params.
+    const a = sqlite.compile(
+      insert(User).values({ name: "A", age: 1, active: true }).node,
+    );
+    const b = sqlite.compile(
+      insert(User).values({ name: "B", age: 2, active: false }).node,
+    );
+    expect(a.sql).toBe(b.sql);
+    expect(a.params).toEqual(["A", 1, true]);
+    expect(b.params).toEqual(["B", 2, false]);
+  });
+
+  it("binds a null value as a placeholder (not IS NULL) in INSERT", () => {
+    class Note extends Model {
+      static override tablename = "notes";
+      id = column.integer().primaryKey();
+      body = column.text(); // nullable
+    }
+    const q = insert(Note).values({ body: null });
+    expect(sqlite.compile(q.node)).toEqual({
+      sql: 'INSERT INTO "notes" ("body") VALUES (?)',
+      params: [null],
+    });
+  });
 });
 
 describe("UPDATE / DELETE compilation", () => {

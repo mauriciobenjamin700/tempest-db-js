@@ -59,6 +59,13 @@ class Params {
 export abstract class BaseDialect {
   abstract readonly name: "sqlite" | "postgresql";
 
+  /**
+   * INSERT SQL templates keyed by structure (dialect|table|columns|rowCount|
+   * returning). Shared across dialect instances — the key namespaces by dialect
+   * name, and the placeholder text is dialect-specific but structure-determined.
+   */
+  private static readonly insertTemplates = new Map<string, string>();
+
   /** Render the n-th (1-based) placeholder. */
   protected abstract placeholder(index: number): string;
 
@@ -126,15 +133,41 @@ export abstract class BaseDialect {
 
   private compileInsert(node: InsertNode, params: Params): string {
     const columns = node.values.length > 0 ? Object.keys(node.values[0] as object) : [];
+    // Bind every value in row-major, column order. The SQL text is independent of
+    // the values (a null becomes a placeholder like any other), so it depends only
+    // on the structure — which lets us cache the template below.
+    for (const row of node.values) {
+      for (const c of columns) params.bind((row as Record<string, unknown>)[c] ?? null);
+    }
+    return this.insertTemplate(node, columns);
+  }
+
+  /**
+   * The INSERT SQL template for a given structure, cached across calls.
+   *
+   * The text depends only on (dialect, table, columns, row count, returning) —
+   * never on the bound values — and placeholder positions are deterministic from
+   * the row/column counts (a fresh statement always starts binding at 1). So a
+   * per-row insert loop compiles the string once and reuses it every row.
+   */
+  private insertTemplate(node: InsertNode, columns: readonly string[]): string {
+    const returningKey =
+      node.returning === null
+        ? ""
+        : node.returning === "*"
+          ? "*"
+          : node.returning.join(",");
+    const key = `${this.name}|${node.table}|${columns.join(",")}|${node.values.length}|${returningKey}`;
+    const cached = BaseDialect.insertTemplates.get(key);
+    if (cached !== undefined) return cached;
+
     const colSql = columns.map((c) => this.quoteId(c)).join(", ");
+    let position = 0;
     const rowsSql = node.values
-      .map(
-        (row) =>
-          `(${columns.map((c) => params.bind((row as Record<string, unknown>)[c] ?? null)).join(", ")})`,
-      )
+      .map(() => `(${columns.map(() => this.placeholder(++position)).join(", ")})`)
       .join(", ");
-    let sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}`;
-    sql += this.compileReturning(node.returning);
+    const sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}${this.compileReturning(node.returning)}`;
+    BaseDialect.insertTemplates.set(key, sql);
     return sql;
   }
 
