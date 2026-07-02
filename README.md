@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.2.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite execution** (tested against `node:sqlite`), joins, relations, Alembic-style migrations + a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.3.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 
@@ -105,7 +105,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped (v0.2.0): SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), joins, relations, migrations + a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: async migration runner for Postgres, a MySQL dialect, then `tempest-ts-sdk`.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.3.0): SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
 
 ## Development
 

@@ -1,8 +1,8 @@
 # Roadmap
 
-O tempest-db-js é construído em fases, cada uma entregando uma fatia testável. **As
-Fases 0–7 estão concluídas** e publicadas na `v0.1.0`; o que resta são refinamentos
-e a integração com o `tempest-ts-sdk`.
+O tempest-db-js é construído em fases, cada uma entregando uma fatia testável.
+**As Fases 0–9 estão concluídas** e publicadas na `v0.3.0`. O que resta são os
+follow-ups dos bancos, o pacote `tempest-ts-sdk` e o caminho até a `v1.0`.
 
 | Fase | Tema | Status |
 | --- | --- | --- |
@@ -10,89 +10,61 @@ e a integração com o `tempest-ts-sdk`.
 | 1 | Schema declarativo class-based + inferência | ✅ Concluída |
 | 2 | Query builder tipado (SELECT/INSERT/UPDATE/DELETE) | ✅ Concluída |
 | 3 | Operadores tipados por tipo de coluna | ✅ Concluída |
-| 4 | Dialetos + execução real (`Session`) | ✅ + `.stream()`/pool; falta `using`/benchmark |
-| 5 | Joins + tipos compostos + relations | ✅ + relations + and/or/not |
-| 6 | Migrações + CLI | ✅ + CLI + drift + batch SQLite + enum PG |
-| 7 | Integração `tempest-ts-sdk` + comunidade | ✅ BaseRepository feito; SDK a fazer |
+| 4 | Dialetos + execução real (`Session`) | ✅ + `.stream()`/pool/`using`/benchmark |
+| 5 | Joins + tipos compostos + relations | ✅ + relations + and/or/not + operadores no join |
+| 6 | Migrações + CLI | ✅ + drift + batch SQLite + enum PG + rename + bin |
+| 7 | Repository + agregações/upsert + active-record + DX | ✅ Concluída |
+| 8 | Migração async (fecha PostgreSQL) | ✅ `AsyncMigrationRunner` |
+| 9 | Dialeto MySQL | ✅ `MysqlDialect` + DDL + driver `mysql2` |
 
-## Concluído
+## Bancos suportados — foco em 3
 
-### Fase 1 — Schema declarativo
-
-Classe `Model` + fábrica `column` com modificadores encadeáveis. Tipos de linha
-inferidos por `InferModel` (SELECT) e `InferInsert` (INSERT), com nullability e
-opcionalidade corretas. Ver [Modelos](tutorial/models.md).
-
-### Fase 2 — Query builder tipado
-
-`select` com projeção `Pick`, `where`/`orderBy`/`limit`/`offset`; `insert` tipado por
-`InferInsert` com `.returning()`; `update`/`del` com **guard de estado tipado**
-contra full-table writes. AST pura, executada pela camada de sessão (Fase 4). Ver
-[Consultas](tutorial/queries.md) e [Mutações](tutorial/mutations.md).
-
-### Fase 3 — Operadores tipados
-
-Operadores restritos por tipo de coluna em tempo de compilação: `like` só em
-`string`, `gt`/`lt`/`between` só em `number`/`bigint`/`Date`, etc. `like` num número
-**não compila**. Ver [Consultas](tutorial/queries.md).
-
-```ts
-select(User).where({
-  age:  { gt: 18 },        // ✅
-  name: { like: "%Ben%" }, // ✅
-  // age: { like: "%x%" }  // ❌ erro de compilação
-});
-```
-
-### Fase 4 — Execução real (4a + 4b feitos)
-
-`getDialect(...).compile(node)` → `{ sql, params }` parametrizado (4a). `createEngine`
-(async) / `createSyncEngine` (SQLite sync), `Session.execute` com terminais tipados
-(`.all()`, `.first()`, `.one()`, `.scalar()`...), `engine.transaction` e savepoints
-(4b). SQLite roda via `node:sqlite`; PostgreSQL via `postgres.js`. Ver
-[Executando queries](tutorial/execution.md). Falta 4c-4e (pool tuning, `using`,
-`.stream()`, benchmark).
-
-### Fase 5 — Joins + relations
-
-`join(Model, alias).innerJoin/leftJoin(...)` → tipos compostos
-(`{ user: UserRow; order: OrderRow }`), com nullability correta em outer joins, mais
-relations declarativas `hasMany`/`belongsTo` + `loadRelations` (eager-load sem N+1) e
-combinadores `and`/`or`/`not`. Ver [Joins](tutorial/joins.md) e
-[Repository](repository.md). Falta: operadores tipados-por-coluna no `where` de join.
-
-### Fase 6 — Migrações (feito)
-
-`reflectSchema`/`diffSchema`/`generateMigration`/`MigrationRunner` + grafo DAG + **CLI**
-(`runMigrationCli`) + **drift** (`checkDrift`/`introspectSqlite`) + **batch-mode SQLite**
-+ **enum nomeado PG**, estilo Alembic, anti-"costura de SQL". Ver [Migrações](migrations.md).
-
-### Fase 7 — Repository (feito) + SDK
-
-`BaseRepository<Model>` (CRUD + paginação tipada) + **relations** (`hasMany`/`belongsTo`).
-Ver [Repository](repository.md). Falta: o pacote `tempest-ts-sdk` consumindo o tempest-db-js
-e receitas de integração HTTP (Express/Hono/Fastify).
-
-## À frente
-
-### Bancos suportados — foco em 3
-
-O tempest-db-js mira **exatamente três bancos: SQLite, PostgreSQL e MySQL** — nessa
-ordem, e nenhum outro por enquanto.
+O tempest-db-js mira **exatamente três bancos: SQLite, PostgreSQL e MySQL** — e
+nenhum outro por enquanto. Os três têm dialeto, execução e migração.
 
 | Banco | Status |
 | --- | --- |
 | **SQLite** | ✅ Completo e testado (`node:sqlite`). |
-| **PostgreSQL** | 🟢 Execução real, transações (conexão reservada), PK auto-incremento (`SERIAL`), enum nomeado, introspecção e drift — **testados contra um Postgres real no CI**. Falta o runner de migração async (hoje o `MigrationRunner` é síncrono/SQLite). |
-| **MySQL** | ⏳ Próximo dialeto, **após** o fluxo SQLite + PostgreSQL fechar. |
+| **PostgreSQL** | ✅ Execução real, transações (conexão reservada), `SERIAL`, enum nomeado, introspecção/drift — testados contra um Postgres real no CI. Migração **sync e async** (`AsyncMigrationRunner`). |
+| **MySQL** | 🟢 Dialeto completo (crases, `ON DUPLICATE KEY UPDATE`, `AUTO_INCREMENT`, `MODIFY COLUMN`), driver `mysql2` (lazy). Compilação testada. Falta: execução no CI e `RETURNING` via `LAST_INSERT_ID`. |
 
-### Próximos refinamentos
+## O que já roda (v0.3.0)
 
-Fechar o último item do **PostgreSQL** — um **runner de migração assíncrono** (o
-`MigrationRunner` atual é síncrono, então migrações em Postgres ainda são aplicadas
-renderizando o DDL e executando pela sessão) — e então adicionar o dialeto **MySQL**.
-Joins: operadores tipados-por-coluna no `where`. Execução: `using`/asyncDispose,
-benchmark vs Drizzle/Kysely. Migrações: rename interativo, bin executável.
+Modelos declarativos + inferência, query builder tipado (**agregações**,
+**`DISTINCT`**, **upsert** `ON CONFLICT`/`ON DUPLICATE KEY`), joins compostos com
+operadores tipados no `where`, relations sem N+1, execução real SQLite+PostgreSQL,
+dialeto MySQL, migrações **sync + async** com CLI `tempest-db` (rename interativo,
+drift, `--sql`), `BaseRepository` + paginação, **active-record opt-in**, e DX
+(`QueryExecutionError` + `onQuery`). Ver [Receitas](recipes/index.md) e
+[Exemplos](examples/index.md).
+
+## Próximos passos
+
+### Follow-ups dos bancos (curto prazo)
+
+- **MySQL no CI** — subir um serviço MySQL no workflow e rodar os testes de
+  execução (hoje só a compilação é testada; execução é gated como era o PG).
+- **`RETURNING` no MySQL** — round-trip via `LAST_INSERT_ID()` + `SELECT`, para
+  `repository.create` e `activeRecord.save` funcionarem no MySQL (o dialeto hoje
+  lança em `.returning()`).
+- **CLI async** — plugar o `tempest-db` no `AsyncMigrationRunner` para rodar
+  migração pelo CLI contra Postgres/MySQL, não só SQLite.
+
+### Fase 10 — `tempest-ts-sdk` (repo próprio)
+
+Pacote separado (flat-layout) consumindo o tempest-db-js, espelhando o
+`tempest-fastapi-sdk`: `BaseRepository` estendido, settings via env, hierarquia
+`AppException`, integração HTTP.
+
+### Fase 11 — Query API avançada
+
+`HAVING` nas agregações, subqueries (IN/EXISTS/scalar), prepared-query API
+explícita, unit-of-work/identity-map opcional pro active-record.
+
+### Fase 12 — Rumo a `v1.0`
+
+Congelar a API pública, cobertura de testes, docs completas, critérios de saída
+do alpha.
 
 !!! info "Detalhes completos no repositório"
 
