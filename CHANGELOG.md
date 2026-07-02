@@ -5,6 +5,27 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+
+- **Migração async** (`AsyncMigrationRunner`) — runner de migração sobre
+  `AsyncDriver`, espelhando o sync (`ensureVersionTable`/`applied`/`upgrade`/
+  `downgrade`), tudo awaited. Quoting + placeholders por dialeto tornam a
+  version-table portável. Destrava migração real no PostgreSQL.
+- **Dialeto MySQL** (`MysqlDialect`) — 3º banco do escopo. URL `mysql://`
+  (+ alias `mariadb`); identificadores com crase, placeholders `?`,
+  `ON DUPLICATE KEY UPDATE` (upsert), `LIKE` case-insensitive; DDL MySQL
+  (`INT`/`BIGINT`/`VARCHAR`/`DATETIME`/`TINYINT(1)`/`JSON`/`CHAR(36)`/`ENUM`
+  nativo, `AUTO_INCREMENT`, `RENAME TABLE`, `MODIFY COLUMN`); driver
+  `mysql2/promise` (lazy) via `createEngine("mysql://...")`.
+
+### Limitações conhecidas
+
+- MySQL não tem `RETURNING` — `.returning()` lança no dialeto MySQL (use
+  insert + SELECT por chave). Integração async do CLI `tempest-db` e execução
+  MySQL no CI ficam como follow-up.
+
 ## [0.2.0] — 2026-07-01
 
 ### Adicionado

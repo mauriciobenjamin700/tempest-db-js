@@ -11,7 +11,11 @@
 > opt-in, DX (erros com contexto + `onQuery`) e performance (~3.6× no insert).
 > As fases abaixo são o próximo ciclo, **em ordem de prioridade**.
 
-### Fase 8 — Fechar PostgreSQL: migração async ⭐ (prioridade 1)
+### Fase 8 — Fechar PostgreSQL: migração async ⭐ (prioridade 1) ✅
+
+> ✅ **`AsyncMigrationRunner` feito** — runner async sobre `AsyncDriver`
+> (upgrade/downgrade/applied/version-table), quoting + placeholders por dialeto.
+> Migração real no Postgres destravada. Falta: integração async no CLI `tempest-db`.
 
 O maior gap pós-0.2.0: o `MigrationRunner` é **síncrono/SQLite-only**. Migrações
 não rodam no Postgres por ele.
@@ -26,7 +30,12 @@ não rodam no Postgres por ele.
 **Entrega:** migração real ponta-a-ponta no Postgres, testada no CI (que já roda
 contra um Postgres real).
 
-### Fase 9 — Dialeto MySQL (prioridade 2)
+### Fase 9 — Dialeto MySQL (prioridade 2) ✅
+
+> ✅ **`MysqlDialect` + DDL + driver `mysql2` feitos** — URL `mysql://`/`mariadb://`,
+> crases, `ON DUPLICATE KEY UPDATE`, tipos MySQL, `AUTO_INCREMENT`, `MODIFY COLUMN`.
+> Compilação testada; execução MySQL no CI e `RETURNING` (via `LAST_INSERT_ID`)
+> ficam como follow-up.
 
 O 3º e último banco do escopo travado. Entra agora que SQLite+PG estão fechados.
 
