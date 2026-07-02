@@ -423,6 +423,7 @@ export {
   BaseDialect,
   type CompiledQuery,
   getDialect,
+  MysqlDialect,
   PostgresDialect,
   type QueryNode,
   SqliteDialect,

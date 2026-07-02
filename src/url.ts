@@ -11,7 +11,7 @@
  */
 
 /** A database dialect tempest-db-js can target. */
-export type Dialect = "sqlite" | "postgresql";
+export type Dialect = "sqlite" | "postgresql" | "mysql";
 
 /** A parsed database URL, dialect-neutral. */
 export interface ParsedDatabaseUrl {
@@ -19,7 +19,7 @@ export interface ParsedDatabaseUrl {
   readonly dialect: Dialect;
   /** Driver after the `+` in the scheme (e.g. `better-sqlite3`), or `null`. */
   readonly driver: string | null;
-  /** Host (PostgreSQL), or `null` for SQLite. */
+  /** Host (PostgreSQL/MySQL), or `null` for SQLite. */
   readonly host: string | null;
   /** Port, or `null`. */
   readonly port: number | null;
@@ -50,6 +50,8 @@ const DIALECT_ALIASES: Readonly<Record<string, Dialect>> = {
   postgresql: "postgresql",
   postgres: "postgresql",
   pg: "postgresql",
+  mysql: "mysql",
+  mariadb: "mysql",
 };
 
 /** Split `"postgresql+asyncpg"` into `["postgresql", "asyncpg"]`. */
@@ -107,16 +109,21 @@ function parseSqlite(
   };
 }
 
-/** Parse a PostgreSQL URL via the WHATWG URL parser (normalize scheme first). */
-function parsePostgres(
+/**
+ * Parse a network-style URL (PostgreSQL or MySQL) via the WHATWG URL parser.
+ * Both share the `scheme://user:pass@host:port/db?opts` shape, so one parser
+ * serves both — only the resulting `dialect` differs.
+ */
+function parseNetworkUrl(
   raw: string,
   driver: string | null,
   rest: string,
+  dialect: "postgresql" | "mysql",
 ): ParsedDatabaseUrl {
   // Rebuild with a clean scheme so the WHATWG URL parser accepts it.
   let parsed: URL;
   try {
-    parsed = new URL(`postgresql:${rest}`);
+    parsed = new URL(`${dialect}:${rest}`);
   } catch {
     throw new InvalidDatabaseUrl(raw, "could not parse host/credentials");
   }
@@ -124,7 +131,7 @@ function parsePostgres(
   const options: Record<string, string> = {};
   for (const [key, value] of parsed.searchParams) options[key] = value;
   return {
-    dialect: "postgresql",
+    dialect,
     driver,
     host: parsed.hostname || null,
     port: parsed.port ? Number(parsed.port) : null,
@@ -159,9 +166,8 @@ export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
     throw new InvalidDatabaseUrl(url, `unknown dialect ${JSON.stringify(base)}`);
   }
   const rest = url.slice(schemeEnd + 1);
-  return dialect === "sqlite"
-    ? parseSqlite(url, driver, rest)
-    : parsePostgres(url, driver, rest);
+  if (dialect === "sqlite") return parseSqlite(url, driver, rest);
+  return parseNetworkUrl(url, driver, rest, dialect);
 }
 
 /** Detect just the dialect of a URL, ignoring the rest. */

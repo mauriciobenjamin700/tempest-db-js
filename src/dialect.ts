@@ -13,6 +13,7 @@ import type { CondNode } from "./conditions.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
 import { OPERATORS, type SelectNode } from "./query.js";
+import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
 export interface CompiledQuery {
@@ -57,7 +58,7 @@ class Params {
  * actually differs between databases (placeholder syntax, `ILIKE` support).
  */
 export abstract class BaseDialect {
-  abstract readonly name: "sqlite" | "postgresql";
+  abstract readonly name: Dialect;
 
   /**
    * INSERT SQL templates keyed by structure (dialect|table|columns|rowCount|
@@ -212,19 +213,34 @@ export abstract class BaseDialect {
       .join(", ");
     let sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}`;
     if (node.onConflict) {
-      const target = node.onConflict.target.map((c) => this.quoteId(c)).join(", ");
-      if (node.onConflict.update === "nothing") {
-        sql += ` ON CONFLICT (${target}) DO NOTHING`;
-      } else {
-        const assignments = conflictCols
-          .map((c) => `${this.quoteId(c)} = ${this.placeholder(++position)}`)
-          .join(", ");
-        sql += ` ON CONFLICT (${target}) DO UPDATE SET ${assignments}`;
-      }
+      sql += this.renderConflict(node.onConflict, conflictCols, () =>
+        this.placeholder(++position),
+      );
     }
     sql += this.compileReturning(node.returning);
     BaseDialect.insertTemplates.set(key, sql);
     return sql;
+  }
+
+  /**
+   * Render the conflict-handling clause. Standard SQL (SQLite/PostgreSQL) uses
+   * `ON CONFLICT (...) DO NOTHING | DO UPDATE SET ...`; MySQL overrides this.
+   *
+   * @param onConflict The conflict clause from the node.
+   * @param conflictCols The columns to overwrite on `DO UPDATE` (empty for nothing).
+   * @param nextPlaceholder Yields the next positional placeholder (advances the count).
+   */
+  protected renderConflict(
+    onConflict: NonNullable<InsertNode["onConflict"]>,
+    conflictCols: readonly string[],
+    nextPlaceholder: () => string,
+  ): string {
+    const target = onConflict.target.map((c) => this.quoteId(c)).join(", ");
+    if (onConflict.update === "nothing") return ` ON CONFLICT (${target}) DO NOTHING`;
+    const assignments = conflictCols
+      .map((c) => `${this.quoteId(c)} = ${nextPlaceholder()}`)
+      .join(", ");
+    return ` ON CONFLICT (${target}) DO UPDATE SET ${assignments}`;
   }
 
   private compileUpdate(node: UpdateNode, params: Params): string {
@@ -276,7 +292,7 @@ export abstract class BaseDialect {
 
   // ---- clauses ----------------------------------------------------------
 
-  private compileReturning(returning: readonly string[] | "*" | null): string {
+  protected compileReturning(returning: readonly string[] | "*" | null): string {
     if (returning === null) return "";
     if (returning === "*") return " RETURNING *";
     return ` RETURNING ${returning.map((c) => this.quoteId(c)).join(", ")}`;
@@ -408,7 +424,66 @@ export class PostgresDialect extends BaseDialect {
   }
 }
 
+/** Backtick-quoted identifier cache for MySQL (its quoting differs from the base). */
+const mysqlQuotedIds = new Map<string, string>();
+
+/**
+ * MySQL dialect: `?` placeholders, backtick identifiers, `ON DUPLICATE KEY
+ * UPDATE` for upsert, and case-insensitive `LIKE` (default collation). MySQL has
+ * no `RETURNING`, so requesting it throws.
+ */
+export class MysqlDialect extends BaseDialect {
+  readonly name = "mysql" as const;
+
+  protected placeholder(): string {
+    return "?";
+  }
+
+  protected ilike(column: string, param: string): string {
+    return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  protected override quoteId(name: string): string {
+    const cached = mysqlQuotedIds.get(name);
+    if (cached !== undefined) return cached;
+    const quoted = `\`${name.replace(/`/g, "``")}\``;
+    mysqlQuotedIds.set(name, quoted);
+    return quoted;
+  }
+
+  protected override renderConflict(
+    onConflict: NonNullable<InsertNode["onConflict"]>,
+    conflictCols: readonly string[],
+    nextPlaceholder: () => string,
+  ): string {
+    if (onConflict.update === "nothing") {
+      // MySQL has no DO NOTHING; a no-op self-assignment on a target column is
+      // the idiomatic equivalent (keeps the existing row untouched).
+      const col = this.quoteId(onConflict.target[0] ?? "id");
+      return ` ON DUPLICATE KEY UPDATE ${col} = ${col}`;
+    }
+    const assignments = conflictCols
+      .map((c) => `${this.quoteId(c)} = ${nextPlaceholder()}`)
+      .join(", ");
+    return ` ON DUPLICATE KEY UPDATE ${assignments}`;
+  }
+
+  protected override compileReturning(returning: readonly string[] | "*" | null): string {
+    if (returning === null) return "";
+    throw new Error(
+      "RETURNING is not supported on MySQL — insert, then SELECT by key (e.g. LAST_INSERT_ID()).",
+    );
+  }
+}
+
 /** Get a dialect instance by name. */
-export function getDialect(name: "sqlite" | "postgresql"): BaseDialect {
-  return name === "sqlite" ? new SqliteDialect() : new PostgresDialect();
+export function getDialect(name: Dialect): BaseDialect {
+  switch (name) {
+    case "sqlite":
+      return new SqliteDialect();
+    case "postgresql":
+      return new PostgresDialect();
+    case "mysql":
+      return new MysqlDialect();
+  }
 }

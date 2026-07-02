@@ -690,12 +690,95 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
       options?.onQuery,
     );
   }
+  if (parsed.dialect === "mysql") {
+    // MySQL: mysql2 is lazy-loaded the first time a query runs.
+    return new AsyncEngine(
+      createMysqlDriver(parsed.raw, options?.pool),
+      "mysql",
+      options?.onQuery,
+    );
+  }
   // PostgreSQL: postgres.js is lazy-loaded the first time a query runs.
   return new AsyncEngine(
     createPostgresDriver(parsed.raw, options?.pool),
     "postgresql",
     options?.onQuery,
   );
+}
+
+/** Encode a JS value into something the MySQL driver (mysql2) can bind. */
+function encodeMysqlParam(value: unknown): unknown {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof Date) return value;
+  if (typeof value === "object") return JSON.stringify(value);
+  return value; // number, bigint, string
+}
+
+/** Shape a mysql2 result into our `DriverResult`. */
+function toMysqlResult(rows: unknown): DriverResult {
+  if (Array.isArray(rows)) {
+    return { rows: rows as Record<string, unknown>[], changes: 0 };
+  }
+  // A ResultSetHeader (INSERT/UPDATE/DELETE): no rows, affectedRows is the count.
+  const header = rows as { affectedRows?: number };
+  return { rows: [], changes: header.affectedRows ?? 0 };
+}
+
+/**
+ * MySQL driver backed by mysql2/promise (lazy-loaded peer dependency).
+ *
+ * Transactions reserve a single pooled connection via {@link AsyncDriver.reserve}
+ * so `BEGIN`/`COMMIT` and the statements between them run on one connection.
+ * MySQL has no `RETURNING`; the dialect throws if it is requested.
+ */
+function createMysqlDriver(url: string, pool?: PoolOptions): AsyncDriver {
+  // biome-ignore lint/suspicious/noExplicitAny: mysql2 pool typed at call site.
+  let poolHandle: any;
+  const ensure = async (): Promise<void> => {
+    if (poolHandle) return;
+    const moduleName = "mysql2/promise";
+    // biome-ignore lint/suspicious/noExplicitAny: dynamic import of the peer dep.
+    const mod = (await import(/* @vite-ignore */ moduleName)) as any;
+    const opts: Record<string, unknown> = { uri: url };
+    if (pool?.size !== undefined) opts.connectionLimit = pool.size;
+    if (pool?.idleTimeoutMs !== undefined) opts.idleTimeout = pool.idleTimeoutMs;
+    if (pool?.connectTimeoutMs !== undefined) opts.connectTimeout = pool.connectTimeoutMs;
+    poolHandle = mod.createPool(opts);
+  };
+  const runOn = async (
+    // biome-ignore lint/suspicious/noExplicitAny: mysql2 queryable (pool or connection).
+    queryable: any,
+    sql: string,
+    params: readonly unknown[],
+  ): Promise<DriverResult> => {
+    const [rows] = await queryable.query(sql, params.map(encodeMysqlParam));
+    return toMysqlResult(rows);
+  };
+  return {
+    async execute(sql: string, params: readonly unknown[]): Promise<DriverResult> {
+      await ensure();
+      return runOn(poolHandle, sql, params);
+    },
+    async reserve(): Promise<ReservedAsyncDriver> {
+      await ensure();
+      // biome-ignore lint/suspicious/noExplicitAny: reserved connection from mysql2.
+      const conn: any = await poolHandle.getConnection();
+      return {
+        execute: (sql, params) => runOn(conn, sql, params),
+        async release(): Promise<void> {
+          conn.release();
+        },
+        async close(): Promise<void> {
+          conn.release();
+        },
+      };
+    },
+    async close(): Promise<void> {
+      if (poolHandle) await poolHandle.end();
+    },
+  };
 }
 
 /** Shape a postgres.js result array into our `DriverResult`. */
