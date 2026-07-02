@@ -106,6 +106,65 @@ describe("migration CLI", () => {
     driver.close();
   });
 
+  it("revision --autorename folds a column drop+add into a rename", () => {
+    const driver = NodeSqliteDriver.open(":memory:");
+    // Baseline migration creates users(id, name); the model renames name → fullName.
+    class UserRenamed extends Model {
+      static override tablename = "users";
+      id = column.integer().primaryKey();
+      fullName = column.varchar(80).notNull();
+    }
+    const cfg = {
+      driver,
+      dialect: "sqlite" as const,
+      migrations: [migration()],
+      models: [UserRenamed],
+    };
+    const auto = runMigrationCli(
+      ["revision", "-m", "rename", "--autogenerate", "--autorename"],
+      cfg,
+    ).lines.join("\n");
+    expect(auto).toContain("rename_column");
+    expect(auto).not.toContain("drop_column");
+
+    // Without --autorename the safe drop + add is emitted instead.
+    const safe = runMigrationCli(
+      ["revision", "-m", "rename", "--autogenerate"],
+      cfg,
+    ).lines.join("\n");
+    expect(safe).toContain("drop_column");
+    expect(safe).not.toContain("rename_column");
+    driver.close();
+  });
+
+  it("revision --rename-column folds only the specified rename", () => {
+    const driver = NodeSqliteDriver.open(":memory:");
+    class UserRenamed extends Model {
+      static override tablename = "users";
+      id = column.integer().primaryKey();
+      fullName = column.varchar(80).notNull();
+    }
+    const cfg = {
+      driver,
+      dialect: "sqlite" as const,
+      migrations: [migration()],
+      models: [UserRenamed],
+    };
+    const out = runMigrationCli(
+      [
+        "revision",
+        "-m",
+        "rename",
+        "--autogenerate",
+        "--rename-column",
+        "users.name:fullName",
+      ],
+      cfg,
+    ).lines.join("\n");
+    expect(out).toContain("rename_column");
+    driver.close();
+  });
+
   it("unknown command fails with usage", () => {
     const driver = NodeSqliteDriver.open(":memory:");
     const res = runMigrationCli(["bogus"], config(driver));

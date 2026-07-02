@@ -12,7 +12,7 @@ em todo `select`, `insert`, `update` e `delete`.
 > Use o seletor de idioma no topo da página pra alternar entre
 > **Português (BR)** e **English (US)**.
 
-!!! success "Status: alpha (`v0.1.0`) — publicado no [npm](https://www.npmjs.com/package/tempest-db-js)"
+!!! success "Status: alpha (`v0.2.0`) — publicado no [npm](https://www.npmjs.com/package/tempest-db-js)"
 
     O caminho completo funciona de ponta a ponta: schema declarativo, query builder
     tipado, **execução real em SQLite** (testada contra `node:sqlite`), joins,

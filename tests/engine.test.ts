@@ -3,14 +3,17 @@ import {
   type InferModel,
   Model,
   NoResultError,
+  QueryExecutionError,
   type SyncEngine,
   column,
+  count,
   createEngine,
   createSyncEngine,
   del,
   insert,
   select,
   sql,
+  sum,
   update,
 } from "../src/index.js";
 
@@ -296,5 +299,214 @@ describe("stream() — lazy iteration", () => {
     }
     expect(seen).toEqual([5, 6]);
     await engine.close();
+  });
+});
+
+describe("aggregate / GROUP BY (real SQLite)", () => {
+  class Sale extends Model {
+    static override tablename = "sales";
+    id = column.integer().primaryKey();
+    region = column.text().notNull();
+    amount = column.integer().notNull();
+  }
+  const DDL_SALES =
+    "CREATE TABLE sales (id INTEGER PRIMARY KEY, region TEXT NOT NULL, amount INTEGER NOT NULL)";
+
+  function seeded(): SyncEngine {
+    const e = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (e as any).driver.execute(DDL_SALES, []);
+    e.session().execute(
+      insert(Sale).values([
+        { id: 1, region: "north", amount: 100 },
+        { id: 2, region: "north", amount: 50 },
+        { id: 3, region: "south", amount: 70 },
+      ]),
+    );
+    return e;
+  }
+
+  it("groups and sums per region", () => {
+    const engine = seeded();
+    const rows = engine
+      .session()
+      .execute(
+        select(Sale)
+          .aggregate(["region"], { n: count(), total: sum("amount") })
+          .orderBy("region"),
+      )
+      .all() as { region: string; n: number; total: number | null }[];
+    expect(rows).toEqual([
+      { region: "north", n: 2, total: 150 },
+      { region: "south", n: 1, total: 70 },
+    ]);
+    engine.close();
+  });
+
+  it("whole-table aggregate returns one row; scalar reads the count", () => {
+    const engine = seeded();
+    const total = engine
+      .session()
+      .execute(select(Sale).aggregate([], { n: count() }))
+      .scalar();
+    expect(total).toBe(3);
+    engine.close();
+  });
+});
+
+describe("upsert — ON CONFLICT (real SQLite)", () => {
+  class Kv extends Model {
+    static override tablename = "kv";
+    key = column.text().primaryKey();
+    value = column.integer().notNull();
+  }
+  const DDL_KV = "CREATE TABLE kv (key TEXT PRIMARY KEY, value INTEGER NOT NULL)";
+
+  function fresh(): SyncEngine {
+    const e = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (e as any).driver.execute(DDL_KV, []);
+    return e;
+  }
+
+  it("DO UPDATE overwrites the conflicting row", () => {
+    const engine = fresh();
+    const s = engine.session();
+    s.execute(insert(Kv).values({ key: "a", value: 1 }));
+    s.execute(
+      insert(Kv)
+        .values({ key: "a", value: 99 })
+        .onConflictDoUpdate(["key"], { value: 99 }),
+    );
+    const row = s.execute(select(Kv).where({ key: "a" })).one() as {
+      key: string;
+      value: number;
+    };
+    expect(row.value).toBe(99);
+    engine.close();
+  });
+
+  it("DO NOTHING keeps the existing row", () => {
+    const engine = fresh();
+    const s = engine.session();
+    s.execute(insert(Kv).values({ key: "a", value: 1 }));
+    s.execute(insert(Kv).values({ key: "a", value: 99 }).onConflictDoNothing(["key"]));
+    const row = s.execute(select(Kv).where({ key: "a" })).one() as { value: number };
+    expect(row.value).toBe(1);
+    engine.close();
+  });
+});
+
+describe("DX — query logging + error context", () => {
+  class Item extends Model {
+    static override tablename = "items";
+    id = column.integer().primaryKey();
+    name = column.text().notNull();
+  }
+  const DDL_ITEMS = "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)";
+
+  it("invokes onQuery for every statement with sql + params", () => {
+    const seen: { sql: string; params: readonly unknown[] }[] = [];
+    const engine = createSyncEngine("sqlite://:memory:", {
+      onQuery: (e) => seen.push(e),
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    s.execute(insert(Item).values({ id: 1, name: "a" }));
+    s.execute(select(Item).where({ id: 1 }));
+    const insertLog = seen.find((e) => e.sql.startsWith("INSERT"));
+    const selectLog = seen.find((e) => e.sql.startsWith("SELECT"));
+    expect(insertLog?.params).toEqual([1, "a"]);
+    expect(selectLog?.params).toEqual([1]);
+    engine.close();
+  });
+
+  it("wraps driver errors in QueryExecutionError with sql + params", () => {
+    const engine = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    let caught: unknown;
+    try {
+      // duplicate PK → driver throws; session wraps it
+      s.execute(insert(Item).values({ id: 1, name: "a" }));
+      s.execute(insert(Item).values({ id: 1, name: "b" }));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(QueryExecutionError);
+    const qe = caught as QueryExecutionError;
+    expect(qe.sql).toContain("INSERT INTO");
+    expect(qe.params).toEqual([1, "b"]);
+    expect(qe.message).toContain("SQL:");
+    expect(qe.cause).toBeDefined();
+    engine.close();
+  });
+
+  it("a logger that throws does not break execution", () => {
+    const engine = createSyncEngine("sqlite://:memory:", {
+      onQuery: () => {
+        throw new Error("logger boom");
+      },
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL_ITEMS, []);
+    const s = engine.session();
+    expect(() => s.execute(insert(Item).values({ id: 1, name: "a" }))).not.toThrow();
+    engine.close();
+  });
+});
+
+describe("disposable — using / await using", () => {
+  const DDL3 = "CREATE TABLE nums (id INTEGER PRIMARY KEY, n INTEGER NOT NULL)";
+  class Num extends Model {
+    static override tablename = "nums";
+    id = column.integer().primaryKey();
+    n = column.integer().notNull();
+  }
+
+  it("sync engine closes its driver at scope exit (Symbol.dispose)", () => {
+    let closed = false;
+    {
+      using engine = createSyncEngine("sqlite://:memory:");
+      // biome-ignore lint/suspicious/noExplicitAny: wrap the driver to observe close().
+      const driver = (engine as any).driver;
+      const realClose = driver.close.bind(driver);
+      driver.close = () => {
+        closed = true;
+        realClose();
+      };
+    }
+    expect(closed).toBe(true);
+  });
+
+  it("async engine closes its driver at scope exit (Symbol.asyncDispose)", async () => {
+    let closed = false;
+    {
+      await using engine = createEngine("sqlite://:memory:");
+      // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+      await (engine as any).driver.execute(DDL3, []);
+      // biome-ignore lint/suspicious/noExplicitAny: wrap the driver to observe close().
+      const driver = (engine as any).driver;
+      const realClose = driver.close.bind(driver);
+      driver.close = async () => {
+        closed = true;
+        await realClose();
+      };
+    }
+    expect(closed).toBe(true);
+  });
+
+  it("sync session is disposable and closes the driver", () => {
+    const engine = createSyncEngine("sqlite://:memory:");
+    // biome-ignore lint/suspicious/noExplicitAny: driver access for DDL in tests.
+    (engine as any).driver.execute(DDL3, []);
+    {
+      using session = engine.session();
+      session.execute(insert(Num).values({ id: 1, n: 1 }));
+    }
+    // The driver was closed by the session dispose — a further query throws.
+    expect(() => engine.session().execute(select(Num))).toThrow();
   });
 });

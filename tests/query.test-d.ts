@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import { Model, column } from "../src/index.js";
-import { type SelectBuilder, select } from "../src/query.js";
+import { type SelectBuilder, avg, count, select, sum } from "../src/query.js";
 
 class User extends Model {
   static override tablename = "users";
@@ -53,5 +53,27 @@ describe("Phase 2 query builder spike", () => {
   it("rejects projecting a non-existent column", () => {
     // @ts-expect-error - `missing` is not a column of User
     select(User, ["id", "missing"]);
+  });
+
+  it("infers grouped-aggregate row: group cols + aliases", () => {
+    const q = select(User).aggregate(["age"], { n: count(), avgId: avg("id") });
+    expectTypeOf<RowOf<typeof q>>().toEqualTypeOf<{
+      age: number;
+      n: number;
+      avgId: number | null;
+    }>();
+  });
+
+  it("infers a whole-table aggregate row", () => {
+    const q = select(User).aggregate([], { total: count(), s: sum("age") });
+    expectTypeOf<RowOf<typeof q>>().toEqualTypeOf<{
+      total: number;
+      s: number | null;
+    }>();
+  });
+
+  it("rejects grouping by a non-column", () => {
+    // @ts-expect-error - `bogus` is not a column of User
+    select(User).aggregate(["bogus"], { n: count() });
   });
 });

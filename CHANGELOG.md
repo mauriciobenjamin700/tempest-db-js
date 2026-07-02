@@ -5,7 +5,7 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.0] — 2026-07-01
 
 ### Adicionado
 
@@ -92,6 +92,57 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **PostgreSQL** (estrutural, sem PG no CI): `introspectPostgres`/`checkDriftPostgres`
   via `information_schema`; **enum nomeado** (`CREATE TYPE ... AS ENUM`); `PoolOptions`
   (`size`/`idleTimeoutMs`/`connectTimeoutMs`) repassados ao `postgres.js`.
+- **`using` / `await using`** — `Session` e `Engine` (sync e async) implementam
+  `Symbol.dispose`/`Symbol.asyncDispose`, fechando driver/pool ao sair do escopo.
+- **Binário `tempest-db`** — CLI executável que carrega um config
+  (`tempest-db.config.{mjs,js,cjs}` ou `--config <path>`) e despacha os comandos de
+  migração; `defineMigrationConfig` para config tipada.
+- **Rename interativo** — `detectRenames`/`applyRenames` reconhecem pares add/drop
+  de shape idêntico como rename (1:1 sem ambiguidade) e os fundem em
+  `rename_column`/`rename_table`. CLI: `--autorename`, `--rename-table from:to`,
+  `--rename-column tbl.from:to`; o bin pergunta por candidato quando em TTY.
+- **Operadores tipados-por-coluna no `where` de join** — cada ref `alias.column`
+  aceita `OperatorsFor<T>` da coluna (como o `WhereInput` single-table); `like` em
+  número / `gt` em string = erro de compilação.
+- **Receitas HTTP** — exemplos bilíngues de REST API com `BaseRepository` sobre
+  **Hono**, **Express** e **Fastify**.
+- **Benchmark** — `npm run bench` (`bench/sqlite-bench.mjs`) compara insert/scan/
+  filter/lookup vs Drizzle e Kysely; resultados e metodologia em `BENCHMARKS.md`.
+
+### DX & API
+
+- **Erros de query com contexto** — `QueryExecutionError` envolve o erro do
+  driver e anexa o SQL que falhou + os params. Todo statement do session
+  (execute/stream/transaction/savepoint) reporta contexto no throw.
+- **Logging opcional de query** — `EngineOptions.onQuery` (`QueryLogger`),
+  chamado por statement com `{ sql, params }`. Erros do logger são engolidos.
+- **`SELECT DISTINCT`** — `select(...).distinct()`.
+- **Agregações tipadas** — helpers `count`/`sum`/`avg`/`min`/`max` +
+  `select(M).aggregate(groupBy, spec)`. Linha resultante = colunas de grupo
+  (do modelo) + `{ [alias]: resultado }`; compila `GROUP BY`.
+- **Upsert** — `insert(M).onConflictDoNothing(target)` /
+  `onConflictDoUpdate(target, set)` → `ON CONFLICT (...) DO NOTHING | DO UPDATE`.
+- **Active-record opt-in** — `activeRecord(Model, session)` +
+  `ActiveRecord` com `save`/`update`/`delete`/`reload` sobre `.data` (linha
+  plana). Não altera o retorno plano default — é explícito.
+
+### Performance
+
+- **Cache de prepared-statement** no `NodeSqliteDriver` — `prepare()` por texto
+  SQL, reusado entre execuções (tempest sempre parametriza, então a forma de
+  query mapeia pra um SQL estável). Maior ganho em insert/lookup.
+- **`columnsOf` memoizado** por classe (WeakMap) — antes reinstanciava o modelo
+  a cada linha lida.
+- **Row-mapper compilado** — `coerceRow` monta um mapa de decoders por coluna
+  (só as que precisam de coerção), memoizado por modelo, em vez de re-dispatchar
+  o switch de tipo por linha.
+- **Cache do template SQL de INSERT** por estrutura (`dialeto|tabela|colunas|
+  nº de linhas|returning`) — o texto do INSERT independe dos valores, então o
+  loop de insert por linha compila a string uma vez e reusa; params seguem
+  extraídos por chamada.
+- Efeito medido (20k linhas, `node:sqlite`): insert 64ms→18ms, scan 22ms→9ms,
+  lookups 5ms→1.9ms. tempest-db-js passa a ser o mais próximo do piso `node:sqlite`
+  entre os ORMs comparados (~10× mais rápido que Drizzle no insert).
 
 ### Notas
 

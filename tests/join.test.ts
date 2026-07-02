@@ -111,4 +111,33 @@ describe("Phase 5 — joins, real SQLite execution", () => {
       .all() as { user: UserRow; order: OrderRow }[];
     expect(rows.map((r) => r.order.amount)).toEqual([100, 50]);
   });
+
+  it("applies typed operators in the join where (gte + like)", () => {
+    const rows = engine
+      .session()
+      .execute(
+        join(User, "user")
+          .innerJoin(Order, "order", { "user.id": "order.userId" })
+          .where({ "order.amount": { gte: 100 }, "user.name": { like: "An%" } }),
+      )
+      .all() as { user: UserRow; order: OrderRow }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.order.amount).toBe(100);
+  });
+
+  it("supports `in` and `between` operators across the join", () => {
+    const rows = engine
+      .session()
+      .execute(
+        join(User, "user")
+          .innerJoin(Order, "order", { "user.id": "order.userId" })
+          .where({
+            "order.status": { in: ["paid", "pending"] },
+            "order.amount": { between: [40, 60] },
+          }),
+      )
+      .all() as { user: UserRow; order: OrderRow }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.order.amount).toBe(50);
+  });
 });

@@ -27,12 +27,27 @@ export interface OrderTerm {
   readonly direction: SortDirection;
 }
 
+/** One aggregate expression in a grouped SELECT (`COUNT(*) AS "n"`). */
+export interface AggregateTerm {
+  readonly fn: "count" | "sum" | "avg" | "min" | "max";
+  /** The column to aggregate, or `"*"` (only valid for `count`). */
+  readonly column: string | "*";
+  /** The result alias. */
+  readonly alias: string;
+}
+
 /** Serializable AST for a SELECT. Dialects (Phase 4) compile this to SQL. */
 export interface SelectNode {
   readonly kind: "select";
   readonly table: string;
   /** Projected columns, or "*" for the whole row. */
   readonly columns: readonly string[] | "*";
+  /** Emit `SELECT DISTINCT` when true. */
+  readonly distinct: boolean;
+  /** Aggregate expressions; when non-empty, this is a grouped/aggregate query. */
+  readonly aggregates: readonly AggregateTerm[];
+  /** `GROUP BY` columns. */
+  readonly groupBy: readonly string[];
   readonly where: CondNode | undefined;
   readonly orderBy: readonly OrderTerm[];
   readonly limit: number | undefined;
@@ -128,6 +143,46 @@ export const OPERATORS = [
 export type Operator = (typeof OPERATORS)[number];
 
 // --------------------------------------------------------------------------
+// aggregate expressions
+// --------------------------------------------------------------------------
+
+/** An aggregate expression carrying its result type `T` as a phantom. */
+export class Agg<T> {
+  declare readonly __t: T;
+  constructor(
+    readonly fn: AggregateTerm["fn"],
+    readonly column: string | "*",
+  ) {}
+}
+
+/** `COUNT(*)` — the number of rows in the group (never null). */
+export function count(): Agg<number> {
+  return new Agg<number>("count", "*");
+}
+/** `SUM(column)` — null when the group has no non-null values. */
+export function sum(column: string): Agg<number | null> {
+  return new Agg<number | null>("sum", column);
+}
+/** `AVG(column)` — null when the group has no non-null values. */
+export function avg(column: string): Agg<number | null> {
+  return new Agg<number | null>("avg", column);
+}
+/** `MIN(column)` — numeric columns; null on an empty group. */
+export function min(column: string): Agg<number | null> {
+  return new Agg<number | null>("min", column);
+}
+/** `MAX(column)` — numeric columns; null on an empty group. */
+export function max(column: string): Agg<number | null> {
+  return new Agg<number | null>("max", column);
+}
+
+/** Extract the phantom result type of an aggregate expression. */
+type AggResult<A> = A extends Agg<infer T> ? T : never;
+
+/** Flatten an intersection into a single object literal. */
+type SimplifyProj<T> = { [K in keyof T]: T[K] } & {};
+
+// --------------------------------------------------------------------------
 // builder
 // --------------------------------------------------------------------------
 
@@ -154,6 +209,48 @@ export class SelectBuilder<Full, Proj = Full> {
   /** Add a WHERE filter: the object form (keys typed) or an `and`/`or`/`not`. */
   where(input: WhereInput<Full> | Condition): SelectBuilder<Full, Proj> {
     return this.with({ where: toCondNode(input as Record<string, unknown>) });
+  }
+
+  /** Emit `SELECT DISTINCT` — drop duplicate rows. */
+  distinct(): SelectBuilder<Full, Proj> {
+    return this.with({ distinct: true });
+  }
+
+  /**
+   * Group by columns and compute aggregates. The result row is the grouped
+   * columns (typed from the model) plus one field per aggregate alias.
+   *
+   * @param groupBy The columns to group by (checked against the model). Pass `[]`
+   *   for a whole-table aggregate.
+   * @param spec A map of result alias → aggregate expression ({@link count},
+   *   {@link sum}, {@link avg}, {@link min}, {@link max}).
+   * @returns A builder whose row is `Pick<Full, K> & { [alias]: aggResult }`.
+   *
+   * @example
+   * ```ts
+   * select(Order).aggregate(["status"], { n: count(), total: sum("amount") });
+   * // rows: { status: string; n: number; total: number | null }[]
+   * ```
+   */
+  aggregate<K extends keyof Full & string, S extends Record<string, Agg<unknown>>>(
+    groupBy: readonly K[],
+    spec: S,
+  ): SelectBuilder<
+    Full,
+    SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>
+  > {
+    const aggregates: AggregateTerm[] = Object.entries(spec).map(([alias, agg]) => ({
+      fn: agg.fn,
+      column: agg.column,
+      alias,
+    }));
+    return new SelectBuilder(
+      { ...this.node, aggregates, groupBy },
+      this.source,
+    ) as unknown as SelectBuilder<
+      Full,
+      SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>
+    >;
   }
 
   /** Order by a column of `Full`. */
@@ -201,6 +298,9 @@ export function select(
       kind: "select",
       table: model.tablename,
       columns: columns ?? "*",
+      distinct: false,
+      aggregates: [],
+      groupBy: [],
       where: undefined,
       orderBy: [],
       limit: undefined,

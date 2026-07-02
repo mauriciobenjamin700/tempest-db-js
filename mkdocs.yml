@@ -79,6 +79,10 @@ plugins:
             Visão geral: Overview
             created_at / updated_at: created_at / updated_at
             Paginação tipada: Typed pagination
+            Agregações e DISTINCT: Aggregations & DISTINCT
+            Upsert (ON CONFLICT): Upsert (ON CONFLICT)
+            Active-record (opt-in): Active-record (opt-in)
+            Logging e erros: Logging & errors
             Transações e savepoints: Transactions & savepoints
             Colunas JSON e enum: JSON & enum columns
             Serialização (linha ↔ JSON): Serialization (row ↔ JSON)
@@ -88,6 +92,8 @@ plugins:
             Todo CLI (SQLite): Todo CLI (SQLite)
             Blog (relations + joins): Blog (relations + joins)
             REST API (Hono + Repository): REST API (Hono + Repository)
+            REST API (Express + Repository): REST API (Express + Repository)
+            REST API (Fastify + Repository): REST API (Fastify + Repository)
             Fluxo de migrações: Migrations workflow
             Guia: Guide
             Arquitetura: Architecture
@@ -142,6 +148,10 @@ nav:
       - recipes/index.md
       - created_at / updated_at: recipes/timestamps.md
       - Paginação tipada: recipes/pagination.md
+      - Agregações e DISTINCT: recipes/aggregations.md
+      - Upsert (ON CONFLICT): recipes/upsert.md
+      - Active-record (opt-in): recipes/active-record.md
+      - Logging e erros: recipes/logging.md
       - Transações e savepoints: recipes/transactions.md
       - Colunas JSON e enum: recipes/json-enum.md
       - Serialização (linha ↔ JSON): recipes/serialization.md
@@ -151,6 +161,8 @@ nav:
       - Todo CLI (SQLite): examples/todo-cli.md
       - Blog (relations + joins): examples/blog.md
       - REST API (Hono + Repository): examples/rest-api.md
+      - REST API (Express + Repository): examples/express-api.md
+      - REST API (Fastify + Repository): examples/fastify-api.md
       - Fluxo de migrações: examples/migrations-workflow.md
   - Guia:
       - guide/index.md

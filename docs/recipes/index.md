@@ -16,6 +16,10 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | --- | --- |
 | [created_at / updated_at](timestamps.md) | Timestamps gerenciados pelo banco, sem lembrar de setar na mão. |
 | [Paginação tipada](pagination.md) | Listas paginadas com total/páginas, alinhadas ao `tempest-fastapi-sdk`. |
+| [Agregações e DISTINCT](aggregations.md) | `count`/`sum`/`avg`/`min`/`max` + `GROUP BY` tipado e `DISTINCT`. |
+| [Upsert (ON CONFLICT)](upsert.md) | Inserir resolvendo conflito de chave: `DO NOTHING` ou `DO UPDATE`. |
+| [Active-record (opt-in)](active-record.md) | Métodos `save`/`update`/`delete`/`reload` numa linha, quando você prefere. |
+| [Logging e erros](logging.md) | Ver o SQL que roda (`onQuery`) e erros com o SQL/params que falharam. |
 | [Transações e savepoints](transactions.md) | Operações atômicas com commit/rollback automático e pontos de salvamento. |
 | [Colunas JSON e enum](json-enum.md) | Guardar objetos tipados e uniões literais com segurança de tipos. |
 | [Serialização (linha ↔ JSON)](serialization.md) | Converter linhas pra JSON e validar JSON de volta pra linha. |

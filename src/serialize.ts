@@ -14,7 +14,13 @@
  * required columns are present.
  */
 
-import { type Column, type InferModel, type ModelClass, columnsOf } from "./index.js";
+import {
+  type Column,
+  type ColumnTypeKind,
+  type InferModel,
+  type ModelClass,
+  columnsOf,
+} from "./index.js";
 
 /** Raised when `fromDict` input fails validation against the model. */
 export class ValidationError extends Error {
@@ -184,12 +190,69 @@ export function parse<C extends ModelClass>(model: C, json: string): InferModel<
   return fromDict(model, JSON.parse(json) as Record<string, unknown>);
 }
 
+/** A per-column value decoder for the hot read path. */
+type Decoder = (value: unknown) => unknown;
+
+/**
+ * Build the specialized decoder for a column kind, or `null` when the kind needs
+ * no coercion (varchar/text/char/uuid/enum/time — plain string passthrough).
+ * Dispatching on the kind once here (at build time) keeps the per-row path a
+ * single indirect call instead of a switch.
+ */
+function decoderForKind(kind: ColumnTypeKind): Decoder | null {
+  switch (kind) {
+    case "bigint":
+      return (v) => (v == null ? null : typeof v === "bigint" ? v : BigInt(v as string));
+    case "date":
+    case "datetime":
+    case "timestamp":
+      return (v) => (v == null ? null : v instanceof Date ? v : new Date(v as string));
+    case "blob":
+      return (v) =>
+        v == null ? null : v instanceof Uint8Array ? v : fromBase64(v as string);
+    case "json":
+      return (v) => (v == null ? null : typeof v === "string" ? JSON.parse(v) : v);
+    case "numeric":
+      return (v) => (v == null ? null : typeof v === "string" ? v : String(v));
+    case "boolean":
+      return (v) =>
+        v == null ? null : typeof v === "boolean" ? v : v === 1 || v === "true";
+    case "smallint":
+    case "integer":
+    case "real":
+    case "double":
+      return (v) => (v == null ? null : typeof v === "number" ? v : Number(v));
+    default:
+      return null; // varchar/text/char/uuid/enum/time → passthrough
+  }
+}
+
+/** Memoized per-column decoder maps, keyed by model class. */
+const decoderCache = new WeakMap<ModelClass, Map<string, Decoder>>();
+
+/** The (memoized) decoder map for a model: column name → decoder (coercing ones only). */
+function decodersFor(model: ModelClass): Map<string, Decoder> {
+  const cached = decoderCache.get(model);
+  if (cached) return cached;
+  const map = new Map<string, Decoder>();
+  for (const [name, col] of Object.entries(columnsOf(model))) {
+    const decoder = decoderForKind(col.type.kind);
+    if (decoder) map.set(name, decoder);
+  }
+  decoderCache.set(model, map);
+  return map;
+}
+
 /**
  * Coerce a raw driver row into native row values, by column type. Unlike
  * `fromDict`, it does NOT validate required columns — a row read from the
  * database (or a projection) is taken as-is, only its values are normalized
  * (e.g. `0/1` → boolean, ISO string → `Date`, JSON string → object). Keys that
- * are not columns of the model pass through untouched.
+ * are not columns of the model (or columns needing no coercion) pass through
+ * untouched.
+ *
+ * Uses a memoized per-model decoder map so a large result set does not
+ * re-reflect the model or re-dispatch the type switch on every row.
  *
  * @param model The model class.
  * @param raw The raw row returned by the driver.
@@ -199,11 +262,11 @@ export function coerceRow<C extends ModelClass>(
   model: C,
   raw: Record<string, unknown>,
 ): InferModel<C> {
-  const columns = columnsOf(model);
+  const decoders = decodersFor(model);
   const out: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(raw)) {
-    const col = columns[name];
-    out[name] = col ? decodeValue(col, value) : value;
+  for (const name of Object.keys(raw)) {
+    const decode = decoders.get(name);
+    out[name] = decode ? decode(raw[name]) : raw[name];
   }
   return out as InferModel<C>;
 }

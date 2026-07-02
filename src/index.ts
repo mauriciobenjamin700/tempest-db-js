@@ -269,16 +269,25 @@ export abstract class Model {
   static tablename: string;
 }
 
+/** Memoized column maps, keyed by model class (identity is stable per class). */
+const columnsCache = new WeakMap<ModelClass, Record<string, Column<unknown>>>();
+
 /**
  * Reflect a model class into its column map at runtime, keyed by column name.
  *
  * Instantiates the class once and collects every field that is a `Column`. Used
  * by the serialization layer and (Phase 6) the migration schema reflector.
  *
+ * The result is **memoized per class** — a model's columns never change at
+ * runtime, and this is called once per row on hot read paths (coercion, joins),
+ * so re-instantiating the class every time would dominate large result sets.
+ *
  * @param model The model class (subclass of `Model`).
- * @returns A record of column name → `Column` instance.
+ * @returns A record of column name → `Column` instance (do not mutate).
  */
 export function columnsOf(model: ModelClass): Record<string, Column<unknown>> {
+  const cached = columnsCache.get(model);
+  if (cached) return cached;
   const instance = new (model as new () => Model)();
   const out: Record<string, Column<unknown>> = {};
   for (const [key, value] of Object.entries(instance)) {
@@ -286,6 +295,7 @@ export function columnsOf(model: ModelClass): Record<string, Column<unknown>> {
       out[key] = value as Column<unknown>;
     }
   }
+  columnsCache.set(model, out);
   return out;
 }
 
@@ -360,6 +370,12 @@ export {
 } from "./conditions.js";
 
 export {
+  Agg,
+  type AggregateTerm,
+  avg,
+  count,
+  max,
+  min,
   type Operator,
   type OperatorsFor,
   OPERATORS,
@@ -368,6 +384,7 @@ export {
   SelectBuilder,
   select,
   type SortDirection,
+  sum,
   type WhereInput,
 } from "./query.js";
 
@@ -378,6 +395,7 @@ export {
   InsertBuilder,
   type InsertNode,
   insert,
+  type OnConflict,
   type Returning,
   UpdateBuilder,
   type UpdateNode,
@@ -430,6 +448,12 @@ export {
 } from "./repository.js";
 
 export {
+  ActiveRecord,
+  type ActiveRecordManager,
+  activeRecord,
+} from "./active-record.js";
+
+export {
   type BelongsTo,
   belongsTo,
   type HasMany,
@@ -453,6 +477,8 @@ export {
   NoResultError,
   NodeSqliteDriver,
   type PoolOptions,
+  QueryExecutionError,
+  type QueryLogger,
   type ReservedAsyncDriver,
   type RowOf,
   type SyncDriver,
