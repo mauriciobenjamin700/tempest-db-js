@@ -46,7 +46,12 @@ export {
   type MigrationDraft,
 } from "./codegen.js";
 
-export { type Migration, MigrationRunner, Op } from "./runner.js";
+export {
+  AsyncMigrationRunner,
+  type Migration,
+  MigrationRunner,
+  Op,
+} from "./runner.js";
 
 export {
   checkDrift,

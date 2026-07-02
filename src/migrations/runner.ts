@@ -9,7 +9,7 @@
  * sync driver.
  */
 
-import type { SyncDriver } from "../engine.js";
+import type { AsyncDriver, SyncDriver } from "../engine.js";
 import type { Dialect } from "../url.js";
 import { renderOperation } from "./ddl.js";
 import { topoOrder } from "./graph.js";
@@ -165,6 +165,138 @@ export class MigrationRunner {
       }
       this.runOps(op.operations);
       this.forget(migration.revision);
+      reverted.push(migration.revision);
+    }
+    return reverted;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// async runner (PostgreSQL / any async driver)
+// ---------------------------------------------------------------------------
+
+/** Quote an identifier for the dialect (backticks on MySQL, double-quotes else). */
+function quoteIdent(name: string, dialect: Dialect): string {
+  return dialect === "mysql"
+    ? `\`${name.replace(/`/g, "``")}\``
+    : `"${name.replace(/"/g, '""')}"`;
+}
+
+/** The n-th (1-based) placeholder for the dialect (`$n` on PostgreSQL, `?` else). */
+function placeholder(index: number, dialect: Dialect): string {
+  return dialect === "postgresql" ? `$${index}` : "?";
+}
+
+/**
+ * Runs migrations against an **async** driver (PostgreSQL, or any async driver),
+ * tracking applied revisions. Mirrors {@link MigrationRunner} but every statement
+ * is awaited, and identifier quoting + placeholder style follow the dialect —
+ * so the version table and its bookkeeping are portable across SQLite/PG/MySQL.
+ */
+export class AsyncMigrationRunner {
+  private readonly vt: string;
+
+  constructor(
+    private readonly driver: AsyncDriver,
+    private readonly dialect: Dialect,
+  ) {
+    this.vt = quoteIdent(VERSION_TABLE, dialect);
+  }
+
+  /** Create the version-tracking table if it does not exist. */
+  async ensureVersionTable(): Promise<void> {
+    await this.driver.execute(
+      `CREATE TABLE IF NOT EXISTS ${this.vt} (revision ${this.textType()} PRIMARY KEY, applied_at ${this.textType()} NOT NULL, down_revision ${this.textType()} NOT NULL)`,
+      [],
+    );
+  }
+
+  /** A portable "text" column type for the version table. */
+  private textType(): string {
+    // MySQL cannot index an unbounded TEXT primary key; use VARCHAR there.
+    return this.dialect === "mysql" ? "VARCHAR(255)" : "TEXT";
+  }
+
+  /** The set of applied revision ids. */
+  async applied(): Promise<Set<string>> {
+    await this.ensureVersionTable();
+    const { rows } = await this.driver.execute(`SELECT revision FROM ${this.vt}`, []);
+    return new Set(rows.map((r) => String(r.revision)));
+  }
+
+  private async runOps(ops: readonly Operation[]): Promise<void> {
+    for (const op of ops) {
+      for (const stmt of renderOperation(op, this.dialect)) {
+        const trimmed = stmt.trim();
+        if (trimmed.length === 0 || trimmed.startsWith("--")) continue;
+        await this.driver.execute(stmt, []);
+      }
+    }
+  }
+
+  private async record(migration: Migration, appliedAt: string): Promise<void> {
+    const p = (i: number) => placeholder(i, this.dialect);
+    await this.driver.execute(
+      `INSERT INTO ${this.vt} (revision, applied_at, down_revision) VALUES (${p(1)}, ${p(2)}, ${p(3)})`,
+      [migration.revision, appliedAt, migration.downRevision.join(",")],
+    );
+  }
+
+  private async forget(revision: string): Promise<void> {
+    await this.driver.execute(
+      `DELETE FROM ${this.vt} WHERE revision = ${placeholder(1, this.dialect)}`,
+      [revision],
+    );
+  }
+
+  /**
+   * Apply all pending migrations up to the head(s), in DAG order.
+   *
+   * @param migrations All known migrations.
+   * @param appliedAt Timestamp string to stamp on each applied revision.
+   * @returns The revision ids that were applied this run.
+   */
+  async upgrade(migrations: readonly Migration[], appliedAt: string): Promise<string[]> {
+    const done = await this.applied();
+    const ordered = topoOrder(migrations);
+    const ran: string[] = [];
+    for (const migration of ordered) {
+      if (done.has(migration.revision)) continue;
+      const op = new Op();
+      migration.up(op);
+      await this.runOps(op.operations);
+      await this.record(migration, appliedAt);
+      ran.push(migration.revision);
+    }
+    return ran;
+  }
+
+  /**
+   * Revert the last `steps` applied migrations (default 1), newest first.
+   *
+   * @param migrations All known migrations.
+   * @param steps How many applied revisions to roll back.
+   * @returns The revision ids that were reverted.
+   */
+  async downgrade(migrations: readonly Migration[], steps = 1): Promise<string[]> {
+    const done = await this.applied();
+    const ordered = topoOrder(migrations).filter((m) => done.has(m.revision));
+    const toRevert = ordered.slice(-steps).reverse();
+    const reverted: string[] = [];
+    for (const migration of toRevert) {
+      const op = new Op();
+      try {
+        migration.down(op);
+      } catch {
+        op.operations.length = 0;
+      }
+      if (op.operations.length === 0) {
+        const upOp = new Op();
+        migration.up(upOp);
+        op.operations.push(...invertAll(upOp.operations));
+      }
+      await this.runOps(op.operations);
+      await this.forget(migration.revision);
       reverted.push(migration.revision);
     }
     return reverted;
