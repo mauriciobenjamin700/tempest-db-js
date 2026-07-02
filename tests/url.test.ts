@@ -57,11 +57,23 @@ describe("parseDatabaseUrl — errors", () => {
   });
 
   it("throws on an unknown dialect", () => {
-    expect(() => parseDatabaseUrl("mysql://h/db")).toThrow(InvalidDatabaseUrl);
+    expect(() => parseDatabaseUrl("oracle://h/db")).toThrow(InvalidDatabaseUrl);
+  });
+
+  it("parses a MySQL URL (and the mariadb alias)", () => {
+    const p = parseDatabaseUrl("mysql://app:secret@localhost:3306/shop");
+    expect(p.dialect).toBe("mysql");
+    expect(p.host).toBe("localhost");
+    expect(p.port).toBe(3306);
+    expect(p.user).toBe("app");
+    expect(p.password).toBe("secret");
+    expect(p.database).toBe("shop");
+    expect(parseDatabaseUrl("mariadb://h/db").dialect).toBe("mysql");
   });
 
   it("detectDialect returns just the dialect", () => {
     expect(detectDialect("sqlite:///x.db")).toBe("sqlite");
     expect(detectDialect("postgresql://h/db")).toBe("postgresql");
+    expect(detectDialect("mysql://h/db")).toBe("mysql");
   });
 });

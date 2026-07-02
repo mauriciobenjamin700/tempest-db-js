@@ -1,9 +1,9 @@
 /**
- * tempest-db-js — Phase 6: DDL rendering.
+ * tempest-db-js — Phase 6/9: DDL rendering.
  *
  * Renders the dialect-neutral IR + operations to concrete SQL per dialect. This
  * is the ONLY place migration SQL is produced — the same operation yields the
- * right DDL for SQLite or PostgreSQL.
+ * right DDL for SQLite, PostgreSQL or MySQL.
  */
 
 import type { ColumnType, DefaultValue } from "../index.js";
@@ -11,8 +11,11 @@ import type { Dialect } from "../url.js";
 import type { ColumnIR, TableIR } from "./ir.js";
 import type { Operation } from "./operations.js";
 
-function quoteId(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
+/** Quote an identifier for the dialect (backticks on MySQL, double-quotes else). */
+function quoteId(name: string, dialect: Dialect): string {
+  return dialect === "mysql"
+    ? `\`${name.replace(/`/g, "``")}\``
+    : `"${name.replace(/"/g, '""')}"`;
 }
 
 function quoteLiteral(value: string): string {
@@ -38,6 +41,47 @@ export function renderColumnType(type: ColumnType, dialect: Dialect): string {
         return "BLOB";
       default:
         return "TEXT"; // varchar/char/text/uuid/enum/json/date/time/datetime/timestamp
+    }
+  }
+  if (dialect === "mysql") {
+    switch (kind) {
+      case "smallint":
+        return "SMALLINT";
+      case "integer":
+        return "INT";
+      case "bigint":
+        return "BIGINT";
+      case "numeric":
+        return meta.precision !== undefined
+          ? `DECIMAL(${meta.precision}${meta.scale !== undefined ? `, ${meta.scale}` : ""})`
+          : "DECIMAL";
+      case "real":
+        return "FLOAT";
+      case "double":
+        return "DOUBLE";
+      case "varchar":
+        return `VARCHAR(${meta.length ?? 255})`;
+      case "char":
+        return `CHAR(${meta.length ?? 255})`;
+      case "text":
+        return "TEXT";
+      case "boolean":
+        return "TINYINT(1)";
+      case "date":
+        return "DATE";
+      case "time":
+        return "TIME";
+      case "datetime":
+      case "timestamp":
+        return "DATETIME";
+      case "blob":
+        return "BLOB";
+      case "json":
+        return "JSON";
+      case "uuid":
+        return "CHAR(36)";
+      case "enum":
+        return `ENUM(${(meta.values ?? []).map(quoteLiteral).join(", ")})`;
     }
   }
   // PostgreSQL
@@ -78,7 +122,7 @@ export function renderColumnType(type: ColumnType, dialect: Dialect): string {
     case "uuid":
       return "UUID";
     case "enum":
-      // Named PG enum types are a Phase 6e refinement; fall back to TEXT for now.
+      // Named PG enum types are handled in renderCreateTable; fall back to TEXT.
       return "TEXT";
   }
 }
@@ -90,21 +134,21 @@ export function renderDefault(def: DefaultValue, dialect: Dialect): string {
     if (typeof expr === "object") return expr.raw;
     switch (expr) {
       case "now":
-        return dialect === "sqlite" ? "CURRENT_TIMESTAMP" : "now()";
+        return dialect === "postgresql" ? "now()" : "CURRENT_TIMESTAMP";
       case "current_date":
         return "CURRENT_DATE";
       case "current_time":
         return "CURRENT_TIME";
       case "uuidv4":
-        return dialect === "sqlite"
-          ? "(lower(hex(randomblob(16))))"
-          : "gen_random_uuid()";
+        if (dialect === "postgresql") return "gen_random_uuid()";
+        if (dialect === "mysql") return "(UUID())";
+        return "(lower(hex(randomblob(16))))";
     }
   }
   const value = def.value;
   if (value === null) return "NULL";
   if (typeof value === "boolean") {
-    return dialect === "sqlite" ? (value ? "1" : "0") : value ? "TRUE" : "FALSE";
+    return dialect === "postgresql" ? (value ? "TRUE" : "FALSE") : value ? "1" : "0";
   }
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (value instanceof Date) return quoteLiteral(value.toISOString());
@@ -114,7 +158,7 @@ export function renderDefault(def: DefaultValue, dialect: Dialect): string {
 
 /** Render one column definition: `"name" TYPE [NOT NULL] [DEFAULT x]`. */
 export function renderColumnDef(col: ColumnIR, dialect: Dialect): string {
-  let sql = `${quoteId(col.name)} ${renderColumnType(col.type, dialect)}`;
+  let sql = `${quoteId(col.name, dialect)} ${renderColumnType(col.type, dialect)}`;
   if (col.notNull) sql += " NOT NULL";
   if (col.default !== null) sql += ` DEFAULT ${renderDefault(col.default, dialect)}`;
   return sql;
@@ -147,6 +191,11 @@ function postgresSerialType(kind: ColumnType["kind"]): string {
 /**
  * Render a CREATE TABLE (plus, on PostgreSQL, any `CREATE TYPE ... AS ENUM` for
  * enum columns, which must precede the table). Returns the statement list.
+ *
+ * Auto-increment for a lone integer-family primary key (SQLAlchemy semantics):
+ *   - SQLite: free via `INTEGER PRIMARY KEY` (rowid alias).
+ *   - PostgreSQL: `SERIAL`/`BIGSERIAL`.
+ *   - MySQL: `AUTO_INCREMENT` on the column (which must also be a key).
  */
 function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
   const typeStmts: string[] = [];
@@ -154,27 +203,28 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
     if (dialect === "postgresql" && c.type.kind === "enum") {
       const typeName = enumTypeName(table.name, c.name);
       const values = (c.type.meta.values ?? []).map(quoteLiteral).join(", ");
-      typeStmts.push(`CREATE TYPE ${quoteId(typeName)} AS ENUM (${values})`);
-      let def = `${quoteId(c.name)} ${quoteId(typeName)}`;
+      typeStmts.push(`CREATE TYPE ${quoteId(typeName, dialect)} AS ENUM (${values})`);
+      let def = `${quoteId(c.name, dialect)} ${quoteId(typeName, dialect)}`;
       if (c.notNull) def += " NOT NULL";
       if (c.default !== null) def += ` DEFAULT ${renderDefault(c.default, dialect)}`;
       return def;
     }
-    // A lone integer-family primary key auto-increments (SQLAlchemy semantics).
-    // SQLite gets that for free from `INTEGER PRIMARY KEY` (rowid alias); on
-    // PostgreSQL it must be SERIAL/BIGSERIAL, or inserts without an explicit id
-    // fail the NOT NULL constraint.
     if (dialect === "postgresql" && isAutoIncrementPk(table, c)) {
-      return `${quoteId(c.name)} ${postgresSerialType(c.type.kind)}`;
+      return `${quoteId(c.name, dialect)} ${postgresSerialType(c.type.kind)}`;
+    }
+    if (dialect === "mysql" && isAutoIncrementPk(table, c)) {
+      return `${quoteId(c.name, dialect)} ${renderColumnType(c.type, dialect)} NOT NULL AUTO_INCREMENT`;
     }
     return renderColumnDef(c, dialect);
   });
   if (table.primaryKey.length > 0) {
-    cols.push(`PRIMARY KEY (${table.primaryKey.map(quoteId).join(", ")})`);
+    cols.push(
+      `PRIMARY KEY (${table.primaryKey.map((c) => quoteId(c, dialect)).join(", ")})`,
+    );
   }
   return [
     ...typeStmts,
-    `CREATE TABLE ${quoteId(table.name)} (\n  ${cols.join(",\n  ")}\n)`,
+    `CREATE TABLE ${quoteId(table.name, dialect)} (\n  ${cols.join(",\n  ")}\n)`,
   ];
 }
 
@@ -185,32 +235,38 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
  * @param dialect The target dialect.
  * @returns The SQL statements (usually one).
  * @throws Error When the operation is unsupported on the dialect (e.g. SQLite
- *   `alter_column`, which needs the Phase 6e batch/table-rebuild path).
+ *   `alter_column`, which needs the table-rebuild path).
  */
 export function renderOperation(op: Operation, dialect: Dialect): string[] {
   switch (op.kind) {
     case "create_table":
       return renderCreateTable(op.table, dialect);
     case "drop_table":
-      return [`DROP TABLE ${quoteId(op.table.name)}`];
+      return [`DROP TABLE ${quoteId(op.table.name, dialect)}`];
     case "rename_table":
-      return [`ALTER TABLE ${quoteId(op.from)} RENAME TO ${quoteId(op.to)}`];
+      return dialect === "mysql"
+        ? [`RENAME TABLE ${quoteId(op.from, dialect)} TO ${quoteId(op.to, dialect)}`]
+        : [
+            `ALTER TABLE ${quoteId(op.from, dialect)} RENAME TO ${quoteId(op.to, dialect)}`,
+          ];
     case "add_column":
       return [
-        `ALTER TABLE ${quoteId(op.table)} ADD COLUMN ${renderColumnDef(op.column, dialect)}`,
+        `ALTER TABLE ${quoteId(op.table, dialect)} ADD COLUMN ${renderColumnDef(op.column, dialect)}`,
       ];
     case "drop_column":
-      return [`ALTER TABLE ${quoteId(op.table)} DROP COLUMN ${quoteId(op.column.name)}`];
+      return [
+        `ALTER TABLE ${quoteId(op.table, dialect)} DROP COLUMN ${quoteId(op.column.name, dialect)}`,
+      ];
     case "rename_column":
       return [
-        `ALTER TABLE ${quoteId(op.table)} RENAME COLUMN ${quoteId(op.from)} TO ${quoteId(op.to)}`,
+        `ALTER TABLE ${quoteId(op.table, dialect)} RENAME COLUMN ${quoteId(op.from, dialect)} TO ${quoteId(op.to, dialect)}`,
       ];
     case "alter_column":
       return renderAlterColumn(op.table, op.to, dialect);
     case "recreate_table":
       return dialect === "sqlite"
         ? renderSqliteRebuild(op.from, op.to)
-        : renderPostgresTableDiff(op.from, op.to);
+        : renderTableDiff(op.from, op.to, dialect);
     case "execute":
       return [op.up];
   }
@@ -226,50 +282,63 @@ function renderSqliteRebuild(from: TableIR, to: TableIR): string[] {
   const common = Object.keys(to.columns).filter((c) => c in from.columns);
   const cols = Object.values(to.columns).map((c) => renderColumnDef(c, "sqlite"));
   if (to.primaryKey.length > 0) {
-    cols.push(`PRIMARY KEY (${to.primaryKey.map(quoteId).join(", ")})`);
+    cols.push(
+      `PRIMARY KEY (${to.primaryKey.map((c) => quoteId(c, "sqlite")).join(", ")})`,
+    );
   }
-  const commonSql = common.map(quoteId).join(", ");
+  const commonSql = common.map((c) => quoteId(c, "sqlite")).join(", ");
   return [
     "PRAGMA foreign_keys=off",
-    `CREATE TABLE ${quoteId(tmp)} (\n  ${cols.join(",\n  ")}\n)`,
+    `CREATE TABLE ${quoteId(tmp, "sqlite")} (\n  ${cols.join(",\n  ")}\n)`,
     common.length > 0
-      ? `INSERT INTO ${quoteId(tmp)} (${commonSql}) SELECT ${commonSql} FROM ${quoteId(from.name)}`
+      ? `INSERT INTO ${quoteId(tmp, "sqlite")} (${commonSql}) SELECT ${commonSql} FROM ${quoteId(from.name, "sqlite")}`
       : `-- no common columns to copy from ${from.name}`,
-    `DROP TABLE ${quoteId(from.name)}`,
-    `ALTER TABLE ${quoteId(tmp)} RENAME TO ${quoteId(to.name)}`,
+    `DROP TABLE ${quoteId(from.name, "sqlite")}`,
+    `ALTER TABLE ${quoteId(tmp, "sqlite")} RENAME TO ${quoteId(to.name, "sqlite")}`,
     "PRAGMA foreign_keys=on",
   ];
 }
 
-/** PostgreSQL realizes a table recreate as per-column ADD/DROP/ALTER. */
-function renderPostgresTableDiff(from: TableIR, to: TableIR): string[] {
+/** PostgreSQL/MySQL realize a table recreate as per-column ADD/DROP/ALTER. */
+function renderTableDiff(from: TableIR, to: TableIR, dialect: Dialect): string[] {
   const stmts: string[] = [];
   for (const [name, col] of Object.entries(to.columns)) {
     if (!(name in from.columns)) {
       stmts.push(
-        `ALTER TABLE ${quoteId(to.name)} ADD COLUMN ${renderColumnDef(col, "postgresql")}`,
+        `ALTER TABLE ${quoteId(to.name, dialect)} ADD COLUMN ${renderColumnDef(col, dialect)}`,
       );
     } else {
-      stmts.push(...renderAlterColumn(to.name, col, "postgresql"));
+      stmts.push(...renderAlterColumn(to.name, col, dialect));
     }
   }
   for (const name of Object.keys(from.columns)) {
     if (!(name in to.columns)) {
-      stmts.push(`ALTER TABLE ${quoteId(to.name)} DROP COLUMN ${quoteId(name)}`);
+      stmts.push(
+        `ALTER TABLE ${quoteId(to.name, dialect)} DROP COLUMN ${quoteId(name, dialect)}`,
+      );
     }
   }
   return stmts;
 }
 
-/** Render an ALTER COLUMN (PostgreSQL); SQLite needs batch mode (Phase 6e). */
+/**
+ * Render an ALTER COLUMN. SQLite needs table-rebuild (unsupported here); MySQL
+ * uses a single `MODIFY COLUMN` (type + NOT NULL + DEFAULT together); PostgreSQL
+ * uses separate `ALTER COLUMN ... TYPE / SET|DROP NOT NULL / SET|DROP DEFAULT`.
+ */
 function renderAlterColumn(table: string, to: ColumnIR, dialect: Dialect): string[] {
   if (dialect === "sqlite") {
     throw new Error(
-      `alter_column on SQLite needs batch/table-rebuild (Phase 6e); column ${table}.${to.name}`,
+      `alter_column on SQLite needs a table-rebuild (recreate_table); column ${table}.${to.name}`,
     );
   }
-  const t = quoteId(table);
-  const c = quoteId(to.name);
+  if (dialect === "mysql") {
+    return [
+      `ALTER TABLE ${quoteId(table, dialect)} MODIFY COLUMN ${renderColumnDef(to, dialect)}`,
+    ];
+  }
+  const t = quoteId(table, dialect);
+  const c = quoteId(to.name, dialect);
   const stmts = [
     `ALTER TABLE ${t} ALTER COLUMN ${c} TYPE ${renderColumnType(to.type, dialect)}`,
   ];
