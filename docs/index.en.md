@@ -12,7 +12,7 @@ It's the data layer for the upcoming **`tempest-ts-sdk`**.
 > Use the language selector at the top of the page to switch between
 > **Português (BR)** and **English (US)**.
 
-!!! success "Status: alpha (`v0.1.0`) — published on [npm](https://www.npmjs.com/package/tempest-db-js)"
+!!! success "Status: alpha (`v0.2.0`) — published on [npm](https://www.npmjs.com/package/tempest-db-js)"
 
     The full path works end to end: declarative schema, typed query builder,
     **real execution on SQLite** (tested against `node:sqlite`), joins,

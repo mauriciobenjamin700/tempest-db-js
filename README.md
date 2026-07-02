@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.1.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models, typed query builder, **real SQLite execution** (tested against `node:sqlite`), joins, relations, Alembic-style migrations, and a typed `BaseRepository`. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.2.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite execution** (tested against `node:sqlite`), joins, relations, Alembic-style migrations + a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 

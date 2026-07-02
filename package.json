@@ -1,6 +1,6 @@
 {
   "name": "tempest-db-js",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Type-safe, class-based ORM for TypeScript — SQLAlchemy 2.0 ergonomics for the JS/TS world.",
   "type": "module",
   "sideEffects": false,
