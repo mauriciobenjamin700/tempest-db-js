@@ -3,6 +3,73 @@
 > ORM type-safe e class-based para TypeScript. Ergonomia do **SQLAlchemy 2.0** trazida pro mundo JS/TS.
 > Pacote npm base do futuro **`tempest-ts-sdk`**.
 
+## Ciclo atual — pós-`v0.2.0` (2026-07-01)
+
+> `v0.2.0` fechou as fases 0-7: schema class-based, query builder tipado
+> (agregações/DISTINCT/upsert), execução real SQLite+PostgreSQL, joins,
+> relations, migrações + CLI `tempest-db`, `BaseRepository`, active-record
+> opt-in, DX (erros com contexto + `onQuery`) e performance (~3.6× no insert).
+> As fases abaixo são o próximo ciclo, **em ordem de prioridade**.
+
+### Fase 8 — Fechar PostgreSQL: migração async ⭐ (prioridade 1)
+
+O maior gap pós-0.2.0: o `MigrationRunner` é **síncrono/SQLite-only**. Migrações
+não rodam no Postgres por ele.
+
+- `AsyncMigrationRunner` sobre `AsyncSession` (ou driver async): `upgrade`/
+  `downgrade`/`applied`/version-table, espelhando o runner sync.
+- `Op` facade e `renderOperation` já são dialeto-neutros — reusar; só a execução
+  vira async.
+- CLI `tempest-db` passa a aceitar engine async (Postgres) além do sync (SQLite).
+- Introspecção/drift Postgres (já implementados, estruturais) plugados no `check`.
+
+**Entrega:** migração real ponta-a-ponta no Postgres, testada no CI (que já roda
+contra um Postgres real).
+
+### Fase 9 — Dialeto MySQL (prioridade 2)
+
+O 3º e último banco do escopo travado. Entra agora que SQLite+PG estão fechados.
+
+- Driver MySQL (`mysql2`, lazy peer dep) + `MysqlDialect`: placeholders `?`,
+  identificadores com crase (`` `col` ``), `AUTO_INCREMENT`, `ON DUPLICATE KEY
+  UPDATE` (mapear o upsert `onConflict*`), `LIMIT`/`OFFSET`.
+- Renderer DDL MySQL no motor de migração; introspecção via `information_schema`.
+- `parseDatabaseUrl` já reconhece a família — só ligar o dialeto.
+- Testes de compilação + execução real no CI (serviço MySQL).
+
+**Entrega:** os **3 bancos** (SQLite, PostgreSQL, MySQL) com execução, migração e
+introspecção — escopo de bancos fechado.
+
+### Fase 10 — `tempest-ts-sdk` (repo próprio)
+
+Pacote separado (flat-layout) consumindo tempest-db-js, espelhando o
+`tempest-fastapi-sdk`: `BaseRepository` estendido, settings via env, hierarquia
+`AppException`, integração HTTP (Express/Hono/Fastify). Fora deste repo.
+
+### Fase 11 — Query API avançada
+
+`HAVING` nas agregações; subqueries (IN/EXISTS/scalar); prepared-query API
+explícita (compilar uma vez, executar N com params — o ganho que o cache de
+SELECT value-independent não entrega escondido); unit-of-work/identity-map
+opcional pro active-record.
+
+### Fase 12 — Rumo a `v1.0`
+
+Congelar a API pública, cobertura de testes, docs completas (todas as receitas +
+migração async + MySQL), critérios de saída do alpha.
+
+### Linha do tempo (próximo ciclo)
+
+| Alvo | Fase | Marco |
+|---|---|---|
+| v0.3 | 8 | Migração async (Postgres real) |
+| v0.4 | 9 | Dialeto MySQL — 3 bancos fechados |
+| v0.5 | 10 | `tempest-ts-sdk` |
+| v0.6 | 11 | Query API avançada |
+| v1.0 | 12 | API congelada + hardening |
+
+---
+
 ## Decisões de arquitetura (travadas)
 
 | Decisão | Escolha | Motivo |

@@ -105,7 +105,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped: SQLite + PostgreSQL execution, joins, relations, migrations, repository. Next: `tempest-ts-sdk` integration and PostgreSQL CI against a live database.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.2.0): SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), joins, relations, migrations + a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: async migration runner for Postgres, a MySQL dialect, then `tempest-ts-sdk`.
 
 ## Development
 
