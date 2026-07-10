@@ -10,6 +10,8 @@
 import {
   type ColumnType,
   type DefaultValue,
+  type FkAction,
+  type ForeignKeyRef,
   type ModelClass,
   columnsOf,
 } from "../index.js";
@@ -24,7 +26,35 @@ export interface ColumnIR {
   readonly notNull: boolean;
   readonly primaryKey: boolean;
   readonly default: DefaultIR;
+  /** A column-level `UNIQUE` constraint. */
+  readonly unique: boolean;
+  /** A column-level foreign-key reference, or `null` for none. */
+  readonly references: ForeignKeyRef | null;
 }
+
+/** A (composite) `UNIQUE` table constraint in the IR. */
+export interface UniqueConstraintIR {
+  readonly name: string;
+  readonly columns: readonly string[];
+}
+
+/** A (composite) foreign-key table constraint in the IR. */
+export interface ForeignKeyIR {
+  readonly name: string;
+  readonly columns: readonly string[];
+  readonly refTable: string;
+  readonly refColumns: readonly string[];
+  readonly onDelete?: FkAction | undefined;
+  readonly onUpdate?: FkAction | undefined;
+}
+
+/**
+ * A named table-level constraint, tagged by kind. Carried whole by the
+ * `add_constraint` / `drop_constraint` operations so each is reversible.
+ */
+export type NamedConstraint =
+  | { readonly type: "unique"; readonly constraint: UniqueConstraintIR }
+  | { readonly type: "foreignKey"; readonly constraint: ForeignKeyIR };
 
 /** One table. */
 export interface TableIR {
@@ -32,11 +62,24 @@ export interface TableIR {
   readonly columns: Record<string, ColumnIR>;
   /** Primary-key column names (composite = more than one). */
   readonly primaryKey: readonly string[];
+  /** Table-level unique constraints (from `tableArgs`). */
+  readonly uniqueConstraints: readonly UniqueConstraintIR[];
+  /** Table-level foreign-key constraints (from `tableArgs`). */
+  readonly foreignKeys: readonly ForeignKeyIR[];
 }
 
 /** A whole schema, keyed by table name. */
 export interface SchemaIR {
   readonly tables: Record<string, TableIR>;
+}
+
+/** Deterministic constraint name when the user did not supply one. */
+function constraintName(
+  prefix: "uq" | "fk",
+  table: string,
+  columns: readonly string[],
+): string {
+  return `${prefix}_${table}_${columns.join("_")}`;
 }
 
 /** Reflect one model class into a `TableIR`. */
@@ -51,10 +94,33 @@ export function reflectTable(model: ModelClass): TableIR {
       notNull: col.flags.notNull || isPk,
       primaryKey: isPk,
       default: col.defaultValue,
+      unique: col.flags.unique,
+      references: col.reference,
     };
     if (isPk) primaryKey.push(name);
   }
-  return { name: model.tablename, columns, primaryKey };
+
+  const uniqueConstraints: UniqueConstraintIR[] = [];
+  const foreignKeys: ForeignKeyIR[] = [];
+  for (const c of model.tableArgs?.() ?? []) {
+    if (c.kind === "unique") {
+      uniqueConstraints.push({
+        name: c.name ?? constraintName("uq", model.tablename, c.columns),
+        columns: c.columns,
+      });
+    } else {
+      foreignKeys.push({
+        name: c.name ?? constraintName("fk", model.tablename, c.columns),
+        columns: c.columns,
+        refTable: c.refTable,
+        refColumns: c.refColumns,
+        onDelete: c.onDelete,
+        onUpdate: c.onUpdate,
+      });
+    }
+  }
+
+  return { name: model.tablename, columns, primaryKey, uniqueConstraints, foreignKeys };
 }
 
 /**

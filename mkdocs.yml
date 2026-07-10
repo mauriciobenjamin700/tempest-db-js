@@ -146,6 +146,7 @@ nav:
       - Joins: tutorial/joins.md
   - Receitas:
       - recipes/index.md
+      - Chaves estrangeiras e UNIQUE: recipes/constraints.md
       - created_at / updated_at: recipes/timestamps.md
       - Paginação tipada: recipes/pagination.md
       - Agregações e DISTINCT: recipes/aggregations.md

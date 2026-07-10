@@ -6,9 +6,15 @@
  * right DDL for SQLite, PostgreSQL or MySQL.
  */
 
-import type { ColumnType, DefaultValue } from "../index.js";
+import type { ColumnType, DefaultValue, FkAction } from "../index.js";
 import type { Dialect } from "../url.js";
-import type { ColumnIR, TableIR } from "./ir.js";
+import type {
+  ColumnIR,
+  ForeignKeyIR,
+  NamedConstraint,
+  TableIR,
+  UniqueConstraintIR,
+} from "./ir.js";
 import type { Operation } from "./operations.js";
 
 /** Quote an identifier for the dialect (backticks on MySQL, double-quotes else). */
@@ -156,11 +162,71 @@ export function renderDefault(def: DefaultValue, dialect: Dialect): string {
   return quoteLiteral(String(value));
 }
 
-/** Render one column definition: `"name" TYPE [NOT NULL] [DEFAULT x]`. */
+/** Render a referential action for an `ON DELETE` / `ON UPDATE` clause. */
+function renderFkAction(action: FkAction): string {
+  return action.toUpperCase();
+}
+
+/** Render the `[ON DELETE ..] [ON UPDATE ..]` tail shared by inline + table FKs. */
+function renderFkActions(fk: {
+  onDelete?: FkAction | undefined;
+  onUpdate?: FkAction | undefined;
+}): string {
+  let sql = "";
+  if (fk.onDelete) sql += ` ON DELETE ${renderFkAction(fk.onDelete)}`;
+  if (fk.onUpdate) sql += ` ON UPDATE ${renderFkAction(fk.onUpdate)}`;
+  return sql;
+}
+
+/**
+ * The column-level constraint suffix: ` UNIQUE` and/or an inline
+ * ` REFERENCES "table" ("column") [ON DELETE ..] [ON UPDATE ..]`. Appended to
+ * every rendered column definition (including the enum/serial branches).
+ */
+function columnConstraintSuffix(col: ColumnIR, dialect: Dialect): string {
+  let sql = "";
+  if (col.unique) sql += " UNIQUE";
+  if (col.references) {
+    const ref = col.references;
+    sql += ` REFERENCES ${quoteId(ref.table, dialect)} (${quoteId(ref.column, dialect)})`;
+    sql += renderFkActions(ref);
+  }
+  return sql;
+}
+
+/** Render a table-level `CONSTRAINT "name" UNIQUE (...)` clause. */
+function renderUniqueConstraint(uc: UniqueConstraintIR, dialect: Dialect): string {
+  const cols = uc.columns.map((c) => quoteId(c, dialect)).join(", ");
+  return `CONSTRAINT ${quoteId(uc.name, dialect)} UNIQUE (${cols})`;
+}
+
+/** Render a table-level `CONSTRAINT "name" FOREIGN KEY (...) REFERENCES ...` clause. */
+function renderForeignKeyConstraint(fk: ForeignKeyIR, dialect: Dialect): string {
+  const cols = fk.columns.map((c) => quoteId(c, dialect)).join(", ");
+  const refCols = fk.refColumns.map((c) => quoteId(c, dialect)).join(", ");
+  return (
+    `CONSTRAINT ${quoteId(fk.name, dialect)} FOREIGN KEY (${cols}) ` +
+    `REFERENCES ${quoteId(fk.refTable, dialect)} (${refCols})${renderFkActions(fk)}`
+  );
+}
+
+/** The table-level constraint clauses (unique + foreign key) for a table. */
+function tableConstraintClauses(table: TableIR, dialect: Dialect): string[] {
+  return [
+    ...table.uniqueConstraints.map((uc) => renderUniqueConstraint(uc, dialect)),
+    ...table.foreignKeys.map((fk) => renderForeignKeyConstraint(fk, dialect)),
+  ];
+}
+
+/**
+ * Render one column definition: `"name" TYPE [NOT NULL] [DEFAULT x] [UNIQUE]
+ * [REFERENCES ...]`.
+ */
 export function renderColumnDef(col: ColumnIR, dialect: Dialect): string {
   let sql = `${quoteId(col.name, dialect)} ${renderColumnType(col.type, dialect)}`;
   if (col.notNull) sql += " NOT NULL";
   if (col.default !== null) sql += ` DEFAULT ${renderDefault(col.default, dialect)}`;
+  sql += columnConstraintSuffix(col, dialect);
   return sql;
 }
 
@@ -207,13 +273,13 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
       let def = `${quoteId(c.name, dialect)} ${quoteId(typeName, dialect)}`;
       if (c.notNull) def += " NOT NULL";
       if (c.default !== null) def += ` DEFAULT ${renderDefault(c.default, dialect)}`;
-      return def;
+      return def + columnConstraintSuffix(c, dialect);
     }
     if (dialect === "postgresql" && isAutoIncrementPk(table, c)) {
-      return `${quoteId(c.name, dialect)} ${postgresSerialType(c.type.kind)}`;
+      return `${quoteId(c.name, dialect)} ${postgresSerialType(c.type.kind)}${columnConstraintSuffix(c, dialect)}`;
     }
     if (dialect === "mysql" && isAutoIncrementPk(table, c)) {
-      return `${quoteId(c.name, dialect)} ${renderColumnType(c.type, dialect)} NOT NULL AUTO_INCREMENT`;
+      return `${quoteId(c.name, dialect)} ${renderColumnType(c.type, dialect)} NOT NULL AUTO_INCREMENT${columnConstraintSuffix(c, dialect)}`;
     }
     return renderColumnDef(c, dialect);
   });
@@ -222,6 +288,7 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
       `PRIMARY KEY (${table.primaryKey.map((c) => quoteId(c, dialect)).join(", ")})`,
     );
   }
+  cols.push(...tableConstraintClauses(table, dialect));
   return [
     ...typeStmts,
     `CREATE TABLE ${quoteId(table.name, dialect)} (\n  ${cols.join(",\n  ")}\n)`,
@@ -267,9 +334,61 @@ export function renderOperation(op: Operation, dialect: Dialect): string[] {
       return dialect === "sqlite"
         ? renderSqliteRebuild(op.from, op.to)
         : renderTableDiff(op.from, op.to, dialect);
+    case "add_constraint":
+      return renderAddConstraint(op.table, op.constraint, dialect);
+    case "drop_constraint":
+      return renderDropConstraint(op.table, op.constraint, dialect);
     case "execute":
       return [op.up];
   }
+}
+
+/**
+ * Render an `ALTER TABLE ... ADD CONSTRAINT`. SQLite cannot add constraints in
+ * place — it needs a table-rebuild (`recreate_table`), so this throws there.
+ */
+function renderAddConstraint(
+  table: string,
+  constraint: NamedConstraint,
+  dialect: Dialect,
+): string[] {
+  if (dialect === "sqlite") {
+    throw new Error(
+      `add_constraint on SQLite needs a table-rebuild (recreate_table); constraint ${constraint.constraint.name} on ${table}`,
+    );
+  }
+  const clause =
+    constraint.type === "unique"
+      ? renderUniqueConstraint(constraint.constraint, dialect)
+      : renderForeignKeyConstraint(constraint.constraint, dialect);
+  return [`ALTER TABLE ${quoteId(table, dialect)} ADD ${clause}`];
+}
+
+/**
+ * Render an `ALTER TABLE ... DROP CONSTRAINT`. PostgreSQL uses the generic
+ * `DROP CONSTRAINT`; MySQL uses `DROP INDEX` (unique) / `DROP FOREIGN KEY` (fk).
+ * SQLite needs a table-rebuild, so this throws there.
+ */
+function renderDropConstraint(
+  table: string,
+  constraint: NamedConstraint,
+  dialect: Dialect,
+): string[] {
+  if (dialect === "sqlite") {
+    throw new Error(
+      `drop_constraint on SQLite needs a table-rebuild (recreate_table); constraint ${constraint.constraint.name} on ${table}`,
+    );
+  }
+  const t = quoteId(table, dialect);
+  const name = quoteId(constraint.constraint.name, dialect);
+  if (dialect === "mysql") {
+    return [
+      constraint.type === "unique"
+        ? `ALTER TABLE ${t} DROP INDEX ${name}`
+        : `ALTER TABLE ${t} DROP FOREIGN KEY ${name}`,
+    ];
+  }
+  return [`ALTER TABLE ${t} DROP CONSTRAINT ${name}`];
 }
 
 /**
@@ -286,6 +405,7 @@ function renderSqliteRebuild(from: TableIR, to: TableIR): string[] {
       `PRIMARY KEY (${to.primaryKey.map((c) => quoteId(c, "sqlite")).join(", ")})`,
     );
   }
+  cols.push(...tableConstraintClauses(to, "sqlite"));
   const commonSql = common.map((c) => quoteId(c, "sqlite")).join(", ");
   return [
     "PRAGMA foreign_keys=off",

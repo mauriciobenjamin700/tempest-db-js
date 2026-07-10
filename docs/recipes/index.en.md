@@ -14,6 +14,7 @@ recipes show you how to apply them in real day-to-day situations.
 
 | Recipe | Solves |
 | --- | --- |
+| [Foreign keys & UNIQUE](constraints.en.md) | FK, column UNIQUE and table constraints (composite/named), SQLAlchemy-style. |
 | [created_at / updated_at](timestamps.en.md) | Database-managed timestamps, without remembering to set them by hand. |
 | [Typed pagination](pagination.en.md) | Paginated lists with total/pages, aligned with `tempest-fastapi-sdk`. |
 | [Aggregations & DISTINCT](aggregations.en.md) | `count`/`sum`/`avg`/`min`/`max` + typed `GROUP BY` and `DISTINCT`. |

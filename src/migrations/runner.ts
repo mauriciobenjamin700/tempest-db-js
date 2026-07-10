@@ -13,7 +13,7 @@ import type { AsyncDriver, SyncDriver } from "../engine.js";
 import type { Dialect } from "../url.js";
 import { renderOperation } from "./ddl.js";
 import { topoOrder } from "./graph.js";
-import type { ColumnIR, TableIR } from "./ir.js";
+import type { ColumnIR, NamedConstraint, TableIR } from "./ir.js";
 import { type Operation, invertAll } from "./operations.js";
 
 /**
@@ -52,6 +52,14 @@ export class Op {
   /** Rebuild a table (SQLite batch-mode / PostgreSQL per-column alters). */
   recreateTable(from: TableIR, to: TableIR): void {
     this.run({ kind: "recreate_table", from, to });
+  }
+  /** Add a table-level unique / foreign-key constraint. */
+  addConstraint(table: string, constraint: NamedConstraint): void {
+    this.run({ kind: "add_constraint", table, constraint });
+  }
+  /** Drop a table-level unique / foreign-key constraint. */
+  dropConstraint(table: string, constraint: NamedConstraint): void {
+    this.run({ kind: "drop_constraint", table, constraint });
   }
   /** Raw SQL escape hatch (e.g. a data migration). `down` may be `null`. */
   execute(up: string, down: string | null = null): void {

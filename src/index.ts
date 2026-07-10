@@ -16,12 +16,18 @@ interface ColumnFlags {
   readonly primaryKey: boolean;
   readonly notNull: boolean;
   readonly hasDefault: boolean;
+  /**
+   * A `UNIQUE` constraint on the column. Does NOT influence the inferred type —
+   * it is DDL-only metadata (mirrors SQLAlchemy's `mapped_column(unique=True)`).
+   */
+  readonly unique: boolean;
 }
 
 const DEFAULT_FLAGS: ColumnFlags = {
   primaryKey: false,
   notNull: false,
   hasDefault: false,
+  unique: false,
 };
 
 /**
@@ -122,8 +128,47 @@ function isDefaultValue(value: unknown): value is DefaultValue {
 }
 
 /**
+ * A referential action for a foreign key's `ON DELETE` / `ON UPDATE` clause.
+ * Dialect-neutral tokens rendered uppercase at the DDL edge (mirrors
+ * SQLAlchemy's `ForeignKey(ondelete=..., onupdate=...)`).
+ */
+export type FkAction = "cascade" | "restrict" | "set null" | "set default" | "no action";
+
+/**
+ * A resolved foreign-key reference: the target `table.column` plus optional
+ * referential actions. Produced by `Column.references("table.column", ...)`.
+ */
+export interface ForeignKeyRef {
+  readonly table: string;
+  readonly column: string;
+  readonly onDelete?: FkAction | undefined;
+  readonly onUpdate?: FkAction | undefined;
+}
+
+/** Options for a foreign-key reference (referential actions). */
+export interface ForeignKeyOptions {
+  readonly onDelete?: FkAction | undefined;
+  readonly onUpdate?: FkAction | undefined;
+}
+
+/** Parse a `"table.column"` reference string into a {@link ForeignKeyRef}. */
+function parseReference(ref: string, options?: ForeignKeyOptions): ForeignKeyRef {
+  const dot = ref.lastIndexOf(".");
+  if (dot <= 0 || dot === ref.length - 1) {
+    throw new Error(`Invalid foreign key reference "${ref}"; expected "table.column".`);
+  }
+  return {
+    table: ref.slice(0, dot),
+    column: ref.slice(dot + 1),
+    onDelete: options?.onDelete,
+    onUpdate: options?.onUpdate,
+  };
+}
+
+/**
  * A typed column builder. Holds runtime metadata (structured `type`, `flags`,
- * `default`, `onUpdate`) and a phantom static type `T` used purely for inference.
+ * `default`, `onUpdate`, foreign-key `reference`) and a phantom static type `T`
+ * used purely for inference.
  */
 class Column<T, F extends ColumnFlags = ColumnFlags> {
   /** Phantom: never read at runtime, only inspected by the type system. */
@@ -136,6 +181,8 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     readonly defaultValue: DefaultValue | null = null,
     /** The value re-applied on update (e.g. `updated_at`), or `null`. */
     readonly onUpdateValue: DefaultValue | null = null,
+    /** The foreign-key reference this column points to, or `null` for none. */
+    readonly reference: ForeignKeyRef | null = null,
   ) {}
 
   primaryKey(): Column<T, F & { primaryKey: true; hasDefault: true }> {
@@ -144,6 +191,7 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
       { ...this.flags, primaryKey: true, hasDefault: true },
       this.defaultValue,
       this.onUpdateValue,
+      this.reference,
     );
   }
 
@@ -153,6 +201,41 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
       { ...this.flags, notNull: true },
       this.defaultValue,
       this.onUpdateValue,
+      this.reference,
+    );
+  }
+
+  /**
+   * Add a `UNIQUE` constraint to the column (mirrors SQLAlchemy's
+   * `mapped_column(unique=True)`). DDL-only — does not change the inferred type.
+   */
+  unique(): Column<T, F & { unique: true }> {
+    return new Column(
+      this.type,
+      { ...this.flags, unique: true },
+      this.defaultValue,
+      this.onUpdateValue,
+      this.reference,
+    );
+  }
+
+  /**
+   * Declare a foreign-key reference to another table's column, à la SQLAlchemy's
+   * `mapped_column(ForeignKey("table.column", ondelete=...))`. DDL-only — does
+   * not change the inferred type.
+   *
+   * @param ref The target as `"table.column"` (e.g. `"users.id"`).
+   * @param options Optional `onDelete` / `onUpdate` referential actions.
+   * @returns A new column carrying the reference.
+   * @throws Error When `ref` is not a valid `"table.column"` string.
+   */
+  references(ref: string, options?: ForeignKeyOptions): Column<T, F> {
+    return new Column(
+      this.type,
+      this.flags,
+      this.defaultValue,
+      this.onUpdateValue,
+      parseReference(ref, options),
     );
   }
 
@@ -169,6 +252,7 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
       { ...this.flags, hasDefault: true },
       resolved,
       this.onUpdateValue,
+      this.reference,
     );
   }
 
@@ -180,7 +264,7 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     const resolved: DefaultValue = isDefaultValue(value)
       ? value
       : { kind: "literal", value };
-    return new Column(this.type, this.flags, this.defaultValue, resolved);
+    return new Column(this.type, this.flags, this.defaultValue, resolved, this.reference);
   }
 }
 
@@ -263,10 +347,85 @@ export const column = {
     makeColumn<E>("enum", { values }),
 } as const;
 
+/**
+ * A table-level constraint declared via a model's `static tableArgs`. Mirrors
+ * SQLAlchemy's `__table_args__` entries (`UniqueConstraint`, `ForeignKeyConstraint`).
+ * Use the {@link unique} and {@link foreignKey} helpers to build these.
+ */
+export type TableConstraint =
+  | {
+      readonly kind: "unique";
+      readonly name?: string | undefined;
+      readonly columns: readonly string[];
+    }
+  | {
+      readonly kind: "foreignKey";
+      readonly name?: string | undefined;
+      readonly columns: readonly string[];
+      readonly refTable: string;
+      readonly refColumns: readonly string[];
+      readonly onDelete?: FkAction | undefined;
+      readonly onUpdate?: FkAction | undefined;
+    };
+
+/**
+ * Declare a (possibly composite) `UNIQUE` table constraint over the given
+ * columns. Mirrors SQLAlchemy's `UniqueConstraint("a", "b")`.
+ *
+ * @param columns The column names covered by the constraint.
+ * @returns A unique {@link TableConstraint}.
+ * @throws Error When no columns are given.
+ */
+export function unique(...columns: string[]): TableConstraint {
+  if (columns.length === 0) {
+    throw new Error("unique() requires at least one column.");
+  }
+  return { kind: "unique", columns };
+}
+
+/**
+ * Declare a (possibly composite) foreign-key table constraint. Mirrors
+ * SQLAlchemy's `ForeignKeyConstraint([...], [...], ondelete=...)`.
+ *
+ * @param columns The local column names.
+ * @param refTable The referenced table name.
+ * @param refColumns The referenced column names (same length as `columns`).
+ * @param options Optional constraint `name` and referential actions.
+ * @returns A foreign-key {@link TableConstraint}.
+ * @throws Error When the column arrays are empty or mismatched in length.
+ */
+export function foreignKey(
+  columns: string[],
+  refTable: string,
+  refColumns: string[],
+  options?: { name?: string; onDelete?: FkAction; onUpdate?: FkAction },
+): TableConstraint {
+  if (columns.length === 0 || columns.length !== refColumns.length) {
+    throw new Error(
+      "foreignKey() requires matching, non-empty local and referenced column lists.",
+    );
+  }
+  return {
+    kind: "foreignKey",
+    name: options?.name,
+    columns,
+    refTable,
+    refColumns,
+    onDelete: options?.onDelete,
+    onUpdate: options?.onUpdate,
+  };
+}
+
 /** Base class every model extends, SQLAlchemy-declarative style. */
 // biome-ignore lint/complexity/noStaticOnlyClass: declarative base users subclass; column fields live on instances.
 export abstract class Model {
   static tablename: string;
+  /**
+   * Optional table-level constraints (composite unique / foreign keys), returned
+   * by a thunk so forward references resolve lazily. Mirrors SQLAlchemy's
+   * `__table_args__`.
+   */
+  static tableArgs?: () => readonly TableConstraint[];
 }
 
 /** Memoized column maps, keyed by model class (identity is stable per class). */
@@ -308,7 +467,10 @@ type ColumnKeys<M> = {
 }[keyof M];
 
 /** Constructor type for a Model subclass. */
-type ModelClass = (new () => Model) & { tablename: string };
+type ModelClass = (new () => Model) & {
+  tablename: string;
+  tableArgs?: () => readonly TableConstraint[];
+};
 
 /** Flatten an intersection into a single object literal for clean inference. */
 type Simplify<T> = { [K in keyof T]: T[K] } & {};

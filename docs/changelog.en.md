@@ -3,6 +3,17 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-07-09
+
+### Added
+
+- **Foreign keys, UNIQUE and table constraints** — column-level `.references(...)`
+  and `.unique()` (SQLAlchemy `mapped_column(ForeignKey(...), unique=True)` style)
+  plus `static tableArgs = () => [unique(...), foreignKey(...)]` for composite/named
+  (`__table_args__` style). Rendered across all three dialects, with reversible
+  `add_constraint`/`drop_constraint` operations, diff, replay and drift detection.
+  See the [Foreign keys & UNIQUE](recipes/constraints.en.md) recipe.
+
 ## [0.1.0] — 2026-06-29
 
 First public release, published on [npm](https://www.npmjs.com/package/tempest-db-js).

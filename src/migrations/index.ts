@@ -10,10 +10,13 @@ export {
   type ColumnIR,
   type DefaultIR,
   emptySchema,
+  type ForeignKeyIR,
+  type NamedConstraint,
   reflectSchema,
   reflectTable,
   type SchemaIR,
   type TableIR,
+  type UniqueConstraintIR,
 } from "./ir.js";
 
 export {

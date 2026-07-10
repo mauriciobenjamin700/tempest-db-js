@@ -14,6 +14,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 
 | Receita | Resolve |
 | --- | --- |
+| [Chaves estrangeiras e UNIQUE](constraints.md) | FK, UNIQUE de coluna e constraints de tabela (composto/nomeado), estilo SQLAlchemy. |
 | [created_at / updated_at](timestamps.md) | Timestamps gerenciados pelo banco, sem lembrar de setar na mão. |
 | [Paginação tipada](pagination.md) | Listas paginadas com total/páginas, alinhadas ao `tempest-fastapi-sdk`. |
 | [Agregações e DISTINCT](aggregations.md) | `count`/`sum`/`avg`/`min`/`max` + `GROUP BY` tipado e `DISTINCT`. |
