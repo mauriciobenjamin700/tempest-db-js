@@ -12,7 +12,14 @@ import type { AsyncDriver, SyncDriver } from "../engine.js";
 import type { ColumnType } from "../index.js";
 import type { ModelClass } from "../index.js";
 import { renderColumnType } from "./ddl.js";
-import { type ColumnIR, type SchemaIR, type TableIR, reflectSchema } from "./ir.js";
+import {
+  type ColumnIR,
+  type ForeignKeyIR,
+  type SchemaIR,
+  type TableIR,
+  type UniqueConstraintIR,
+  reflectSchema,
+} from "./ir.js";
 
 /** SQLite's five storage classes / affinities. */
 export type SqliteAffinity = "INTEGER" | "TEXT" | "REAL" | "BLOB" | "NUMERIC";
@@ -50,6 +57,74 @@ interface PragmaColumn {
   pk: number;
 }
 
+interface PragmaForeignKey {
+  id: number;
+  seq: number;
+  table: string;
+  from: string;
+  to: string;
+  on_update: string;
+  on_delete: string;
+}
+
+interface PragmaIndex {
+  seq: number;
+  name: string;
+  unique: number;
+  origin: string;
+}
+
+interface PragmaIndexColumn {
+  seqno: number;
+  cid: number;
+  name: string;
+}
+
+/** Read a table's foreign keys via `PRAGMA foreign_key_list`, grouped by id. */
+function sqliteForeignKeys(driver: SyncDriver, table: string): ForeignKeyIR[] {
+  const rows = driver.execute(`PRAGMA foreign_key_list(${JSON.stringify(table)})`, [])
+    .rows as unknown as PragmaForeignKey[];
+  const byId = new Map<number, PragmaForeignKey[]>();
+  for (const r of rows) {
+    const list = byId.get(r.id) ?? [];
+    list.push(r);
+    byId.set(r.id, list);
+  }
+  const fks: ForeignKeyIR[] = [];
+  for (const group of byId.values()) {
+    const ordered = [...group].sort((a, b) => a.seq - b.seq);
+    const columns = ordered.map((r) => r.from);
+    fks.push({
+      name: `fk_${table}_${columns.join("_")}`,
+      columns,
+      refTable: ordered[0]?.table ?? "",
+      refColumns: ordered.map((r) => r.to),
+    });
+  }
+  return fks;
+}
+
+/** Read a table's unique constraints via `PRAGMA index_list`/`index_info`. */
+function sqliteUniques(driver: SyncDriver, table: string): UniqueConstraintIR[] {
+  const indexes = driver.execute(`PRAGMA index_list(${JSON.stringify(table)})`, [])
+    .rows as unknown as PragmaIndex[];
+  const uniques: UniqueConstraintIR[] = [];
+  for (const idx of indexes) {
+    // origin "u" = a UNIQUE constraint; "pk" = the implicit primary-key index.
+    if (Number(idx.unique) !== 1 || idx.origin === "pk") continue;
+    const cols = (
+      driver.execute(`PRAGMA index_info(${JSON.stringify(idx.name)})`, [])
+        .rows as unknown as PragmaIndexColumn[]
+    )
+      .sort((a, b) => a.seqno - b.seqno)
+      .map((c) => c.name);
+    if (cols.length > 0) {
+      uniques.push({ name: `uq_${table}_${cols.join("_")}`, columns: cols });
+    }
+  }
+  return uniques;
+}
+
 /**
  * Read the current SQLite schema into a `SchemaIR`. Lossy by nature (SQLite
  * collapses types into affinities), so types come back as the affinity's kind.
@@ -79,10 +154,18 @@ export function introspectSqlite(driver: SyncDriver): SchemaIR {
         notNull: Number(col.notnull) === 1 || isPk,
         primaryKey: isPk,
         default: null,
+        unique: false,
+        references: null,
       };
       if (isPk) primaryKey.push(col.name);
     }
-    tables[tableName] = { name: tableName, columns, primaryKey };
+    tables[tableName] = {
+      name: tableName,
+      columns,
+      primaryKey,
+      uniqueConstraints: sqliteUniques(driver, tableName),
+      foreignKeys: sqliteForeignKeys(driver, tableName),
+    };
   }
   return { tables };
 }
@@ -96,6 +179,29 @@ export function introspectSqlite(driver: SyncDriver): SchemaIR {
  * @param models The model classes that define the intended schema.
  * @returns A list of human-readable drift messages — empty means no drift.
  */
+/**
+ * Normalize a table's constraints into comparable key sets, merging the
+ * column-level (`.unique()` / `.references()`) and table-level (`tableArgs`)
+ * forms so drift comparison is agnostic to how a constraint was declared.
+ */
+function constraintKeys(table: TableIR): { fks: Set<string>; uniques: Set<string> } {
+  const fks = new Set<string>();
+  const uniques = new Set<string>();
+  for (const col of Object.values(table.columns)) {
+    if (col.unique) uniques.add(col.name);
+    if (col.references) {
+      fks.add(`${col.name}=>${col.references.table}(${col.references.column})`);
+    }
+  }
+  for (const uc of table.uniqueConstraints) {
+    uniques.add([...uc.columns].sort().join(","));
+  }
+  for (const fk of table.foreignKeys) {
+    fks.add(`${fk.columns.join(",")}=>${fk.refTable}(${fk.refColumns.join(",")})`);
+  }
+  return { fks, uniques };
+}
+
 export function checkDrift(driver: SyncDriver, models: readonly ModelClass[]): string[] {
   const actual = introspectSqlite(driver);
   const expected = reflectSchema(models);
@@ -131,6 +237,35 @@ export function checkDrift(driver: SyncDriver, models: readonly ModelClass[]): s
       if (!expectedTable.columns[colName]) {
         issues.push(
           `column "${tableName}.${colName}" exists in the database but not in the model`,
+        );
+      }
+    }
+
+    const expectedKeys = constraintKeys(expectedTable);
+    const actualKeys = constraintKeys(actualTable);
+    for (const fk of expectedKeys.fks) {
+      if (!actualKeys.fks.has(fk)) {
+        issues.push(`foreign key "${tableName}: ${fk}" is missing from the database`);
+      }
+    }
+    for (const fk of actualKeys.fks) {
+      if (!expectedKeys.fks.has(fk)) {
+        issues.push(
+          `foreign key "${tableName}: ${fk}" exists in the database but not in the model`,
+        );
+      }
+    }
+    for (const uq of expectedKeys.uniques) {
+      if (!actualKeys.uniques.has(uq)) {
+        issues.push(
+          `unique constraint "${tableName}: (${uq})" is missing from the database`,
+        );
+      }
+    }
+    for (const uq of actualKeys.uniques) {
+      if (!expectedKeys.uniques.has(uq)) {
+        issues.push(
+          `unique constraint "${tableName}: (${uq})" exists in the database but not in the model`,
         );
       }
     }
@@ -210,12 +345,67 @@ export async function introspectPostgres(driver: AsyncDriver): Promise<SchemaIR>
         notNull: col.is_nullable === "NO" || isPk,
         primaryKey: isPk,
         default: null,
+        unique: false,
+        references: null,
       };
       if (isPk) primaryKey.push(name);
     }
-    tables[tableName] = { name: tableName, columns, primaryKey };
+    tables[tableName] = {
+      name: tableName,
+      columns,
+      primaryKey,
+      uniqueConstraints: await postgresUniques(driver, tableName),
+      foreignKeys: await postgresForeignKeys(driver, tableName),
+    };
   }
   return { tables };
+}
+
+/** Read a table's foreign keys from `pg_constraint` (best-effort, no CI). */
+async function postgresForeignKeys(
+  driver: AsyncDriver,
+  table: string,
+): Promise<ForeignKeyIR[]> {
+  const result = await driver.execute(
+    `SELECT c.conname AS name,
+            (SELECT array_agg(a.attname ORDER BY k.ord)
+               FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS cols,
+            cf.relname AS ref_table,
+            (SELECT array_agg(a.attname ORDER BY k.ord)
+               FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) AS ref_cols
+       FROM pg_constraint c
+       JOIN pg_class cf ON cf.oid = c.confrelid
+      WHERE c.contype = 'f' AND c.conrelid = $1::regclass`,
+    [table],
+  );
+  return result.rows.map((r) => ({
+    name: String(r.name),
+    columns: (r.cols as string[]) ?? [],
+    refTable: String(r.ref_table),
+    refColumns: (r.ref_cols as string[]) ?? [],
+  }));
+}
+
+/** Read a table's unique constraints from `pg_constraint` (best-effort, no CI). */
+async function postgresUniques(
+  driver: AsyncDriver,
+  table: string,
+): Promise<UniqueConstraintIR[]> {
+  const result = await driver.execute(
+    `SELECT c.conname AS name,
+            (SELECT array_agg(a.attname ORDER BY k.ord)
+               FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS cols
+       FROM pg_constraint c
+      WHERE c.contype = 'u' AND c.conrelid = $1::regclass`,
+    [table],
+  );
+  return result.rows.map((r) => ({
+    name: String(r.name),
+    columns: (r.cols as string[]) ?? [],
+  }));
 }
 
 /**
@@ -259,6 +449,21 @@ export async function checkDriftPostgres(
       if (!expectedTable.columns[colName]) {
         issues.push(
           `column "${tableName}.${colName}" exists in the database but not in the model`,
+        );
+      }
+    }
+
+    const expectedKeys = constraintKeys(expectedTable);
+    const actualKeys = constraintKeys(actualTable);
+    for (const fk of expectedKeys.fks) {
+      if (!actualKeys.fks.has(fk)) {
+        issues.push(`foreign key "${tableName}: ${fk}" is missing from the database`);
+      }
+    }
+    for (const uq of expectedKeys.uniques) {
+      if (!actualKeys.uniques.has(uq)) {
+        issues.push(
+          `unique constraint "${tableName}: (${uq})" is missing from the database`,
         );
       }
     }

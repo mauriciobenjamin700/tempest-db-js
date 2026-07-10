@@ -5,6 +5,38 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.4.0] — 2026-07-09
+
+### Adicionado
+
+- **Chaves estrangeiras** — `.references("tabela.coluna", { onDelete, onUpdate })`
+  por coluna (espelha `mapped_column(ForeignKey(...))` do SQLAlchemy). Ações
+  `cascade`/`restrict`/`set null`/`set default`/`no action` renderizadas nos 3
+  dialetos como FK inline em `CREATE TABLE`.
+- **UNIQUE por coluna** — `.unique()` (espelha `mapped_column(unique=True)`).
+  Metadado de DDL puro: não altera `InferModel`/`InferInsert`.
+- **Constraints de tabela** — `static tableArgs = () => [...]` (estilo
+  `__table_args__`) com helpers `unique(...)` e `foreignKey(cols, refTable,
+  refCols, opts)` para UNIQUE composto, FK composta e constraints nomeadas.
+  Nomes determinísticos (`uq_<tabela>_<cols>` / `fk_<tabela>_<cols>`) quando
+  omitidos.
+- **IR + pipeline** — `ColumnIR` ganha `unique`/`references`; `TableIR` ganha
+  `uniqueConstraints`/`foreignKeys`. Operações reversíveis `add_constraint` /
+  `drop_constraint` (invert ↔), com replay e codegen. Diff detecta constraints
+  de tabela adicionadas/removidas/alteradas por nome.
+- **DDL** — cláusulas `CONSTRAINT ... UNIQUE (...)` / `CONSTRAINT ... FOREIGN KEY
+  (...) REFERENCES ...` em `CREATE TABLE`; `ALTER TABLE ADD CONSTRAINT` /
+  `DROP CONSTRAINT` (PostgreSQL), `DROP INDEX` / `DROP FOREIGN KEY` (MySQL).
+- **Drift** — introspecção SQLite lê FK (`PRAGMA foreign_key_list`) e UNIQUE
+  (`PRAGMA index_list`/`index_info`); Postgres via `pg_constraint`. `checkDrift`
+  compara constraints de forma normalizada (coluna e tabela tratadas igual).
+- **Docs** — receita bilíngue "Chaves estrangeiras e UNIQUE".
+
+### Limitações conhecidas
+
+- SQLite não suporta `ALTER` de constraint em tabela existente — o diff direciona
+  para um rebuild de tabela (`recreate_table`), mesmo caminho do `alter_column`.
+
 ## [0.3.0] — 2026-07-01
 
 ### Adicionado

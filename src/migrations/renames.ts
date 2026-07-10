@@ -33,6 +33,8 @@ function columnShape(col: ColumnIR): string {
     notNull: col.notNull,
     primaryKey: col.primaryKey,
     default: col.default,
+    unique: col.unique,
+    references: col.references,
   });
 }
 

@@ -73,6 +73,36 @@ export function applyOperation(schema: SchemaIR, op: Operation): SchemaIR {
       }
       break;
     }
+    case "add_constraint": {
+      const t = tables[op.table];
+      if (t) {
+        tables[op.table] =
+          op.constraint.type === "unique"
+            ? {
+                ...t,
+                uniqueConstraints: [...t.uniqueConstraints, op.constraint.constraint],
+              }
+            : { ...t, foreignKeys: [...t.foreignKeys, op.constraint.constraint] };
+      }
+      break;
+    }
+    case "drop_constraint": {
+      const t = tables[op.table];
+      if (t) {
+        const dropName = op.constraint.constraint.name;
+        tables[op.table] =
+          op.constraint.type === "unique"
+            ? {
+                ...t,
+                uniqueConstraints: t.uniqueConstraints.filter((u) => u.name !== dropName),
+              }
+            : {
+                ...t,
+                foreignKeys: t.foreignKeys.filter((f) => f.name !== dropName),
+              };
+      }
+      break;
+    }
     case "execute":
       // raw SQL is opaque to the IR
       break;

@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.3.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.4.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE and table constraints**, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 
@@ -71,6 +71,7 @@ Sessions and engines are **disposable** — `using session = engine.session()` (
 
 Typed extras, each with a [docs recipe](https://mauriciobenjamin700.github.io/tempest-db-js/):
 
+- **Schema constraints** — column `.unique()` / `.references("users.id", { onDelete })` and composite/named table constraints via `static tableArgs = () => [unique(...), foreignKey(...)]` (SQLAlchemy `ForeignKey`/`__table_args__` style). Rendered across all dialects; reversible in migrations.
 - **Aggregations** — `select(Order).aggregate(["status"], { n: count(), total: sum("amount") })` → rows typed as `{ status; n; total }`. Plus `.distinct()`.
 - **Upsert** — `insert(Row).values(...).onConflictDoUpdate(["key"], { ... })` / `.onConflictDoNothing(["key"])` (portable SQLite ↔ PostgreSQL).
 - **Active-record (opt-in)** — `activeRecord(User, session)` → `save`/`update`/`delete`/`reload` over `.data`; the plain-object default is unchanged.
@@ -105,7 +106,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped (v0.3.0): SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.4.0): declarative schema with foreign keys / UNIQUE / table constraints, SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
 
 ## Development
 

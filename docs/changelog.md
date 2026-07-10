@@ -3,6 +3,17 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.4.0] — 2026-07-09
+
+### Adicionado
+
+- **Chaves estrangeiras, UNIQUE e constraints de tabela** — `.references(...)` e
+  `.unique()` por coluna (estilo `mapped_column(ForeignKey(...), unique=True)`) e
+  `static tableArgs = () => [unique(...), foreignKey(...)]` para composto/nomeado
+  (estilo `__table_args__`). Renderizados nos 3 dialetos, com operações reversíveis
+  `add_constraint`/`drop_constraint`, diff, replay e detecção de drift. Veja a
+  receita [Chaves estrangeiras e UNIQUE](recipes/constraints.md).
+
 ## [0.1.0] — 2026-06-29
 
 Primeira versão pública, publicada no [npm](https://www.npmjs.com/package/tempest-db-js).

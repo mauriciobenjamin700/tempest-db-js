@@ -126,7 +126,7 @@ Toolchain, build, CI. Sem feature ainda.
 O coração. Tudo deriva daqui.
 
 - `Model` base + `column` builders: `integer`, `text`, `boolean`, `real`, `blob`, `timestamp`, `json`, `uuid`.
-- Modificadores encadeáveis: `.primaryKey()`, `.notNull()`, `.default(v)`, `.unique()`, `.references(() => Other.col)`.
+- Modificadores encadeáveis: `.primaryKey()`, `.notNull()`, `.default(v)`, `.unique()`, `.references("tabela.coluna", { onDelete, onUpdate })`. ✅ (v0.4.0 — inclui constraints de tabela via `static tableArgs = () => [unique(...), foreignKey(...)]`, estilo `__table_args__`.)
 - Cada builder carrega: tipo SQL (runtime) + `_type` fantasma (estático) + flags de nullability/default que afetam o tipo inferido.
 - `InferModel<typeof Model>` → shape de linha (PK/default viram opcionais no insert, presentes no select).
 - Registro de metadata: construtor da base lê `Object.entries(this)` → nome de coluna = chave do campo.

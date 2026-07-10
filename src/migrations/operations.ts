@@ -6,7 +6,7 @@
  * hand-written `.sql` blob (the anti-Drizzle core).
  */
 
-import type { ColumnIR, TableIR } from "./ir.js";
+import type { ColumnIR, NamedConstraint, TableIR } from "./ir.js";
 
 /** A single, reversible schema operation. */
 export type Operation =
@@ -35,6 +35,18 @@ export type Operation =
       readonly kind: "recreate_table";
       readonly from: TableIR;
       readonly to: TableIR;
+    }
+  | {
+      // Add a table-level unique / foreign-key constraint. On SQLite this needs
+      // a table-rebuild (recreate_table); PostgreSQL / MySQL use ALTER TABLE ADD.
+      readonly kind: "add_constraint";
+      readonly table: string;
+      readonly constraint: NamedConstraint;
+    }
+  | {
+      readonly kind: "drop_constraint";
+      readonly table: string;
+      readonly constraint: NamedConstraint;
     }
   | { readonly kind: "execute"; readonly up: string; readonly down: string | null };
 
@@ -77,6 +89,10 @@ export function invert(op: Operation): Operation {
       return { kind: "rename_column", table: op.table, from: op.to, to: op.from };
     case "recreate_table":
       return { kind: "recreate_table", from: op.to, to: op.from };
+    case "add_constraint":
+      return { kind: "drop_constraint", table: op.table, constraint: op.constraint };
+    case "drop_constraint":
+      return { kind: "add_constraint", table: op.table, constraint: op.constraint };
     case "execute":
       if (op.down === null) {
         throw new IrreversibleMigration("execute() operation has no down SQL");
