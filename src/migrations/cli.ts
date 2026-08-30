@@ -7,23 +7,28 @@
  * `bin` wrapper just maps `process.argv`/`process.exit` onto it.
  */
 
-import type { SyncDriver } from "../engine.js";
+import { type AsyncDriver, type SyncDriver, toAsyncDriver } from "../engine.js";
 import type { ModelClass } from "../index.js";
 import type { Dialect } from "../url.js";
 import { generateMigration, makeRevisionId } from "./codegen.js";
 import { renderOperation } from "./ddl.js";
 import { diffSchema } from "./diff.js";
 import { heads as graphHeads, topoOrder } from "./graph.js";
-import { checkDrift } from "./introspect.js";
+import { checkDriftAsync } from "./introspect.js";
 import { reflectSchema } from "./ir.js";
 import type { Operation } from "./operations.js";
 import { type RenameCandidate, applyRenames, detectRenames } from "./renames.js";
 import { replaySchema } from "./replay.js";
-import { type Migration, MigrationRunner, Op } from "./runner.js";
+import { AsyncMigrationRunner, type Migration, Op } from "./runner.js";
 
 /** Configuration the CLI operates against. */
 export interface CliConfig {
-  readonly driver: SyncDriver;
+  /**
+   * The driver for the live database — sync (SQLite) or async (PostgreSQL,
+   * MySQL). Both are accepted: the CLI adapts either to the async runner, so a
+   * Postgres migration runs through the same commands as a SQLite one.
+   */
+  readonly driver: SyncDriver | AsyncDriver;
   readonly dialect: Dialect;
   readonly migrations: readonly Migration[];
   readonly models?: readonly ModelClass[];
@@ -106,8 +111,11 @@ function parseRenameFlags(rest: readonly string[]): RenameCandidate[] {
 }
 
 /** Pending migrations (DAG order) not yet applied. */
-function pending(config: CliConfig, runner: MigrationRunner): Migration[] {
-  const done = runner.applied();
+async function pending(
+  config: CliConfig,
+  runner: AsyncMigrationRunner,
+): Promise<Migration[]> {
+  const done = await runner.applied();
   return topoOrder(config.migrations).filter((m) => !done.has(m.revision));
 }
 
@@ -117,18 +125,26 @@ function pending(config: CliConfig, runner: MigrationRunner): Migration[] {
  * Commands: `current`, `history`, `heads`, `upgrade [--sql]`, `downgrade [N]`,
  * `check`, `revision -m <msg> [--autogenerate]`.
  *
+ * Async for every dialect: the config's driver is adapted with
+ * {@link toAsyncDriver}, so SQLite and PostgreSQL take the same path and the CLI
+ * is not silently SQLite-only.
+ *
  * @param argv The command and its arguments (without the program name).
  * @param config The driver, migrations, and models to operate on.
  * @returns Output lines and an exit code.
  */
-export function runMigrationCli(argv: readonly string[], config: CliConfig): CliResult {
+export async function runMigrationCli(
+  argv: readonly string[],
+  config: CliConfig,
+): Promise<CliResult> {
   const [command, ...rest] = argv;
-  const runner = new MigrationRunner(config.driver, config.dialect);
+  const driver = toAsyncDriver(config.driver);
+  const runner = new AsyncMigrationRunner(driver, config.dialect);
   const appliedAt = config.appliedAt ?? "1970-01-01T00:00:00.000Z";
 
   switch (command) {
     case "current": {
-      const applied = [...runner.applied()].sort();
+      const applied = [...(await runner.applied())].sort();
       return ok(applied.length > 0 ? applied : ["(no migrations applied)"]);
     }
 
@@ -136,7 +152,7 @@ export function runMigrationCli(argv: readonly string[], config: CliConfig): Cli
       return ok(graphHeads(config.migrations));
 
     case "history": {
-      const done = runner.applied();
+      const done = await runner.applied();
       return ok(
         topoOrder(config.migrations).map(
           (m) =>
@@ -148,7 +164,7 @@ export function runMigrationCli(argv: readonly string[], config: CliConfig): Cli
     case "upgrade": {
       if (rest.includes("--sql")) {
         const lines: string[] = [];
-        for (const migration of pending(config, runner)) {
+        for (const migration of await pending(config, runner)) {
           const op = new Op();
           migration.up(op);
           lines.push(`-- ${migration.revision}`);
@@ -159,13 +175,13 @@ export function runMigrationCli(argv: readonly string[], config: CliConfig): Cli
         }
         return ok(lines.length > 0 ? lines : ["-- nothing to upgrade"]);
       }
-      const ran = runner.upgrade(config.migrations, appliedAt);
+      const ran = await runner.upgrade(config.migrations, appliedAt);
       return ok(ran.length > 0 ? ran.map((r) => `applied ${r}`) : ["nothing to upgrade"]);
     }
 
     case "downgrade": {
       const steps = rest[0] ? Number(rest[0]) : 1;
-      const reverted = runner.downgrade(config.migrations, steps);
+      const reverted = await runner.downgrade(config.migrations, steps);
       return ok(
         reverted.length > 0
           ? reverted.map((r) => `reverted ${r}`)
@@ -175,9 +191,7 @@ export function runMigrationCli(argv: readonly string[], config: CliConfig): Cli
 
     case "check": {
       if (!config.models) return fail(["check requires models in the config"]);
-      // Drift: live DB vs models (SQLite introspection).
-      const drift =
-        config.dialect === "sqlite" ? checkDrift(config.driver, config.models) : [];
+      const drift = await checkDriftAsync(driver, config.dialect, config.models);
       // Pending model changes not yet captured by a migration.
       const undiffed = diffSchema(
         replaySchema(config.migrations),

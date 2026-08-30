@@ -10,8 +10,8 @@ class User extends Model {
   nickname = column.text();
 }
 
-/** Extract the result element type a builder will yield. */
-type RowOf<B> = B extends SelectBuilder<infer _F, infer P> ? P : never;
+/** Extract the result element type a builder will yield (grouped or not). */
+type RowOf<B> = B extends SelectBuilder<infer _F, infer P, infer _G> ? P : never;
 
 describe("Phase 2 query builder spike", () => {
   it("infers the full row type for an unprojected select", () => {

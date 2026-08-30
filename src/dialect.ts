@@ -9,12 +9,12 @@
  * It does NOT touch a database — execution is Phase 4b (`session.execute`).
  */
 
-import type { CondNode } from "./conditions.js";
+import type { CondNode, ExprNode } from "./conditions.js";
 import { renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
-import { type LockClause, OPERATORS, type SelectNode } from "./query.js";
+import { type LockClause, OPERATORS, type SelectNode, isSubquery } from "./query.js";
 import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
@@ -96,6 +96,15 @@ export abstract class BaseDialect {
 
   /** Render a case-insensitive LIKE for the active dialect. */
   protected abstract ilike(column: string, param: string): string;
+
+  /**
+   * Validate a subquery operand before it is rendered, for dialects that restrict
+   * what an `IN (SELECT ...)` may contain. The default accepts everything.
+   *
+   * @param _node The subquery's AST.
+   * @throws Error When the dialect cannot execute this subquery.
+   */
+  protected checkSubquery(_node: SelectNode): void {}
 
   /**
    * The SQL operator for an array containment/overlap test.
@@ -240,6 +249,19 @@ export abstract class BaseDialect {
 
   // ---- statements -------------------------------------------------------
 
+  /**
+   * Compile a SELECT.
+   *
+   * Two alias rules differ between clauses and are handled here: PostgreSQL does
+   * NOT accept a `SELECT` alias in `HAVING`, so an aggregate key is re-emitted as
+   * its expression (`COUNT(*) > $1`), a form every dialect accepts; `ORDER BY`,
+   * by contrast, accepts the output alias everywhere, so it is emitted as
+   * written.
+   *
+   * @param node The select AST.
+   * @param params The parameter collector.
+   * @returns The SQL text.
+   */
   private compileSelect(node: SelectNode, params: Params): string {
     const names = node.names;
     let cols: string;
@@ -268,12 +290,26 @@ export abstract class BaseDialect {
       sql += ` GROUP BY ${node.groupBy.map((c) => this.columnId(c, names)).join(", ")}`;
     }
 
+    const aggByAlias = new Map(node.aggregates.map((a) => [a.alias, a]));
+
+    if (node.having) {
+      const having = this.compileCondition(node.having, params, (key) => {
+        const agg = aggByAlias.get(key);
+        if (!agg) return this.columnId(key, names);
+        const inner = agg.column === "*" ? "*" : this.columnId(agg.column, names);
+        return `${agg.fn.toUpperCase()}(${inner})`;
+      });
+      if (having) sql += ` HAVING ${having}`;
+    }
+
     if (node.orderBy.length > 0) {
       const terms = node.orderBy
-        .map(
-          (t) =>
-            `${this.columnId(t.column, names)} ${t.direction === "desc" ? "DESC" : "ASC"}`,
-        )
+        .map((t) => {
+          const id = aggByAlias.has(t.column)
+            ? this.quoteId(t.column)
+            : this.columnId(t.column, names);
+          return `${id} ${t.direction === "desc" ? "DESC" : "ASC"}`;
+        })
         .join(", ");
       sql += ` ORDER BY ${terms}`;
     }
@@ -565,6 +601,89 @@ export abstract class BaseDialect {
         const inner = this.compileCondition(node.part, params, idFor);
         return inner ? `NOT (${inner})` : "";
       }
+      case "compare": {
+        const left = this.renderExpr(node.left, params, idFor);
+        if (node.right.kind === "value") {
+          return this.compileOperator(left, node.op, node.right.value, params);
+        }
+        return this.compileExprOperator(
+          left,
+          node.op,
+          this.renderExpr(node.right, params, idFor),
+        );
+      }
+    }
+  }
+
+  /**
+   * Render one side of a comparison.
+   *
+   * A column reference goes through `idFor`, so an explicit `.name()` mapping and
+   * join qualification apply here exactly as they do in the object form of
+   * `where` — `col()` is not a way around them. Only a `value` node binds.
+   *
+   * @param node The expression AST.
+   * @param params The parameter collector.
+   * @param idFor The identifier resolver for the enclosing statement.
+   * @returns The SQL text of the expression.
+   */
+  private renderExpr(
+    node: ExprNode,
+    params: Params,
+    idFor: (key: string) => string,
+  ): string {
+    switch (node.kind) {
+      case "column":
+        return idFor(node.name);
+      case "value":
+        return params.bind(node.value);
+      case "fn": {
+        const args = node.args.map((a) => this.renderExpr(a, params, idFor)).join(", ");
+        return `${node.name}(${args})`;
+      }
+    }
+  }
+
+  /**
+   * Compile a comparison whose right-hand side is another expression rather than
+   * a bound value (`total > paid`, `lower(a) = lower(b)`).
+   *
+   * The list and null operators are excluded: `IN`, `BETWEEN` and `IS NULL` take
+   * a value operand, and accepting an expression there would silently compile to
+   * something else.
+   *
+   * @param left The rendered left-hand side.
+   * @param op The operator name.
+   * @param right The rendered right-hand side.
+   * @returns The SQL text of the predicate.
+   * @throws Error When the operator needs a value operand.
+   */
+  private compileExprOperator(left: string, op: string, right: string): string {
+    switch (op) {
+      case "eq":
+        return `${left} = ${right}`;
+      case "ne":
+        return `${left} <> ${right}`;
+      case "gt":
+        return `${left} > ${right}`;
+      case "gte":
+        return `${left} >= ${right}`;
+      case "lt":
+        return `${left} < ${right}`;
+      case "lte":
+        return `${left} <= ${right}`;
+      case "like":
+        return `${left} LIKE ${right}`;
+      case "ilike":
+        return this.ilike(left, right);
+      case "ieq":
+        return `lower(${left}) = lower(${right})`;
+      case "contains":
+      case "containedBy":
+      case "overlaps":
+        return `${left} ${this.arrayOperator(op)} ${right}`;
+      default:
+        throw new Error(`The "${op}" operator takes a value operand, not an expression.`);
     }
   }
 
@@ -604,9 +723,9 @@ export abstract class BaseDialect {
       case "overlaps":
         return `${id} ${this.arrayOperator("overlaps")} ${params.bind(operand)}`;
       case "in":
-        return this.compileIn(id, operand as readonly unknown[], params, false);
+        return this.compileIn(id, operand, params, false);
       case "notIn":
-        return this.compileIn(id, operand as readonly unknown[], params, true);
+        return this.compileIn(id, operand, params, true);
       case "between": {
         const [lo, hi] = operand as readonly [unknown, unknown];
         return `${id} BETWEEN ${params.bind(lo)} AND ${params.bind(hi)}`;
@@ -618,18 +737,39 @@ export abstract class BaseDialect {
     }
   }
 
+  /**
+   * Compile `IN` / `NOT IN`, whose operand is either a value list or a
+   * single-column subquery.
+   *
+   * The subquery is rendered at the position it appears in the outer statement
+   * and shares the same parameter collector, so its own placeholders land in the
+   * right order — and it keeps its own `names` map, since the inner model may use
+   * a different naming convention than the outer one.
+   *
+   * @param id The quoted column identifier being tested.
+   * @param operand A list of values, or a {@link Subquery}.
+   * @param params The parameter collector for the statement being compiled.
+   * @param negate True for `NOT IN`.
+   * @returns The SQL text of the predicate.
+   */
   private compileIn(
     id: string,
-    values: readonly unknown[],
+    operand: unknown,
     params: Params,
     negate: boolean,
   ): string {
+    const keyword = negate ? "NOT IN" : "IN";
+    if (isSubquery(operand)) {
+      this.checkSubquery(operand.node);
+      return `${id} ${keyword} (${this.compileSelect(operand.node, params)})`;
+    }
+    const values = operand as readonly unknown[];
     if (values.length === 0) {
       // empty IN matches nothing; empty NOT IN matches everything
       return negate ? "1 = 1" : "1 = 0";
     }
     const list = values.map((v) => params.bind(v)).join(", ");
-    return `${id} ${negate ? "NOT IN" : "IN"} (${list})`;
+    return `${id} ${keyword} (${list})`;
   }
 }
 
@@ -703,6 +843,20 @@ export class MysqlDialect extends BaseDialect {
     return quoted;
   }
 
+  /**
+   * MySQL rejects `LIMIT` inside an `IN` subquery with
+   * `ER_NOT_SUPPORTED_YET: This version of MySQL doesn't yet support
+   * 'LIMIT & IN/ALL/ANY/SOME subquery'`. Failing at compile time names the fix
+   * instead of surfacing that error from the driver at runtime.
+   */
+  protected override checkSubquery(node: SelectNode): void {
+    if (node.limit !== undefined || node.offset !== undefined) {
+      throw new Error(
+        "MySQL does not support LIMIT/OFFSET inside an IN subquery. Select the ids first and pass them as a list, or wrap the subquery in a derived table.",
+      );
+    }
+  }
+
   protected override renderConflict(
     onConflict: NonNullable<InsertNode["onConflict"]>,
     conflictCols: readonly string[],
@@ -726,10 +880,19 @@ export class MysqlDialect extends BaseDialect {
     return ` ON DUPLICATE KEY UPDATE ${assignments}`;
   }
 
+  /**
+   * MySQL has no `RETURNING`, so it cannot be compiled into a statement.
+   *
+   * `session.execute()` still honors `.returning()` on a **single-row INSERT** by
+   * running the insert and reading the row back by key on the same connection —
+   * that is execution, not compilation, so it never reaches here. Compiling a
+   * node with `returning` directly is an error, rather than SQL that silently
+   * returns nothing.
+   */
   protected override compileReturning(returning: readonly string[] | "*" | null): string {
     if (returning === null) return "";
     throw new Error(
-      "RETURNING is not supported on MySQL — insert, then SELECT by key (e.g. LAST_INSERT_ID()).",
+      "RETURNING cannot be compiled for MySQL. session.execute() reads a single-row INSERT back by key (LAST_INSERT_ID()); UPDATE/DELETE have no equivalent — run a SELECT yourself.",
     );
   }
 }

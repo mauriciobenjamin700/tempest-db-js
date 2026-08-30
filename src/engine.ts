@@ -12,11 +12,12 @@
  */
 
 import { createRequire } from "node:module";
+import { col, fn } from "./conditions.js";
 import { type BaseDialect, getDialect } from "./dialect.js";
 import { type ModelClass, columnNamesOf, columnsOf } from "./index.js";
 import type { JoinBuilder, JoinNode } from "./join.js";
-import type { InsertBuilder, UpdateBuilder } from "./mutations.js";
-import type { SelectBuilder } from "./query.js";
+import type { InsertBuilder, InsertNode, UpdateBuilder } from "./mutations.js";
+import { type SelectBuilder, select } from "./query.js";
 import { coerceRow } from "./serialize.js";
 import { type Dialect, parseDatabaseUrl } from "./url.js";
 
@@ -152,7 +153,7 @@ function returnsRows(sql: string): boolean {
 // ---------------------------------------------------------------------------
 
 /* biome-ignore lint/suspicious/noExplicitAny: builder generics are irrelevant to execution dispatch. */
-type AnySelect = SelectBuilder<any, any>;
+type AnySelect = SelectBuilder<any, any, any>;
 /* biome-ignore lint/suspicious/noExplicitAny: see above. */
 type AnyInsert = InsertBuilder<any, any, any>;
 /* biome-ignore lint/suspicious/noExplicitAny: only the guarded flag matters. */
@@ -365,6 +366,30 @@ export class AsyncResult<Row> {
 // ---------------------------------------------------------------------------
 
 let savepointCounter = 0;
+
+/**
+ * True when a builder asks for `RETURNING` on a dialect that has none, so the
+ * session must insert and read the row back instead of compiling one statement.
+ */
+function needsInsertReadBack(
+  dialect: BaseDialect,
+  node: Parameters<BaseDialect["compile"]>[0],
+): node is InsertNode {
+  return dialect.name === "mysql" && node.kind === "insert" && node.returning !== null;
+}
+
+/** The model's single primary-key property name, for the insert read-back. */
+function singlePrimaryKey(model: ModelClass): string {
+  const keys = Object.entries(columnsOf(model))
+    .filter(([, column]) => column.flags.primaryKey)
+    .map(([name]) => name);
+  if (keys.length !== 1) {
+    throw new Error(
+      `${model.tablename} needs exactly one primary key to read an insert back on a dialect without RETURNING; found ${keys.length}.`,
+    );
+  }
+  return keys[0] as string;
+}
 
 /** Reject a `raw()` call whose parameters are not an array. */
 function assertRawParams(params: readonly unknown[]): void {
@@ -580,12 +605,72 @@ export class AsyncSession {
   execute<B extends Executable>(builder: B): AsyncResult<RowOf<B>> {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
+    if (needsInsertReadBack(this.dialect, node)) {
+      return new AsyncResult<RowOf<B>>(
+        this.insertAndReadBack(builder as unknown as SingleBuilder, node),
+      );
+    }
     const { sql, params } = this.dialect.compile(node);
     const inner = this.exec(sql, params).then((result) => {
       const rows = mapRows(builder, result.rows) as RowOf<B>[];
       return new SyncResult<RowOf<B>>(rows, result.changes);
     });
     return new AsyncResult<RowOf<B>>(inner);
+  }
+
+  /**
+   * Honor `.returning()` on a dialect without `RETURNING`, by inserting and then
+   * reading the row back by key.
+   *
+   * Both statements must run on **one** connection, because `LAST_INSERT_ID()` is
+   * per-connection: outside a transaction the pooled driver is reserved for the
+   * pair; inside one, the session already holds a pinned connection (a reserved
+   * driver exposes no `reserve`), so it runs there directly.
+   *
+   * @param builder The insert builder, for its source model.
+   * @param node The insert AST, whose `returning` drives the read-back.
+   * @returns The result view over the read-back row.
+   * @throws Error When the insert writes more than one row — `LAST_INSERT_ID()`
+   *   identifies only the first, and the rest are consecutive only under some
+   *   auto-increment lock modes.
+   */
+  private async insertAndReadBack<Row>(
+    builder: SingleBuilder,
+    node: InsertNode,
+  ): Promise<SyncResult<Row>> {
+    if (node.values.length !== 1) {
+      throw new Error(
+        `${this.dialect.name} has no RETURNING, and reading back a multi-row insert is not reliable — insert one row at a time, or drop .returning().`,
+      );
+    }
+    const model = builder.source;
+    const pk = singlePrimaryKey(model);
+    const supplied = (node.values[0] as Record<string, unknown>)[pk];
+    const readBack = select(model).where(
+      supplied === undefined || supplied === null
+        ? col(pk).eq(fn.call("LAST_INSERT_ID"))
+        : { [pk]: supplied },
+    );
+    const insertSql = this.dialect.compile({ ...node, returning: null });
+    const selectSql = this.dialect.compile(
+      node.returning === "*" || node.returning === null
+        ? readBack.node
+        : { ...readBack.node, columns: node.returning },
+    );
+    const run = async (driver: AsyncDriver): Promise<SyncResult<Row>> => {
+      const scoped = new AsyncSession(driver, this.dialect, this.logger);
+      const written = await scoped.exec(insertSql.sql, insertSql.params);
+      const read = await scoped.exec(selectSql.sql, selectSql.params);
+      const rows = read.rows.map((row) => coerceRow(model, row)) as Row[];
+      return new SyncResult<Row>(rows, written.changes);
+    };
+    if (!this.driver.reserve) return run(this.driver);
+    const reserved = await this.driver.reserve();
+    try {
+      return await run(reserved);
+    } finally {
+      await reserved.release();
+    }
   }
 
   /** Lazily iterate result rows. Uses driver streaming when available. */
@@ -728,6 +813,28 @@ export class AsyncEngine {
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
   }
+}
+
+/**
+ * Adapt a sync **or** async driver to the async interface.
+ *
+ * `await` normalizes both: a sync driver returns a plain value, an async one a
+ * promise, and awaiting either yields the result. That is what lets the migration
+ * CLI take one code path instead of branching on a difference it cannot detect
+ * from the object's shape.
+ *
+ * @param driver Either driver flavor.
+ * @returns An async driver delegating to it.
+ */
+export function toAsyncDriver(driver: SyncDriver | AsyncDriver): AsyncDriver {
+  return {
+    async execute(sql: string, params: readonly unknown[]): Promise<DriverResult> {
+      return await driver.execute(sql, params);
+    },
+    async close(): Promise<void> {
+      await driver.close();
+    },
+  };
 }
 
 /** Wrap a sync driver so it satisfies the async interface (SQLite async path). */

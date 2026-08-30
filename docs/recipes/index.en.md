@@ -30,6 +30,8 @@ recipes show you how to apply them in real day-to-day situations.
 | [PostgreSQL array columns](arrays.md) | Typed `text[]`/`integer[]`, with `@>`, `<@` and `&&`. |
 | [Case-insensitive comparison](case-insensitive.md) | `ieq` for case-insensitive login — and the `ilike` trap. |
 | [Raw SQL at runtime](raw-sql.md) | `session.raw` for the query the builder cannot yet express. |
+| [Expressions in `where`](expressions.md) | Column vs column and SQL functions, to match a functional index. |
+| [MySQL: what changes](mysql.md) | `RETURNING` via read-back, and what MySQL cannot do. |
 
 ## Looking for something bigger?
 

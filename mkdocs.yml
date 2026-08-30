@@ -92,6 +92,8 @@ plugins:
             Colunas array do PostgreSQL: PostgreSQL array columns
             Comparação case-insensitive: Case-insensitive comparison
             SQL cru em runtime: Raw SQL at runtime
+            Expressões no where: Expressions in where
+            "MySQL: o que muda": "MySQL: what changes"
             Exemplos: Examples
             Galeria: Gallery
             Todo CLI (SQLite): Todo CLI (SQLite)
@@ -167,6 +169,8 @@ nav:
       - Colunas array do PostgreSQL: recipes/arrays.md
       - Comparação case-insensitive: recipes/case-insensitive.md
       - SQL cru em runtime: recipes/raw-sql.md
+      - Expressões no where: recipes/expressions.md
+      - "MySQL: o que muda": recipes/mysql.md
   - Exemplos:
       - examples/index.md
       - Todo CLI (SQLite): examples/todo-cli.md

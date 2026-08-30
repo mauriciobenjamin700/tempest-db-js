@@ -60,7 +60,7 @@ describe("MySQL dialect — query compilation", () => {
         insert(User).values({ id: 1, name: "a", role: "user", active: true }).returning()
           .node,
       ),
-    ).toThrow(/RETURNING is not supported on MySQL/);
+    ).toThrow(/RETURNING cannot be compiled for MySQL/);
   });
 });
 
@@ -88,5 +88,21 @@ describe("MySQL DDL rendering", () => {
       "mysql",
     );
     expect(alter).toContain("ALTER TABLE `users` MODIFY COLUMN `name`");
+  });
+});
+
+describe("MySQL dialect — what it cannot express", () => {
+  it("rejects LIMIT inside an IN subquery, which MySQL does not support", () => {
+    const q = select(User).where({
+      id: { in: select(User).limit(3).asSubquery("id") },
+    });
+    expect(() => mysql.compile(q.node)).toThrow(
+      /does not support LIMIT\/OFFSET inside an IN subquery/,
+    );
+  });
+
+  it("accepts a subquery without LIMIT", () => {
+    const q = select(User).where({ id: { in: select(User).asSubquery("id") } });
+    expect(mysql.compile(q.node).sql).toContain("IN (SELECT `id` FROM `users`)");
   });
 });

@@ -86,6 +86,45 @@ async function claimBatch(size: number): Promise<string[]> {
 2. The increment happens **in the database**. No `attempts` value travels to Node
    and back, so there is no window for another transaction to overwrite it.
 
+### In a single query
+
+With a subquery in `IN`, the `SELECT` and the `UPDATE` collapse into one
+statement — one round trip instead of two, and no ids materialized in Node:
+
+```ts
+const claimed = await session
+  .execute(
+    update(Outbound)
+      .set({
+        status: "sending",
+        attempts: sql.raw("attempts + 1"),
+        updatedAt: sql.now(),
+      })
+      .where({
+        id: {
+          in: select(Outbound)
+            .where({ status: "queued" })
+            .orderBy("nextAttemptAt")
+            .limit(10)
+            .forUpdate({ skipLocked: true })
+            .asSubquery("id"),          // (1)!
+        },
+      })
+      .returning(),
+  )
+  .all();
+```
+
+1. `.asSubquery(column)` projects a single column and marks the `SELECT` as an
+   `in`/`notIn` operand. The lock, the `ORDER BY` and the `LIMIT` travel with it,
+   inside the outer statement.
+
+!!! warning "On MySQL the subquery cannot carry a `LIMIT`"
+
+    The server rejects `LIMIT` inside `IN (SELECT ...)`. The dialect throws at
+    compile time and names the way out — there, use the two-step version above.
+    See [MySQL: what changes](mysql.md).
+
 !!! danger "The lock needs a transaction"
 
     `FOR UPDATE` only holds while the transaction is open. Outside a
@@ -226,5 +265,7 @@ async function drain(): Promise<void> {
   which is what makes Postgres accept it as a conflict target.
 - `sql.raw()` / `` sql.expr`` `` / `sql.now()` in `set` keep the increment in the
   database — no read-modify-write.
-- An unbranded object in `set`/`values` is now a `ValidationError`, not silent
+- An unbranded object in `set`/`values` is a `ValidationError`, not silent
   corruption.
+- `.asSubquery(column)` in `in` closes the claim in a single query (except on
+  MySQL, which rejects `LIMIT` in a subquery).

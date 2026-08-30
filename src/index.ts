@@ -771,12 +771,18 @@ export { Column, type ColType, type ColumnFlags, type ModelClass };
 
 export {
   and,
+  col,
   type CondNode,
   type Condition,
+  Expression,
+  type ExprNode,
+  fn,
   isCondition,
+  isExpression,
   not,
   or,
   toCondNode,
+  val,
   type WhereArg,
 } from "./conditions.js";
 
@@ -789,6 +795,7 @@ export {
   type LockOptions,
   max,
   min,
+  isSubquery,
   type Operator,
   type OperatorsFor,
   OPERATORS,
@@ -797,6 +804,7 @@ export {
   SelectBuilder,
   select,
   type SortDirection,
+  type Subquery,
   sum,
   type WhereInput,
 } from "./query.js";
@@ -904,4 +912,5 @@ export {
   SyncEngine,
   SyncResult,
   SyncSession,
+  toAsyncDriver,
 } from "./engine.js";

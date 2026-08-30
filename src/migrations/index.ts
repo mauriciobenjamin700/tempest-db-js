@@ -58,9 +58,12 @@ export {
 
 export {
   checkDrift,
+  checkDriftAsync,
   checkDriftPostgres,
+  compareSqliteSchemas,
   introspectPostgres,
   introspectSqlite,
+  introspectSqliteAsync,
   type SqliteAffinity,
   sqliteAffinity,
 } from "./introspect.js";
