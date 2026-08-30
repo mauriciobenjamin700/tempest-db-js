@@ -25,6 +25,33 @@ import {
 
 const url = process.env.TEST_DATABASE_URL;
 
+/**
+ * A database of this suite's own.
+ *
+ * `tempest-db check` compares the **whole** schema against the models, so it
+ * cannot share a database with the other integration files: their tables would
+ * read as drift, and the exit code — the thing this suite is asserting — would
+ * depend on test scheduling.
+ */
+const CLI_DATABASE = "tempest_db_js_cli_test";
+
+/** Point a connection URL at a different database on the same server. */
+function withDatabase(base: string, database: string): string {
+  const parsed = new URL(base);
+  parsed.pathname = `/${database}`;
+  return parsed.toString();
+}
+
+/** Run one statement on the server's default database, then disconnect. */
+async function onAdminConnection(statement: string): Promise<void> {
+  const admin = createEngine(url as string);
+  try {
+    await admin.session().raw(statement).rowsAffected();
+  } finally {
+    await admin.close();
+  }
+}
+
 class Widget extends Model {
   static override tablename = "cli_widgets";
   static override naming = "snake_case" as const;
@@ -50,10 +77,10 @@ describe.skipIf(!url)("tempest-db CLI — real PostgreSQL", () => {
   let config: CliConfig;
 
   beforeAll(async () => {
-    engine = createEngine(url as string);
+    await onAdminConnection(`DROP DATABASE IF EXISTS ${CLI_DATABASE} WITH (FORCE)`);
+    await onAdminConnection(`CREATE DATABASE ${CLI_DATABASE}`);
+    engine = createEngine(withDatabase(url as string, CLI_DATABASE));
     driver = (engine as unknown as { driver: AsyncDriver }).driver;
-    await driver.execute("DROP TABLE IF EXISTS cli_widgets CASCADE", []);
-    await driver.execute("DROP TABLE IF EXISTS tempest_db_js_migrations CASCADE", []);
     config = {
       driver,
       dialect: "postgresql",
@@ -64,9 +91,8 @@ describe.skipIf(!url)("tempest-db CLI — real PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await driver.execute("DROP TABLE IF EXISTS cli_widgets CASCADE", []);
-    await driver.execute("DROP TABLE IF EXISTS tempest_db_js_migrations CASCADE", []);
     await engine.close();
+    await onAdminConnection(`DROP DATABASE IF EXISTS ${CLI_DATABASE} WITH (FORCE)`);
   });
 
   it("reports nothing applied on a fresh database", async () => {
