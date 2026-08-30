@@ -97,6 +97,40 @@ function assertWritableValues(
   if (issues.length > 0) throw new ValidationError(model.tablename, issues);
 }
 
+/**
+ * Reject a multi-row insert whose rows disagree about a **defaulted** column.
+ *
+ * Every row of one INSERT shares one column list, so a key present in some rows
+ * and absent in others is bound as `NULL` for the rows that omit it. For a plain
+ * nullable column that is exactly what omitting it meant anyway; for a column
+ * with a `DEFAULT` (a primary key included) it is not — the row would be written
+ * as NULL instead of taking its default. SQLite has no `DEFAULT` keyword inside
+ * `VALUES`, so there is no portable per-row escape; failing loudly is the honest
+ * option.
+ *
+ * @param model The model being inserted into.
+ * @param rows The rows of this insert.
+ * @throws ValidationError When rows disagree about a column that has a default.
+ */
+function assertConsistentRows(
+  model: ModelClass,
+  rows: readonly Record<string, unknown>[],
+): void {
+  if (rows.length < 2) return;
+  const union = new Set<string>();
+  for (const row of rows) for (const key of Object.keys(row)) union.add(key);
+  const inconsistent = [...union].filter((key) => rows.some((row) => !(key in row)));
+  if (inconsistent.length === 0) return;
+  const columns = columnsOf(model);
+  const defaulted = inconsistent.filter((key) => columns[key]?.flags.hasDefault);
+  if (defaulted.length === 0) return;
+  const named = defaulted.map((c) => `"${c}"`).join(", ");
+  const verb = defaulted.length === 1 ? "has" : "have";
+  throw new ValidationError(model.tablename, [
+    `values: ${named} ${verb} a default but is missing from some rows of this multi-row insert — every row shares one column list, so the omitting rows would be written as NULL instead of taking the default. Give the column in every row, or insert the rows separately.`,
+  ]);
+}
+
 /** A short description of a rejected value, for the validation message. */
 function describeValue(value: unknown): string {
   if (typeof value === "function") return "a function";
@@ -181,7 +215,8 @@ export class InsertBuilder<Full, Ins, Ret = number> {
    * @param rows One row, or an array of rows.
    * @returns A builder carrying the rows.
    * @throws ValidationError When a value is not a column value the dialect can
-   *   bind (see the `sql` helpers for writing an expression instead).
+   *   bind (see the `sql` helpers for writing an expression instead), or when the
+   *   rows of a multi-row insert disagree about a column that has a default.
    */
   values(
     rows: WriteValues<Ins> | readonly WriteValues<Ins>[],
@@ -191,6 +226,7 @@ export class InsertBuilder<Full, Ins, Ret = number> {
       unknown
     >[];
     for (const row of list) assertWritableValues(this.source, row, "values");
+    assertConsistentRows(this.source, list);
     return this.with<Ret>({ values: list });
   }
 

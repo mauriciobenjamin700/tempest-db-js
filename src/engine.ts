@@ -99,13 +99,24 @@ export class NodeSqliteDriver implements SyncDriver {
     this.db = database;
   }
 
-  /** Open a `node:sqlite` database at the given path (or `:memory:`). */
-  static open(path: string): NodeSqliteDriver {
+  /**
+   * Open a `node:sqlite` database at the given path (or `:memory:`).
+   *
+   * @param path The database file, or `":memory:"`.
+   * @param options Passed straight to `DatabaseSync` (`readOnly`, `timeout`, …).
+   * @returns A driver over the open handle.
+   */
+  static open(
+    path: string,
+    options?: Readonly<Record<string, unknown>>,
+  ): NodeSqliteDriver {
     // Lazy require so importing tempest-db-js never forces the built-in module to load.
     const { DatabaseSync } = nodeRequire("node:sqlite") as {
-      DatabaseSync: new (path: string) => unknown;
+      DatabaseSync: new (path: string, options?: Record<string, unknown>) => unknown;
     };
-    return new NodeSqliteDriver(new DatabaseSync(path));
+    return new NodeSqliteDriver(
+      options ? new DatabaseSync(path, { ...options }) : new DatabaseSync(path),
+    );
   }
 
   /** Return the cached prepared statement for `sql`, preparing it on first use. */
@@ -749,6 +760,13 @@ export interface PoolOptions {
   readonly connectTimeoutMs?: number;
 }
 
+/**
+ * A server-side notice (a PostgreSQL `NOTICE`). The shape is the driver's own —
+ * passed through untouched rather than normalized, since what is useful in it
+ * differs per database.
+ */
+export type NoticeLogger = (notice: Record<string, unknown>) => void;
+
 /** Options shared by both engine flavors. */
 export interface EngineOptions {
   /** Override the driver detected from the URL (e.g. `"better-sqlite3"`). */
@@ -760,6 +778,44 @@ export interface EngineOptions {
    * query logging/tracing. Thrown errors are swallowed so it never breaks a query.
    */
   readonly onQuery?: QueryLogger;
+  /**
+   * Called for every server-side notice (`CREATE TABLE IF NOT EXISTS` on an
+   * existing table, `DROP ... IF EXISTS` on a missing one, and so on).
+   *
+   * **Without this, notices are silenced.** postgres.js defaults to printing them
+   * with `console.log`, which drops a nine-line object into the host service's
+   * stdout in the middle of its structured log — on every boot, since a migration
+   * runner is usually the first thing to run. Writing to the host's stdout is the
+   * application's decision, not a library's, so the default is to say nothing and
+   * let you route them:
+   *
+   * ```ts
+   * createEngine(url, { onNotice: (n) => logger.debug({ pg: n }, "postgres notice") });
+   * ```
+   *
+   * Thrown errors are swallowed, like `onQuery`.
+   */
+  readonly onNotice?: NoticeLogger;
+  /**
+   * Options passed straight to the underlying driver, applied **last** so they
+   * win over everything this layer derives (`pool`, `onNotice`).
+   *
+   * The escape hatch for what the typed surface does not model and is not going
+   * to — postgres.js `connection`/`types`/`transform`/`ssl`, mysql2's own
+   * settings, `node:sqlite`'s `readOnly` — so a gap need not become a feature
+   * request.
+   */
+  readonly driverOptions?: Readonly<Record<string, unknown>>;
+}
+
+/** Invoke a notice logger, swallowing any error it throws. */
+function emitNotice(logger: NoticeLogger | undefined, notice: unknown): void {
+  if (!logger) return;
+  try {
+    logger(notice as Record<string, unknown>);
+  } catch {
+    // logging must never break a connection
+  }
 }
 
 /** A synchronous engine (SQLite only). */
@@ -853,9 +909,9 @@ function asAsync(driver: SyncDriver): AsyncDriver {
   };
 }
 
-/** Open a SQLite sync driver from a parsed URL. */
-function openSqliteDriver(path: string, _options?: EngineOptions): SyncDriver {
-  return NodeSqliteDriver.open(path);
+/** Open a SQLite sync driver from a parsed URL, passing driver options through. */
+function openSqliteDriver(path: string, options?: EngineOptions): SyncDriver {
+  return NodeSqliteDriver.open(path, options?.driverOptions);
 }
 
 /**
@@ -902,14 +958,14 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
   if (parsed.dialect === "mysql") {
     // MySQL: mysql2 is lazy-loaded the first time a query runs.
     return new AsyncEngine(
-      createMysqlDriver(parsed.raw, options?.pool),
+      createMysqlDriver(parsed.raw, options),
       "mysql",
       options?.onQuery,
     );
   }
   // PostgreSQL: postgres.js is lazy-loaded the first time a query runs.
   return new AsyncEngine(
-    createPostgresDriver(parsed.raw, options?.pool),
+    createPostgresDriver(parsed.raw, options),
     "postgresql",
     options?.onQuery,
   );
@@ -942,7 +998,8 @@ function toMysqlResult(rows: unknown): DriverResult {
  * so `BEGIN`/`COMMIT` and the statements between them run on one connection.
  * MySQL has no `RETURNING`; the dialect throws if it is requested.
  */
-function createMysqlDriver(url: string, pool?: PoolOptions): AsyncDriver {
+function createMysqlDriver(url: string, options?: EngineOptions): AsyncDriver {
+  const pool = options?.pool;
   // biome-ignore lint/suspicious/noExplicitAny: mysql2 pool typed at call site.
   let poolHandle: any;
   const ensure = async (): Promise<void> => {
@@ -954,6 +1011,7 @@ function createMysqlDriver(url: string, pool?: PoolOptions): AsyncDriver {
     if (pool?.size !== undefined) opts.connectionLimit = pool.size;
     if (pool?.idleTimeoutMs !== undefined) opts.idleTimeout = pool.idleTimeoutMs;
     if (pool?.connectTimeoutMs !== undefined) opts.connectTimeout = pool.connectTimeoutMs;
+    Object.assign(opts, options?.driverOptions ?? {});
     poolHandle = mod.createPool(opts);
   };
   const runOn = async (
@@ -1005,7 +1063,8 @@ function toPostgresResult(rows: unknown): DriverResult {
  * `UNSAFE_TRANSACTION`). The reserved connection runs `BEGIN`/`COMMIT`/`ROLLBACK`
  * and every statement between them on one socket, then is released back.
  */
-function createPostgresDriver(url: string, pool?: PoolOptions): AsyncDriver {
+function createPostgresDriver(url: string, options?: EngineOptions): AsyncDriver {
+  const pool = options?.pool;
   // biome-ignore lint/suspicious/noExplicitAny: postgres.js client typed at call site.
   let client: any;
   const ensure = async (): Promise<void> => {
@@ -1015,13 +1074,15 @@ function createPostgresDriver(url: string, pool?: PoolOptions): AsyncDriver {
     // biome-ignore lint/suspicious/noExplicitAny: dynamic import of the peer dep.
     const mod = (await import(/* @vite-ignore */ moduleName)) as any;
     // Map our PoolOptions onto postgres.js's option names (seconds, not ms).
-    const opts: Record<string, number> = {};
+    const opts: Record<string, unknown> = {};
     if (pool?.size !== undefined) opts.max = pool.size;
     if (pool?.idleTimeoutMs !== undefined)
       opts.idle_timeout = Math.ceil(pool.idleTimeoutMs / 1000);
     if (pool?.connectTimeoutMs !== undefined) {
       opts.connect_timeout = Math.ceil(pool.connectTimeoutMs / 1000);
     }
+    opts.onnotice = (notice: unknown): void => emitNotice(options?.onNotice, notice);
+    Object.assign(opts, options?.driverOptions ?? {});
     client = (mod.default ?? mod)(url, opts);
   };
   return {

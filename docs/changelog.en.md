@@ -3,6 +3,61 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-08-30
+
+Two fixes from the same real consumer (`zap-api`): the noise `InferInsert` forced
+into every insert, and PostgreSQL `NOTICE` output polluting the service's stdout.
+
+### ⚠️ Breaking
+
+- **Nullable columns are now optional in `InferInsert`.** This loosens a type, so
+  nothing that compiled stops compiling — but anyone deriving types from
+  `InferInsert` and expecting nullables to be required will see the shape change
+  (`nickname: string | null` → `nickname?: string | null`).
+- **PostgreSQL `NOTICE` is no longer printed.** Without `onNotice` it is dropped;
+  postgres.js used to print it through `console.log`. Anyone relying on that
+  print needs to pass `onNotice`.
+
+### Added
+
+- **`onNotice` in `EngineOptions`** — receives server-side notices
+  (`CREATE TABLE IF NOT EXISTS` on an existing table, `DROP ... IF EXISTS`), in
+  the same spirit as `onQuery`, with a throwing logger swallowed. **The default is
+  silence:** writing to the host process's stdout is the application's decision,
+  not a library's — and the previous default broke the structured log of anything
+  consuming stdout (Docker, Loki, CloudWatch) on every boot, since a migration
+  runner is usually the first thing to run.
+- **`driverOptions` in `EngineOptions`** — passed straight to the driver, applied
+  **last** (winning over `pool` and `onNotice`), for what the typed surface does
+  not model: postgres.js's `connection`/`types`/`transform`/`ssl`, mysql2's own
+  settings, `node:sqlite`'s `readOnly`. Keeps every gap from becoming a feature
+  request.
+
+### Fixed
+
+- **A nullable column without a default required `field: null` in every insert.**
+  Omitting a column that accepts `NULL` and declares no `DEFAULT` writes `NULL` —
+  the same thing passing `null` does. Requiring the hand-written `null` only added
+  noise that **reads like a deliberate decision to blank the column**, and made
+  every new column added by a migration break compilation at every insert call
+  site. Now `notNull` without a default is the only thing required; an explicit
+  `null` is still accepted.
+- **A multi-row insert dropped keys absent from the first row.** The column list
+  came from `values[0]`, so in `values([{ a }, { a, note: "x" }])` the `note`
+  column was never named and the value vanished with no error. The list is now the
+  **union** of every row's keys. It was unreachable while every row had to carry
+  every key — and became reachable the moment nullable columns turned optional.
+- **Rows that disagree about a defaulted column** now raise `ValidationError`. One
+  `INSERT` has one column list, so the omitting row would get `NULL` instead of
+  its default; SQLite has no `DEFAULT` keyword inside `VALUES`, so there is no
+  portable per-row escape — failing loudly is the honest option.
+
+### Known limitations
+
+- `EngineOptions.driver` (`"better-sqlite3"`) remains **documented and
+  unimplemented**: `openSqliteDriver` always uses `node:sqlite`. `driverOptions`
+  covers driver options, not swapping the driver.
+
 ## [0.6.0] — 2026-08-30
 
 Closes the five gaps left over from the previous cycle (#13–#17): the advanced

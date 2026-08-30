@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.6.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE, table constraints, explicit column names and PostgreSQL arrays**, a typed query builder (aggregations with **`HAVING`**, `DISTINCT`, upsert with **partial-index predicates**, **`FOR UPDATE SKIP LOCKED`**, **subqueries in `IN`**, SQL expressions in writes and in `where`), **real execution on all three databases — SQLite, PostgreSQL and MySQL, each tested in CI against a live server**, joins, relations, Alembic-style migrations with an **async** `tempest-db` CLI that runs on every dialect, a typed `BaseRepository`, an opt-in active-record layer, and a `session.raw` escape hatch. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.7.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE, table constraints, explicit column names and PostgreSQL arrays**, a typed query builder (aggregations with **`HAVING`**, `DISTINCT`, upsert with **partial-index predicates**, **`FOR UPDATE SKIP LOCKED`**, **subqueries in `IN`**, SQL expressions in writes and in `where`), **real execution on all three databases — SQLite, PostgreSQL and MySQL, each tested in CI against a live server**, joins, relations, Alembic-style migrations with an **async** `tempest-db` CLI that runs on every dialect, a typed `BaseRepository`, an opt-in active-record layer, and a `session.raw` escape hatch. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 
@@ -75,7 +75,7 @@ Typed extras, each with a [docs recipe](https://mauriciobenjamin700.github.io/te
 - **Aggregations** — `select(Order).aggregate(["status"], { n: count(), total: sum("amount") })` → rows typed as `{ status; n; total }`. Plus `.distinct()`.
 - **Upsert** — `insert(Row).values(...).onConflictDoUpdate(["key"], { ... })` / `.onConflictDoNothing(["key"])` (portable SQLite ↔ PostgreSQL).
 - **Active-record (opt-in)** — `activeRecord(User, session)` → `save`/`update`/`delete`/`reload` over `.data`; the plain-object default is unchanged.
-- **Query logging & errors** — `createEngine(url, { onQuery })` traces every statement; a failed statement throws `QueryExecutionError` carrying the SQL + params.
+- **Query logging & errors** — `createEngine(url, { onQuery })` traces every statement; a failed statement throws `QueryExecutionError` carrying the SQL + params. `{ onNotice }` routes PostgreSQL notices to your logger instead of the driver printing them into your stdout, and `{ driverOptions }` passes through whatever the typed surface does not model.
 - **Durable queues** — `select(Job).where(...).limit(10).forUpdate({ skipLocked: true })` inside a transaction hands each worker a disjoint batch, and `set({ attempts: sql.raw("attempts + 1") })` increments in the database instead of read-modify-write. SQLite throws rather than emitting an unlocked `SELECT`.
 - **Partial-index upsert** — `onConflictDoNothing(["consumer", "idempotencyKey"], { where: { idempotencyKey: { isNull: false } } })` repeats the index predicate PostgreSQL requires to match a **partial** unique index as a conflict target.
 - **Column names** — `.name("consumer_name")` per column, or `static naming = "snake_case"` per table: a `snake_case` schema behind a `camelCase` model, mapped everywhere including the migration IR (so no false drift).
@@ -116,7 +116,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped (v0.6.0): declarative schema with foreign keys / UNIQUE / table constraints / explicit column names / PostgreSQL arrays, real execution on **all three databases** (SQLite, PostgreSQL and MySQL, each tested in CI against a live server), row locking, SQL expressions in writes and in `where`, subqueries in `IN`, `HAVING`, partial-index upsert, `session.raw`, joins, relations, an async `tempest-db` CLI that migrates every dialect, repository, opt-in active-record. Next: `EXISTS`/scalar subqueries, MySQL `information_schema` introspection, then `tempest-ts-sdk`.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.7.0): declarative schema with foreign keys / UNIQUE / table constraints / explicit column names / PostgreSQL arrays, real execution on **all three databases** (SQLite, PostgreSQL and MySQL, each tested in CI against a live server), row locking, SQL expressions in writes and in `where`, subqueries in `IN`, `HAVING`, partial-index upsert, `session.raw`, joins, relations, an async `tempest-db` CLI that migrates every dialect, repository, opt-in active-record. Next: `EXISTS`/scalar subqueries, MySQL `information_schema` introspection, then `tempest-ts-sdk`.
 
 ## Development
 
