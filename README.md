@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.5.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE, table constraints, explicit column names and PostgreSQL arrays**, a typed query builder (aggregations, `DISTINCT`, upsert with **partial-index predicates**, **`FOR UPDATE SKIP LOCKED`**, SQL expressions in writes), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, an opt-in active-record layer, and a `session.raw` escape hatch. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.6.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE, table constraints, explicit column names and PostgreSQL arrays**, a typed query builder (aggregations with **`HAVING`**, `DISTINCT`, upsert with **partial-index predicates**, **`FOR UPDATE SKIP LOCKED`**, **subqueries in `IN`**, SQL expressions in writes and in `where`), **real execution on all three databases — SQLite, PostgreSQL and MySQL, each tested in CI against a live server**, joins, relations, Alembic-style migrations with an **async** `tempest-db` CLI that runs on every dialect, a typed `BaseRepository`, an opt-in active-record layer, and a `session.raw` escape hatch. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 
@@ -82,10 +82,14 @@ Typed extras, each with a [docs recipe](https://mauriciobenjamin700.github.io/te
 - **PostgreSQL arrays** — `column.array(column.text())` → `text[]` typed as `string[]`, with `contains` (`@>`), `containedBy` (`<@`) and `overlaps` (`&&`) in `where`.
 - **Case-insensitive lookups** — `{ ieq: probe }` → `lower(col) = lower($1)`: no wildcards, matches a `lower(col)` functional index. (`ilike` is pattern matching — `{ ilike: "%" }` matches every row.)
 - **Raw SQL escape hatch** — `session.raw(sql, params, { as: Model })` for the query the builder cannot yet express, always parameterized and integrated with logging, errors and transactions.
+- **Subqueries** — `where({ id: { in: select(Job).where(...).forUpdate({ skipLocked: true }).asSubquery("id") } })` collapses the queue claim into one statement instead of two round trips.
+- **`HAVING`** — `.aggregate(["customer"], { n: count() }).having({ n: { gt: 10 } })`, typed against the aliases and unreachable before you group.
+- **Expressions in `where`** — `col<OrderRow>("total").gt(col<OrderRow>("paid"))` and `fn.lower("email").eq(fn.lower(val(probe)))`, so a functional index is actually used.
+- **MySQL `RETURNING`** — `.returning()` on a single-row insert reads the row back by `LAST_INSERT_ID()` on the same connection, which is what makes `BaseRepository.create()` and `activeRecord.save()` work there.
 
 ## Migrations CLI
 
-Alembic-style migrations ship with a `tempest-db` binary. Point it at a config that exports your driver, dialect, migrations, and models:
+Alembic-style migrations ship with a `tempest-db` binary, running on **every dialect** — point it at a config that exports your driver (sync or async), dialect, migrations, and models:
 
 ```ts
 // tempest-db.config.mjs
@@ -112,7 +116,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped (v0.5.0): declarative schema with foreign keys / UNIQUE / table constraints / explicit column names / PostgreSQL arrays, SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, row locking, SQL expressions in writes, partial-index upsert, `session.raw`, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: subqueries in `IN`/`EXISTS` and `HAVING`, MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.6.0): declarative schema with foreign keys / UNIQUE / table constraints / explicit column names / PostgreSQL arrays, real execution on **all three databases** (SQLite, PostgreSQL and MySQL, each tested in CI against a live server), row locking, SQL expressions in writes and in `where`, subqueries in `IN`, `HAVING`, partial-index upsert, `session.raw`, joins, relations, an async `tempest-db` CLI that migrates every dialect, repository, opt-in active-record. Next: `EXISTS`/scalar subqueries, MySQL `information_schema` introspection, then `tempest-ts-sdk`.
 
 ## Development
 

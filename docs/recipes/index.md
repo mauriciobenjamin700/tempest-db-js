@@ -30,6 +30,8 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Colunas array do PostgreSQL](arrays.md) | `text[]`/`integer[]` tipados, com `@>`, `<@` e `&&`. |
 | [Comparação case-insensitive](case-insensitive.md) | `ieq` para login sem diferenciar caixa — e a armadilha do `ilike`. |
 | [SQL cru em runtime](raw-sql.md) | `session.raw` para a query que o builder ainda não expressa. |
+| [Expressões no `where`](expressions.md) | Coluna vs coluna e funções SQL, para casar índice funcional. |
+| [MySQL: o que muda](mysql.md) | `RETURNING` por read-back e o que o MySQL não faz. |
 
 ## Procurando algo maior?
 

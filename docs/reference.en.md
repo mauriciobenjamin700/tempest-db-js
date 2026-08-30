@@ -150,6 +150,9 @@ are required.
 | `.offset(n)` | Skips the first `n` rows. |
 | `.forUpdate(options?)` | `FOR UPDATE [OF ...] [SKIP LOCKED \| NOWAIT]`. PostgreSQL/MySQL; SQLite throws. |
 | `.forShare(options?)` | Same, with a shared lock (`FOR SHARE`). |
+| `.aggregate(groupBy, spec)` | Groups; the builder then accepts `.having()`. |
+| `.having(input)` | `HAVING`, by aggregate alias or grouped column. Only after `.aggregate()`. |
+| `.asSubquery(column)` | Projects one column and marks the SELECT as an `in`/`notIn` operand. |
 | `.node` | The `SelectNode` AST (read-only). |
 
 `LockOptions` = `{ skipLocked?: boolean; noWait?: boolean; of?: readonly string[] }`.
@@ -181,6 +184,42 @@ are native to PostgreSQL; the other dialects throw an explicit error.
 
 `OPERATORS` (runtime) and the `Operator` type list the full set. An operator that's
 invalid for the type = compile error.
+
+#### Expressions: `col`, `val`, `fn`
+
+To compare a column against a column, or apply a SQL function:
+
+| Symbol | Does |
+| --- | --- |
+| `col<Row>("column")` | A column reference (the **property** name, checked against `Row`). |
+| `val(x)` | A bound value — required inside `fn.*`, where a string means a column. |
+| `fn.lower/upper/trim/length/abs/coalesce` | Functions portable across all 3 dialects. |
+| `fn.call(name, ...args)` | Any function; the name is validated as an identifier and **interpolated**. |
+
+The comparison methods (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`,
+`ieq`, `in`, `notIn`, `between`, `isNull`) return a `Condition`. An operand that is
+not an expression becomes a bound parameter; `in`/`between` **refuse** an
+expression.
+
+```ts
+select(Order).where(col<OrderRow>("total").gt(col<OrderRow>("paid")));
+select(User).where(fn.lower("email").eq(fn.lower(val(probe))));
+```
+
+Details in [Expressions in `where`](recipes/expressions.md).
+
+#### Subqueries in `in` / `notIn`
+
+`in`/`notIn` take a list **or** a single-column `Subquery`:
+
+```ts
+update(Outbound).set({ status: "sending" }).where({
+  id: { in: select(Outbound).where({ status: "queued" }).asSubquery("id") },
+});
+```
+
+The subquery carries its own name map and binds its parameters at the position it
+appears. MySQL rejects `LIMIT` inside one (an explicit compile-time error).
 
 #### `and` / `or` / `not` combinators
 
@@ -250,7 +289,8 @@ Returns `DeleteBuilder<Full, false>` (`del` because `delete` is reserved).
 Exposed for tooling and dialects: `SelectNode`, `InsertNode`,
 `UpdateNode`, `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`,
 `LockClause`, `LockOptions`, `OnConflict`, `OnConflictOptions`,
-`OnConflictUpdateOptions`, `WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`.
+`OnConflictUpdateOptions`, `WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`,
+`ExprNode`, `Expression`, `Subquery`.
 
 ## Database URL
 
@@ -345,6 +385,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `engine.close()` | Closes the driver. |
 | `session.execute(builder)` | Runs and coerces; returns a `Result`. |
 | `session.raw(sql, params?, opts?)` | Raw **parameterized** statement; same `Result`. `{ as: Model }` coerces rows. |
+| `toAsyncDriver(driver)` | Adapts a sync **or** async driver to the async interface (used by the CLI). |
 | `session.stream(builder)` | Lazy iteration (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (nested transaction). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |

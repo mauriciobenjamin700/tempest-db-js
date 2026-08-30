@@ -130,35 +130,66 @@ if (issues.length > 0) {
 ## 8. CLI (programmatic)
 
 `runMigrationCli(argv, config)` dispatches Alembic-style commands and returns lines +
-an exit code (testable; a thin `bin` just wires it to `process.argv`/`process.exit`):
+an exit code (testable; a thin `bin` just wires it to `process.argv`/`process.exit`).
+It is **async**, and takes either a sync driver (SQLite) or an async one
+(PostgreSQL, MySQL):
 
 ```ts
 import { runMigrationCli } from "tempest-db-js/migrations";
 
 const config = { driver, dialect: "sqlite" as const, migrations, models: [User, Post] };
-runMigrationCli(["upgrade"], config);                       // apply pending
-runMigrationCli(["upgrade", "--sql"], config);              // print SQL (offline)
-runMigrationCli(["downgrade", "1"], config);                // revert
-runMigrationCli(["current"], config);                       // applied revisions
-runMigrationCli(["history"], config);                       // DAG
-runMigrationCli(["heads"], config);                         // tips
-runMigrationCli(["check"], config);                         // drift + diff (CI gate)
-runMigrationCli(["revision", "-m", "x", "--autogenerate"], config); // generate migration
+await runMigrationCli(["upgrade"], config);                 // apply pending
+await runMigrationCli(["upgrade", "--sql"], config);        // print SQL (offline)
+await runMigrationCli(["downgrade", "1"], config);          // revert
+await runMigrationCli(["current"], config);                 // applied revisions
+await runMigrationCli(["history"], config);                 // DAG
+await runMigrationCli(["heads"], config);                   // tips
+await runMigrationCli(["check"], config);                   // drift + diff (CI gate)
+await runMigrationCli(["revision", "-m", "x", "--autogenerate"], config);
 ```
 
 `replaySchema(migrations)` reconstructs the "current" IR without a database — it's what
 `--autogenerate` compares against the models.
 
-!!! note "PostgreSQL"
+### PostgreSQL through the CLI
 
-    `introspectPostgres`/`checkDriftPostgres` (via `information_schema`) and the **named
-    enum** (`CREATE TYPE ... AS ENUM`) exist but are not exercised in CI (no Postgres in
-    the environment). `PoolOptions` passes tuning through to `postgres.js`.
+The same config, with an async driver — nothing else changes:
+
+```ts
+// tempest-db.config.mjs
+import { defineMigrationConfig } from "tempest-db-js/migrations";
+import { createEngine } from "tempest-db-js";
+
+const engine = createEngine("postgresql://app@localhost/app");
+
+export default defineMigrationConfig({
+  driver: engine.driver,                 // (1)!
+  dialect: "postgresql",
+  migrations,
+  models: [User, Post],
+});
+```
+
+1. Any object satisfying `AsyncDriver` works.
+
+!!! info "Sync and async take the same path"
+
+    The CLI adapts the driver with `toAsyncDriver` and runs everything on
+    `AsyncMigrationRunner`. A sync and an async driver have the same shape — the
+    difference only shows up in the return value, and `await` normalizes both.
+    That is why there is no `async` flag in the config for you to get wrong.
+
+!!! warning "`check` per dialect"
+
+    `checkDriftAsync` routes: **SQLite** through `introspectSqliteAsync`,
+    **PostgreSQL** through `information_schema`, and **MySQL** returns an explicit
+    "not implemented" message — MySQL introspection does not exist yet.
 
 ## Recap
 
 - `reflectSchema(models)` → IR; `diffSchema(current, target)` → typed operations.
 - `generateMigration(...)` → editable TS file with inverted `up()`/`down()`.
-- `MigrationRunner.upgrade/downgrade` really applies/reverts, with a version table.
+- `MigrationRunner.upgrade/downgrade` really applies/reverts, with a version table;
+  the CLI uses `AsyncMigrationRunner` and runs on all three databases.
 - **DAG** graph (`topoOrder`/`heads`) supports branch/merge.
 - **SQL only in the dialect renderer** — never a loose `.sql` file.

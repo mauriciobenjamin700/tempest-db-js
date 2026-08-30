@@ -190,7 +190,7 @@ export async function main(argv: readonly string[]): Promise<void> {
     appliedAt: config.appliedAt ?? new Date().toISOString(),
   };
   const renameFlags = await promptRenames(withClock, rest);
-  const result = runMigrationCli([...rest, ...renameFlags], withClock);
+  const result = await runMigrationCli([...rest, ...renameFlags], withClock);
   const sink = result.code === 0 ? process.stdout : process.stderr;
   for (const line of result.lines) sink.write(`${line}\n`);
   process.exitCode = result.code;

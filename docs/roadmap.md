@@ -1,7 +1,7 @@
 # Roadmap
 
 O tempest-db-js é construído em fases, cada uma entregando uma fatia testável.
-**As Fases 0–10 estão concluídas** e publicadas na `v0.5.0`. O que resta são os
+**As Fases 0–11 estão concluídas** e publicadas na `v0.6.0`. O que resta são os
 follow-ups dos bancos, o pacote `tempest-ts-sdk` e o caminho até a `v1.0`.
 
 | Fase | Tema | Status |
@@ -17,6 +17,7 @@ follow-ups dos bancos, o pacote `tempest-ts-sdk` e o caminho até a `v1.0`.
 | 8 | Migração async (fecha PostgreSQL) | ✅ `AsyncMigrationRunner` |
 | 9 | Dialeto MySQL | ✅ `MysqlDialect` + DDL + driver `mysql2` |
 | 10 | Buracos do primeiro consumidor real | ✅ Lock de linha, expressões no `set`, `session.raw`, naming, arrays, `ieq` |
+| 11 | Query API avançada + MySQL e CLI | ✅ Subquery em `IN`, `HAVING`, `col`/`fn`, `RETURNING` no MySQL, CLI async |
 
 ## Bancos suportados — foco em 3
 
@@ -27,9 +28,9 @@ nenhum outro por enquanto. Os três têm dialeto, execução e migração.
 | --- | --- |
 | **SQLite** | ✅ Completo e testado (`node:sqlite`). |
 | **PostgreSQL** | ✅ Execução real, transações (conexão reservada), `SERIAL`, enum nomeado, introspecção/drift — testados contra um Postgres real no CI. Migração **sync e async** (`AsyncMigrationRunner`). |
-| **MySQL** | 🟢 Dialeto completo (crases, `ON DUPLICATE KEY UPDATE`, `AUTO_INCREMENT`, `MODIFY COLUMN`), driver `mysql2` (lazy). Compilação testada. Falta: execução no CI e `RETURNING` via `LAST_INSERT_ID`. |
+| **MySQL** | ✅ Execução real testada no CI (MySQL 8), `RETURNING` por read-back (`LAST_INSERT_ID`), lock de linha, upsert. Falta: introspecção via `information_schema` (então `check` não detecta drift lá). |
 
-## O que já roda (v0.5.0)
+## O que já roda (v0.6.0)
 
 Modelos declarativos + inferência (com **nome de coluna explícito** e naming
 strategy), query builder tipado (**agregações**, **`DISTINCT`**, **upsert**
@@ -39,35 +40,33 @@ PostgreSQL** com `@>`/`<@`/`&&`, joins compostos com operadores tipados no `wher
 relations sem N+1, execução real SQLite+PostgreSQL, dialeto MySQL, migrações
 **sync + async** com CLI `tempest-db` (rename interativo, drift, `--sql`),
 `BaseRepository` + paginação, **active-record opt-in**, escape hatch
-**`session.raw`**, e DX (`QueryExecutionError` + `onQuery`). Ver
+**`session.raw`**, **subquery em `IN`**, **`HAVING`**, **expressões no `where`**
+(`col`/`fn`), e DX (`QueryExecutionError` + `onQuery`). Ver
 [Receitas](recipes/index.md) e [Exemplos](examples/index.md).
 
 ## Próximos passos
 
 ### Follow-ups dos bancos (curto prazo)
 
-- **MySQL no CI** — subir um serviço MySQL no workflow e rodar os testes de
-  execução (hoje só a compilação é testada; execução é gated como era o PG).
-- **`RETURNING` no MySQL** — round-trip via `LAST_INSERT_ID()` + `SELECT`, para
-  `repository.create` e `activeRecord.save` funcionarem no MySQL (o dialeto hoje
-  lança em `.returning()`).
-- **CLI async** — plugar o `tempest-db` no `AsyncMigrationRunner` para rodar
-  migração pelo CLI contra Postgres/MySQL, não só SQLite.
+- **Introspecção MySQL** — ler o schema via `information_schema`, para o
+  `tempest-db check` detectar drift no MySQL (hoje devolve "não implementado").
+- **Subquery `EXISTS` e escalar** — `IN`/`NOT IN` já aceitam subquery; falta o
+  resto.
+- **Tipagem de operando em `col()`/`fn.*`** — hoje o **nome** da coluna é checado,
+  o tipo do operando não.
 
-### Fase 11 — `tempest-ts-sdk` (repo próprio)
+### Fase 12 — `tempest-ts-sdk` (repo próprio)
 
 Pacote separado (flat-layout) consumindo o tempest-db-js, espelhando o
 `tempest-fastapi-sdk`: `BaseRepository` estendido, settings via env, hierarquia
 `AppException`, integração HTTP.
 
-### Fase 12 — Query API avançada
+### Fase 13 — Query API: o que ainda falta
 
-Prioridade 1: **subquery em `WHERE ... IN (...)`** — a única peça do padrão de fila
-ainda escrita em duas roundtrips. Depois: `HAVING` nas agregações, subqueries
-`EXISTS`/escalar, prepared-query API explícita, unit-of-work/identity-map opcional
-pro active-record.
+Subquery `EXISTS` e escalar, prepared-query API explícita, unit-of-work/identity-map
+opcional pro active-record.
 
-### Fase 13 — Rumo a `v1.0`
+### Fase 14 — Rumo a `v1.0`
 
 Congelar a API pública, cobertura de testes, docs completas, critérios de saída
 do alpha.

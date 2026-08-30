@@ -86,6 +86,45 @@ async function claimBatch(size: number): Promise<string[]> {
 2. O incremento acontece **no banco**. Nenhum valor de `attempts` viaja até o
    Node e volta, então não há janela para outra transação sobrescrever.
 
+### Numa query só
+
+Com [subquery](#) no `IN`, o `SELECT` e o `UPDATE` colapsam num único statement —
+uma roundtrip em vez de duas, e sem materializar os ids no Node:
+
+```ts
+const claimed = await session
+  .execute(
+    update(Outbound)
+      .set({
+        status: "sending",
+        attempts: sql.raw("attempts + 1"),
+        updatedAt: sql.now(),
+      })
+      .where({
+        id: {
+          in: select(Outbound)
+            .where({ status: "queued" })
+            .orderBy("nextAttemptAt")
+            .limit(10)
+            .forUpdate({ skipLocked: true })
+            .asSubquery("id"),          // (1)!
+        },
+      })
+      .returning(),
+  )
+  .all();
+```
+
+1. `.asSubquery(coluna)` projeta uma coluna só e marca o `SELECT` como operando de
+   `in`/`notIn`. O lock, o `ORDER BY` e o `LIMIT` viajam junto, dentro do
+   statement externo.
+
+!!! warning "No MySQL, a subquery não pode ter `LIMIT`"
+
+    O servidor recusa `LIMIT` dentro de `IN (SELECT ...)`. O dialeto lança erro na
+    compilação apontando a saída — lá, use a versão de duas etapas acima. Veja
+    [MySQL: o que muda](mysql.md).
+
 !!! danger "O lock precisa de uma transação"
 
     `FOR UPDATE` só vale enquanto a transação estiver aberta. Fora de uma
@@ -226,5 +265,7 @@ async function drain(): Promise<void> {
   que é o que faz o Postgres aceitá-lo como conflict target.
 - `sql.raw()` / `` sql.expr`` `` / `sql.now()` no `set` mantêm o incremento no
   banco, sem read-modify-write.
-- Objeto não marcado no `set`/`values` agora é `ValidationError`, não corrupção
+- Objeto não marcado no `set`/`values` é `ValidationError`, não corrupção
   silenciosa.
+- `.asSubquery(coluna)` no `in` fecha a reivindicação numa query só (menos no
+  MySQL, que recusa `LIMIT` em subquery).

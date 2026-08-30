@@ -150,6 +150,9 @@ Tipo da **linha a inserir**. Colunas com default (ou PK) são opcionais (`?`); o
 | `.offset(n)` | Pula as primeiras `n` linhas. |
 | `.forUpdate(options?)` | `FOR UPDATE [OF ...] [SKIP LOCKED \| NOWAIT]`. PostgreSQL/MySQL; SQLite lança. |
 | `.forShare(options?)` | Idem, com lock compartilhado (`FOR SHARE`). |
+| `.aggregate(groupBy, spec)` | Agrupa; o builder passa a aceitar `.having()`. |
+| `.having(input)` | `HAVING`, por alias de agregação ou coluna agrupada. Só depois de `.aggregate()`. |
+| `.asSubquery(coluna)` | Projeta uma coluna e marca o SELECT como operando de `in`/`notIn`. |
 | `.node` | A AST `SelectNode` (read-only). |
 
 `LockOptions` = `{ skipLocked?: boolean; noWait?: boolean; of?: readonly string[] }`.
@@ -181,6 +184,41 @@ Os operadores de array (`contains` → `@>`, `containedBy` → `<@`, `overlaps` 
 
 `OPERATORS` (runtime) e o tipo `Operator` listam o conjunto completo. Operador
 inválido pro tipo = erro de compilação.
+
+#### Expressões: `col`, `val`, `fn`
+
+Para comparar coluna com coluna, ou aplicar função SQL:
+
+| Símbolo | Faz |
+| --- | --- |
+| `col<Row>("coluna")` | Referência de coluna (nome de **propriedade**, checado contra `Row`). |
+| `val(x)` | Valor ligado — necessário dentro de `fn.*`, onde string significa coluna. |
+| `fn.lower/upper/trim/length/abs/coalesce` | Funções portáveis nos 3 dialetos. |
+| `fn.call(nome, ...args)` | Qualquer função; o nome é validado como identificador e **interpolado**. |
+
+Os métodos de comparação (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`,
+`ieq`, `in`, `notIn`, `between`, `isNull`) devolvem uma `Condition`. Operando que
+não é expressão vira parâmetro ligado; `in`/`between` **recusam** expressão.
+
+```ts
+select(Order).where(col<OrderRow>("total").gt(col<OrderRow>("paid")));
+select(User).where(fn.lower("email").eq(fn.lower(val(probe))));
+```
+
+Detalhes em [Expressões no `where`](recipes/expressions.md).
+
+#### Subquery em `in` / `notIn`
+
+`in`/`notIn` aceitam uma lista **ou** um `Subquery` de uma coluna:
+
+```ts
+update(Outbound).set({ status: "sending" }).where({
+  id: { in: select(Outbound).where({ status: "queued" }).asSubquery("id") },
+});
+```
+
+A subquery carrega o próprio mapa de nomes e binda seus parâmetros na posição em
+que aparece. O MySQL recusa `LIMIT` dentro dela (erro explícito na compilação).
 
 #### Combinadores `and` / `or` / `not`
 
@@ -250,7 +288,8 @@ Retorna `DeleteBuilder<Full, false>` (`del` porque `delete` é reservado).
 Expostos pra ferramentas e dialetos: `SelectNode`, `InsertNode`, `UpdateNode`,
 `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`, `LockClause`,
 `LockOptions`, `OnConflict`, `OnConflictOptions`, `OnConflictUpdateOptions`,
-`WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`.
+`WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`, `ExprNode`, `Expression`,
+`Subquery`.
 
 ## URL do banco
 
@@ -345,6 +384,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `engine.close()` | Fecha o driver. |
 | `session.execute(builder)` | Roda e coage; retorna um `Result`. |
 | `session.raw(sql, params?, opts?)` | Statement cru **parametrizado**; mesmo `Result`. `{ as: Model }` coage as linhas. |
+| `toAsyncDriver(driver)` | Adapta driver sync **ou** async à interface async (usado pelo CLI). |
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (transação aninhada). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |

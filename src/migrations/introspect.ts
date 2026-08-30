@@ -11,6 +11,7 @@
 import type { AsyncDriver, SyncDriver } from "../engine.js";
 import type { ColumnType } from "../index.js";
 import type { ModelClass } from "../index.js";
+import type { Dialect } from "../url.js";
 import { renderColumnType } from "./ddl.js";
 import {
   type ColumnIR,
@@ -84,24 +85,7 @@ interface PragmaIndexColumn {
 function sqliteForeignKeys(driver: SyncDriver, table: string): ForeignKeyIR[] {
   const rows = driver.execute(`PRAGMA foreign_key_list(${JSON.stringify(table)})`, [])
     .rows as unknown as PragmaForeignKey[];
-  const byId = new Map<number, PragmaForeignKey[]>();
-  for (const r of rows) {
-    const list = byId.get(r.id) ?? [];
-    list.push(r);
-    byId.set(r.id, list);
-  }
-  const fks: ForeignKeyIR[] = [];
-  for (const group of byId.values()) {
-    const ordered = [...group].sort((a, b) => a.seq - b.seq);
-    const columns = ordered.map((r) => r.from);
-    fks.push({
-      name: `fk_${table}_${columns.join("_")}`,
-      columns,
-      refTable: ordered[0]?.table ?? "",
-      refColumns: ordered.map((r) => r.to),
-    });
-  }
-  return fks;
+  return sqliteForeignKeysFromPragma(table, rows);
 }
 
 /** Read a table's unique constraints via `PRAGMA index_list`/`index_info`. */
@@ -110,17 +94,11 @@ function sqliteUniques(driver: SyncDriver, table: string): UniqueConstraintIR[] 
     .rows as unknown as PragmaIndex[];
   const uniques: UniqueConstraintIR[] = [];
   for (const idx of indexes) {
-    // origin "u" = a UNIQUE constraint; "pk" = the implicit primary-key index.
-    if (Number(idx.unique) !== 1 || idx.origin === "pk") continue;
-    const cols = (
-      driver.execute(`PRAGMA index_info(${JSON.stringify(idx.name)})`, [])
-        .rows as unknown as PragmaIndexColumn[]
-    )
-      .sort((a, b) => a.seqno - b.seqno)
-      .map((c) => c.name);
-    if (cols.length > 0) {
-      uniques.push({ name: `uq_${table}_${cols.join("_")}`, columns: cols });
-    }
+    if (!isUniqueIndex(idx)) continue;
+    const cols = driver.execute(`PRAGMA index_info(${JSON.stringify(idx.name)})`, [])
+      .rows as unknown as PragmaIndexColumn[];
+    const unique = sqliteUniqueFromPragma(table, cols);
+    if (unique) uniques.push(unique);
   }
   return uniques;
 }
@@ -133,32 +111,13 @@ function sqliteUniques(driver: SyncDriver, table: string): UniqueConstraintIR[] 
  * @returns The introspected schema.
  */
 export function introspectSqlite(driver: SyncDriver): SchemaIR {
-  const tablesRows = driver.execute(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'tempest_db_js_migrations'",
-    [],
-  ).rows;
-
+  const tablesRows = driver.execute(SQLITE_TABLES_SQL, []).rows;
   const tables: Record<string, TableIR> = {};
   for (const row of tablesRows) {
     const tableName = String(row.name);
     const info = driver.execute(`PRAGMA table_info(${JSON.stringify(tableName)})`, [])
       .rows as unknown as PragmaColumn[];
-    const columns: Record<string, ColumnIR> = {};
-    const primaryKey: string[] = [];
-    for (const col of info) {
-      const isPk = Number(col.pk) > 0;
-      const affinity = sqliteAffinity(col.type);
-      columns[col.name] = {
-        name: col.name,
-        type: { kind: affinityToKind(affinity), meta: {} },
-        notNull: Number(col.notnull) === 1 || isPk,
-        primaryKey: isPk,
-        default: null,
-        unique: false,
-        references: null,
-      };
-      if (isPk) primaryKey.push(col.name);
-    }
+    const { columns, primaryKey } = sqliteColumnsFromPragma(info);
     tables[tableName] = {
       name: tableName,
       columns,
@@ -203,8 +162,21 @@ function constraintKeys(table: TableIR): { fks: Set<string>; uniques: Set<string
 }
 
 export function checkDrift(driver: SyncDriver, models: readonly ModelClass[]): string[] {
-  const actual = introspectSqlite(driver);
-  const expected = reflectSchema(models);
+  return compareSqliteSchemas(introspectSqlite(driver), reflectSchema(models));
+}
+
+/**
+ * Compare an introspected SQLite schema against the reflected models.
+ *
+ * Split out from {@link checkDrift} so the sync and async drivers share one
+ * comparison — a second copy would drift from this one the first time a rule
+ * changes.
+ *
+ * @param actual The schema read from the database.
+ * @param expected The schema reflected from the models.
+ * @returns A list of human-readable drift messages — empty means no drift.
+ */
+export function compareSqliteSchemas(actual: SchemaIR, expected: SchemaIR): string[] {
   const issues: string[] = [];
 
   for (const [tableName, expectedTable] of Object.entries(expected.tables)) {
@@ -278,6 +250,147 @@ export function checkDrift(driver: SyncDriver, models: readonly ModelClass[]): s
   }
 
   return issues;
+}
+
+/** Build a table's column map + primary key from `PRAGMA table_info` rows. */
+function sqliteColumnsFromPragma(info: readonly PragmaColumn[]): {
+  columns: Record<string, ColumnIR>;
+  primaryKey: string[];
+} {
+  const columns: Record<string, ColumnIR> = {};
+  const primaryKey: string[] = [];
+  for (const col of info) {
+    const isPk = Number(col.pk) > 0;
+    columns[col.name] = {
+      name: col.name,
+      type: { kind: affinityToKind(sqliteAffinity(col.type)), meta: {} },
+      notNull: Number(col.notnull) === 1 || isPk,
+      primaryKey: isPk,
+      default: null,
+      unique: false,
+      references: null,
+    };
+    if (isPk) primaryKey.push(col.name);
+  }
+  return { columns, primaryKey };
+}
+
+/** Assemble foreign keys from `PRAGMA foreign_key_list` rows. */
+function sqliteForeignKeysFromPragma(
+  table: string,
+  rows: readonly PragmaForeignKey[],
+): ForeignKeyIR[] {
+  const byId = new Map<number, PragmaForeignKey[]>();
+  for (const row of rows) {
+    const group = byId.get(row.id) ?? [];
+    group.push(row);
+    byId.set(row.id, group);
+  }
+  const fks: ForeignKeyIR[] = [];
+  for (const group of byId.values()) {
+    const ordered = [...group].sort((a, b) => a.seq - b.seq);
+    fks.push({
+      name: `fk_${table}_${ordered.map((r) => r.from).join("_")}`,
+      columns: ordered.map((r) => r.from),
+      refTable: ordered[0]?.table ?? "",
+      refColumns: ordered.map((r) => r.to),
+    });
+  }
+  return fks;
+}
+
+/** Assemble one unique constraint from `PRAGMA index_info` rows. */
+function sqliteUniqueFromPragma(
+  table: string,
+  rows: readonly PragmaIndexColumn[],
+): UniqueConstraintIR | null {
+  const cols = [...rows].sort((a, b) => a.seqno - b.seqno).map((c) => c.name);
+  if (cols.length === 0) return null;
+  return { name: `uq_${table}_${cols.join("_")}`, columns: cols };
+}
+
+/** True when a `PRAGMA index_list` row describes a real UNIQUE constraint. */
+function isUniqueIndex(idx: PragmaIndex): boolean {
+  return Number(idx.unique) === 1 && idx.origin !== "pk";
+}
+
+/** The `sqlite_master` query listing user tables (excluding the version table). */
+const SQLITE_TABLES_SQL =
+  "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'tempest_db_js_migrations'";
+
+/**
+ * Read the current SQLite schema into a `SchemaIR` over an **async** driver.
+ *
+ * The sequencing differs from {@link introspectSqlite} — each `PRAGMA` depends on
+ * the previous result, so it cannot be one awaited batch — but every row → IR
+ * mapping is the shared code above.
+ *
+ * @param driver An async SQLite driver.
+ * @returns The introspected schema.
+ */
+export async function introspectSqliteAsync(driver: AsyncDriver): Promise<SchemaIR> {
+  const tablesRows = (await driver.execute(SQLITE_TABLES_SQL, [])).rows;
+  const tables: Record<string, TableIR> = {};
+  for (const row of tablesRows) {
+    const tableName = String(row.name);
+    const info = (
+      await driver.execute(`PRAGMA table_info(${JSON.stringify(tableName)})`, [])
+    ).rows as unknown as PragmaColumn[];
+    const { columns, primaryKey } = sqliteColumnsFromPragma(info);
+
+    const fkRows = (
+      await driver.execute(`PRAGMA foreign_key_list(${JSON.stringify(tableName)})`, [])
+    ).rows as unknown as PragmaForeignKey[];
+
+    const indexes = (
+      await driver.execute(`PRAGMA index_list(${JSON.stringify(tableName)})`, [])
+    ).rows as unknown as PragmaIndex[];
+    const uniqueConstraints: UniqueConstraintIR[] = [];
+    for (const idx of indexes) {
+      if (!isUniqueIndex(idx)) continue;
+      const cols = (
+        await driver.execute(`PRAGMA index_info(${JSON.stringify(idx.name)})`, [])
+      ).rows as unknown as PragmaIndexColumn[];
+      const unique = sqliteUniqueFromPragma(tableName, cols);
+      if (unique) uniqueConstraints.push(unique);
+    }
+
+    tables[tableName] = {
+      name: tableName,
+      columns,
+      primaryKey,
+      uniqueConstraints,
+      foreignKeys: sqliteForeignKeysFromPragma(tableName, fkRows),
+    };
+  }
+  return { tables };
+}
+
+/**
+ * Drift check over an **async** driver, routed by dialect. This is what
+ * `tempest-db check` runs, so the CLI reaches the same comparison for every
+ * supported database instead of only SQLite.
+ *
+ * @param driver An async driver for the live database.
+ * @param dialect The dialect the driver speaks.
+ * @param models The model classes that define the intended schema.
+ * @returns A list of drift messages — empty means no drift.
+ */
+export async function checkDriftAsync(
+  driver: AsyncDriver,
+  dialect: Dialect,
+  models: readonly ModelClass[],
+): Promise<string[]> {
+  if (dialect === "postgresql") return checkDriftPostgres(driver, models);
+  if (dialect === "sqlite") {
+    return compareSqliteSchemas(
+      await introspectSqliteAsync(driver),
+      reflectSchema(models),
+    );
+  }
+  return [
+    "drift checking is not implemented for MySQL — its information_schema introspection is still missing",
+  ];
 }
 
 /**

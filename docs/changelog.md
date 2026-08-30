@@ -3,6 +3,79 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.6.0] — 2026-08-30
+
+Fecha as cinco lacunas que sobraram do ciclo anterior (#13–#17): a query API
+avançada, o MySQL de verdade e o CLI de migração fora do SQLite.
+
+### ⚠️ Breaking
+
+- **`runMigrationCli` agora é `async`** e devolve `Promise<CliResult>`.
+  `CliConfig.driver` aceita `SyncDriver | AsyncDriver`. Quem chama a função
+  direto precisa de `await`; o binário `tempest-db` já foi ajustado.
+
+  ```diff
+  - const result = runMigrationCli(["upgrade"], config);
+  + const result = await runMigrationCli(["upgrade"], config);
+  ```
+
+- **`SelectBuilder` ganhou um terceiro parâmetro de tipo** (`Grouped`, default
+  `false`), que é o que torna `.having()` inalcançável antes de `.aggregate()`.
+  Uma anotação `SelectBuilder<Row, Proj>` passa a significar "não agrupado"; para
+  aceitar os dois, escreva `SelectBuilder<Row, Proj, boolean>`.
+
+### Adicionado
+
+- **Subquery em `IN`/`NOT IN`** — `.asSubquery(coluna)` projeta uma coluna e marca
+  o `SELECT` como operando, então a reivindicação de lote da fila cabe numa query
+  só (`UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED LIMIT n)`). A
+  subquery carrega o próprio mapa de nomes e binda seus parâmetros na posição em
+  que aparece. MySQL recusa `LIMIT` em subquery — erro explícito na compilação.
+- **`HAVING`** — `.having(input)` depois de `.aggregate()`, com as chaves tipadas
+  contra os aliases + colunas agrupadas. O compilador reemite a **expressão**
+  (`COUNT(*) > $1`) porque o PostgreSQL não aceita alias no `HAVING`; `.orderBy()`
+  passa a aceitar alias de agregação, que todo dialeto aceita.
+- **Expressões no `where`** — `col<Row>("coluna")`, `val(x)` e `fn.*`
+  (`lower`/`upper`/`trim`/`length`/`abs`/`coalesce` portáveis, `fn.call` para o
+  resto) tornam expressáveis a comparação **coluna vs coluna** e o índice
+  funcional. Referência de coluna passa pelo mapa de nomes e pela qualificação de
+  join; operando que não é expressão continua sendo ligado como parâmetro.
+- **`RETURNING` no MySQL** — `.returning()` funciona num insert de **uma** linha:
+  a sessão insere e lê a linha de volta por `LAST_INSERT_ID()` (ou pela PK
+  fornecida) na **mesma conexão**, reservando-a fora de transação. É o que faz
+  `BaseRepository.create()` e `activeRecord.save()` funcionarem no MySQL. Insert
+  de N linhas com `.returning()` lança, porque `LAST_INSERT_ID()` só identifica a
+  primeira.
+- **CLI de migração async** — `runMigrationCli` roda sobre o
+  `AsyncMigrationRunner` para todo dialeto, adaptando o driver com
+  `toAsyncDriver`. `check` roteia por dialeto via `checkDriftAsync`
+  (`introspectSqliteAsync` novo; PostgreSQL pelo `information_schema`; MySQL
+  devolve mensagem explícita de não implementado). **Migração pelo CLI no
+  PostgreSQL destravada.**
+- **CI** — job `mysql` com serviço MySQL 8 real; o job `postgres` passa a rodar
+  também o teste ponta-a-ponta do CLI. `mysql2` declarada como peer dependency
+  opcional (o código já a importava dinamicamente, sem declarar).
+- **Docs** — receitas bilíngues novas "Expressões no `where`" e "MySQL: o que
+  muda"; "Fila durável" ganhou a versão numa query só; "Agregações" ganhou
+  `HAVING`; "Migrações" ganhou o fluxo async/PostgreSQL.
+
+### Corrigido
+
+- **`introspectSqlite` e a comparação de drift** foram fatoradas para que os
+  caminhos sync e async compartilhem uma implementação só — uma segunda cópia
+  divergiria da primeira na próxima mudança de regra.
+- **`Expression` dentro de `in`/`between`** era serializada como parâmetro em vez
+  de virar SQL; agora levanta erro na montagem, mesmo princípio do guard de
+  `set()`.
+
+### Limitações conhecidas
+
+- Subquery só em `IN`/`NOT IN`; `EXISTS` e subquery escalar continuam fora.
+- Introspecção MySQL (`information_schema`) não existe, então `check` não detecta
+  drift lá.
+- `col()`/`fn.*` checam o **nome** da coluna, não o tipo do operando — comparar
+  uma coluna de texto com uma numérica compila.
+
 ## [0.5.0] — 2026-08-30
 
 Ciclo focado nos buracos que a primeira migração real de um serviço (`zap-api`,

@@ -78,6 +78,8 @@ export interface SelectNode {
   /** `GROUP BY` columns. */
   readonly groupBy: readonly string[];
   readonly where: CondNode | undefined;
+  /** `HAVING` condition, keyed by aggregate alias or grouped column. */
+  readonly having?: CondNode | undefined;
   readonly orderBy: readonly OrderTerm[];
   readonly limit: number | undefined;
   readonly offset: number | undefined;
@@ -91,16 +93,42 @@ export interface SelectNode {
 // where input typing (Phase 3 — operators typed per column type)
 // --------------------------------------------------------------------------
 
+/**
+ * A SELECT projecting exactly one column of type `T`, usable as the operand of
+ * `in` / `notIn`.
+ *
+ * Build it with {@link SelectBuilder.asSubquery}, which both narrows the
+ * projection to one column and gives the operand its element type.
+ */
+export interface Subquery<T> {
+  /** Phantom: the element type the subquery yields, read only by the type system. */
+  readonly __element?: T;
+  /** The AST the outer statement embeds. */
+  readonly node: SelectNode;
+}
+
+/** Runtime guard: is this `in`/`notIn` operand a subquery rather than a list? */
+export function isSubquery(value: unknown): value is Subquery<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { node?: { kind?: unknown } }).node?.kind === "select"
+  );
+}
+
 /** Operators valid on every column type. */
 interface BaseOperators<T> {
   /** Equal to. */
   eq?: T;
   /** Not equal to. */
   ne?: T;
-  /** One of the given values (`IN`). */
-  in?: readonly T[];
-  /** None of the given values (`NOT IN`). */
-  notIn?: readonly T[];
+  /**
+   * One of the given values (`IN`) — a list, or a single-column
+   * {@link Subquery} built with `.asSubquery(column)`.
+   */
+  in?: readonly T[] | Subquery<T>;
+  /** None of the given values (`NOT IN`), as a list or a {@link Subquery}. */
+  notIn?: readonly T[] | Subquery<T>;
   /** `IS NULL` (true) / `IS NOT NULL` (false). */
   isNull?: boolean;
 }
@@ -254,9 +282,11 @@ type SimplifyProj<T> = { [K in keyof T]: T[K] } & {};
  * @typeParam Full - the complete row type (constrains where/orderBy keys).
  * @typeParam Proj - the projected result type returned on execution.
  */
-export class SelectBuilder<Full, Proj = Full> {
+export class SelectBuilder<Full, Proj = Full, Grouped extends boolean = false> {
   /** Phantom: the result element type, read only by the type system. */
   declare readonly __row: Proj;
+  /** Phantom: `true` once `aggregate()` has made `having()` meaningful. */
+  declare readonly __grouped: Grouped;
 
   constructor(
     readonly node: SelectNode,
@@ -264,17 +294,50 @@ export class SelectBuilder<Full, Proj = Full> {
     readonly source: ModelClass,
   ) {}
 
-  private with(patch: Partial<SelectNode>): SelectBuilder<Full, Proj> {
-    return new SelectBuilder<Full, Proj>({ ...this.node, ...patch }, this.source);
+  private with(patch: Partial<SelectNode>): SelectBuilder<Full, Proj, Grouped> {
+    return new SelectBuilder<Full, Proj, Grouped>(
+      { ...this.node, ...patch },
+      this.source,
+    );
   }
 
   /** Add a WHERE filter: the object form (keys typed) or an `and`/`or`/`not`. */
-  where(input: WhereInput<Full> | Condition): SelectBuilder<Full, Proj> {
+  where(input: WhereInput<Full> | Condition): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ where: toCondNode(input as Record<string, unknown>) });
   }
 
+  /**
+   * Filter by the result of the aggregation (`HAVING`).
+   *
+   * Only available on a grouped builder — `.having()` before `.aggregate()` is a
+   * compile error, not invalid SQL at runtime. Keys are the aggregate aliases you
+   * named plus the grouped columns; `WHERE` still filters rows *before* grouping,
+   * which is a different question.
+   *
+   * @param input The condition, keyed by alias or grouped column.
+   * @returns A builder carrying the `HAVING` clause.
+   *
+   * @example
+   * ```ts
+   * select(Outbound)
+   *   .where({ status: "queued" })
+   *   .aggregate(["consumer"], { n: count() })
+   *   .having({ n: { gt: 100 } });
+   * // ... GROUP BY "consumer" HAVING COUNT(*) > $2
+   * ```
+   */
+  having(
+    this: SelectBuilder<Full, Proj, true>,
+    input: WhereInput<Proj> | Condition,
+  ): SelectBuilder<Full, Proj, true> {
+    return new SelectBuilder<Full, Proj, true>(
+      { ...this.node, having: toCondNode(input as Record<string, unknown>) },
+      this.source,
+    );
+  }
+
   /** Emit `SELECT DISTINCT` — drop duplicate rows. */
-  distinct(): SelectBuilder<Full, Proj> {
+  distinct(): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ distinct: true });
   }
 
@@ -299,7 +362,8 @@ export class SelectBuilder<Full, Proj = Full> {
     spec: S,
   ): SelectBuilder<
     Full,
-    SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>
+    SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>,
+    true
   > {
     const aggregates: AggregateTerm[] = Object.entries(spec).map(([alias, agg]) => ({
       fn: agg.fn,
@@ -311,28 +375,69 @@ export class SelectBuilder<Full, Proj = Full> {
       this.source,
     ) as unknown as SelectBuilder<
       Full,
-      SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>
+      SimplifyProj<Pick<Full, K> & { [A in keyof S]: AggResult<S[A]> }>,
+      true
     >;
   }
 
-  /** Order by a column of `Full`. */
+  /**
+   * Order by a column of the model, or — on a grouped query — by an aggregate
+   * alias. Unlike `HAVING`, every dialect accepts the output alias in `ORDER BY`,
+   * so the alias is emitted as written.
+   *
+   * @param column A model column, or a projected alias.
+   * @param direction `"asc"` (default) or `"desc"`.
+   * @returns A builder carrying the ordering term.
+   */
   orderBy(
-    column: keyof Full & string,
+    column: (keyof Full & string) | (keyof Proj & string),
     direction: SortDirection = "asc",
-  ): SelectBuilder<Full, Proj> {
+  ): SelectBuilder<Full, Proj, Grouped> {
     return this.with({
       orderBy: [...this.node.orderBy, { column, direction }],
     });
   }
 
   /** Limit the number of rows. */
-  limit(n: number): SelectBuilder<Full, Proj> {
+  limit(n: number): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ limit: n });
   }
 
   /** Skip the first `n` rows. */
-  offset(n: number): SelectBuilder<Full, Proj> {
+  offset(n: number): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ offset: n });
+  }
+
+  /**
+   * Narrow this SELECT to a single column and mark it as a subquery, so it can be
+   * the operand of `in` / `notIn`.
+   *
+   * The whole query — `where`, `orderBy`, `limit`, and a locking clause — is
+   * embedded in the outer statement, which is what collapses the claim-a-batch
+   * pattern into one round trip instead of selecting ids and sending them back.
+   *
+   * @param column The single column to project (checked against the model).
+   * @returns A subquery carrying that column's type.
+   *
+   * @example
+   * ```ts
+   * update(Outbound)
+   *   .set({ status: "sending", attempts: sql.raw("attempts + 1") })
+   *   .where({
+   *     id: {
+   *       in: select(Outbound)
+   *         .where({ status: "queued" })
+   *         .orderBy("nextAttemptAt")
+   *         .limit(10)
+   *         .forUpdate({ skipLocked: true })
+   *         .asSubquery("id"),
+   *     },
+   *   })
+   *   .returning();
+   * ```
+   */
+  asSubquery<K extends keyof Full & string>(column: K): Subquery<Full[K]> {
+    return { node: { ...this.node, columns: [column] } } as Subquery<Full[K]>;
   }
 
   /**
@@ -363,7 +468,7 @@ export class SelectBuilder<Full, Proj = Full> {
    * ).all();
    * ```
    */
-  forUpdate(options?: LockOptions): SelectBuilder<Full, Proj> {
+  forUpdate(options?: LockOptions): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ lock: buildLock("update", options) });
   }
 
@@ -375,7 +480,7 @@ export class SelectBuilder<Full, Proj = Full> {
    * @returns A builder carrying the locking clause.
    * @throws Error When both `skipLocked` and `noWait` are set.
    */
-  forShare(options?: LockOptions): SelectBuilder<Full, Proj> {
+  forShare(options?: LockOptions): SelectBuilder<Full, Proj, Grouped> {
     return this.with({ lock: buildLock("share", options) });
   }
 }

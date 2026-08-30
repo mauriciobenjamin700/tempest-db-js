@@ -78,6 +78,49 @@ select(Order)
     `min`/`max` retornam `number | null`. Para colunas não-numéricas (texto,
     datas), o valor volta cru do driver — trate o tipo você mesmo.
 
+## HAVING — filtrar pelo resultado da agregação
+
+`where` filtra **linhas**, antes do agrupamento. Para filtrar **grupos**, pelo que
+a agregação produziu, use `.having()`:
+
+```ts
+const heavy = session
+  .execute(
+    select(Order)
+      .where({ status: "open" })          // (1)!
+      .aggregate(["customer"], { n: count(), total: sum("amount") })
+      .having({ n: { gt: 10 } }),         // (2)!
+  )
+  .all();
+// SELECT "customer", COUNT(*) AS "n", SUM("amount") AS "total" FROM "orders"
+//  WHERE "status" = $1 GROUP BY "customer" HAVING COUNT(*) > $2
+```
+
+1. Filtra as linhas que entram no agrupamento.
+2. Filtra os grupos que saem dele. As chaves são os aliases que você nomeou, mais
+   as colunas do `groupBy`.
+
+!!! check "`.having()` sem `.aggregate()` é erro de compilação"
+
+    O builder só ganha o método depois de agrupar, então a ordem errada falha no
+    type-check em vez de virar SQL inválido em runtime.
+
+!!! info "Por que o SQL sai com a expressão, não com o alias"
+
+    O PostgreSQL **não** aceita alias de `SELECT` no `HAVING` — `HAVING n > 10`
+    falha. O compilador reemite a expressão (`COUNT(*) > $2`), que funciona nos
+    três dialetos. Você continua escrevendo o alias.
+
+### Ordenar pelo alias
+
+`ORDER BY`, ao contrário do `HAVING`, aceita o alias em todo dialeto — e o builder
+o emite como escrito:
+
+```ts
+select(Order).aggregate(["customer"], { n: count() }).orderBy("n", "desc");
+// ... GROUP BY "customer" ORDER BY "n" DESC
+```
+
 ## DISTINCT
 
 Para eliminar linhas duplicadas, `.distinct()`:
@@ -93,5 +136,7 @@ const statuses = session
 
 - `.aggregate(groupBy, spec)` → linha = colunas de grupo + aliases de agregação.
 - `count` → `number`; `sum/avg/min/max` → `number | null`.
-- `where` filtra antes do `GROUP BY`; `[]` como groupBy agrega a tabela toda.
+- `where` filtra antes do `GROUP BY`; `.having()` filtra depois, pelos aliases;
+  `[]` como groupBy agrega a tabela toda.
+- `.orderBy(alias)` ordena pelo resultado da agregação.
 - `.distinct()` emite `SELECT DISTINCT`.

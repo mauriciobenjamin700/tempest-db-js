@@ -77,24 +77,42 @@ cima do buraco.
 **Entrega:** suíte de integração contra PostgreSQL real cobrindo lock concorrente
 (lotes disjuntos), índice único parcial, arrays nativos e contador atômico.
 
-### Fase 11 — `tempest-ts-sdk` (repo próprio)
+### Fase 11 — Query API avançada + fechar MySQL e CLI ⭐ ✅
+
+> ✅ **v0.6.0** — as cinco lacunas que sobraram do ciclo anterior (#13–#17),
+> fechadas num ciclo. O padrão de fila agora cabe numa query só, e o MySQL e o
+> CLI deixaram de ser meias-entregas.
+
+- **Subquery em `IN`/`NOT IN`** (`.asSubquery(coluna)`) — colapsa a reivindicação
+  de lote num único `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`.
+- **`HAVING`** com chaves tipadas contra os aliases, gated por tipo em
+  `.aggregate()`; `orderBy` por alias de agregação.
+- **Expressões no `where`** — `col`, `val`, `fn.*` e `fn.call`: coluna vs coluna e
+  índice funcional.
+- **`RETURNING` no MySQL** por read-back na mesma conexão — destrava
+  `BaseRepository.create` e `activeRecord.save` no 3º banco.
+- **CLI async** sobre o `AsyncMigrationRunner` + `checkDriftAsync` — migração pelo
+  CLI no PostgreSQL destravada.
+
+**Entrega:** CI com serviço MySQL 8 real, além do PostgreSQL; teste ponta-a-ponta
+do CLI contra Postgres vivo.
+
+### Fase 12 — `tempest-ts-sdk` (repo próprio)
 
 Pacote separado (flat-layout) consumindo tempest-db-js, espelhando o
 `tempest-fastapi-sdk`: `BaseRepository` estendido, settings via env, hierarquia
 `AppException`, integração HTTP (Express/Hono/Fastify). Fora deste repo.
 
-### Fase 12 — Query API avançada
+### Fase 13 — Query API: o que ainda falta
 
-Prioridade 1 do que sobrou: **subquery em `WHERE ... IN (...)`**, a única peça do
-padrão de fila ainda escrita em duas roundtrips (`SELECT ... FOR UPDATE SKIP
-LOCKED` + `UPDATE ... WHERE id IN (ids)` na mesma transação).
-
-`HAVING` nas agregações; subqueries (IN/EXISTS/scalar); prepared-query API
+Subquery `EXISTS` e escalar; introspecção MySQL via `information_schema` (para o
+`check` funcionar lá); tipagem do **operando** em `col()`/`fn.*` (hoje só o nome da
+coluna é checado); prepared-query API
 explícita (compilar uma vez, executar N com params — o ganho que o cache de
 SELECT value-independent não entrega escondido); unit-of-work/identity-map
 opcional pro active-record.
 
-### Fase 13 — Rumo a `v1.0`
+### Fase 14 — Rumo a `v1.0`
 
 Congelar a API pública, cobertura de testes, docs completas (todas as receitas +
 migração async + MySQL), critérios de saída do alpha.
@@ -106,9 +124,10 @@ migração async + MySQL), critérios de saída do alpha.
 | v0.3 | 8 | Migração async (Postgres real) |
 | v0.4 | 9 | Dialeto MySQL — 3 bancos fechados |
 | v0.5 | 10 | Buracos do primeiro consumidor real ✅ |
-| v0.6 | 11 | `tempest-ts-sdk` |
-| v0.7 | 12 | Query API avançada (subquery em `IN` primeiro) |
-| v1.0 | 13 | API congelada + hardening |
+| v0.6 | 11 | Query API avançada + MySQL e CLI fechados ✅ |
+| v0.7 | 12 | `tempest-ts-sdk` |
+| v0.8 | 13 | Query API: `EXISTS`, introspecção MySQL, tipagem de operando |
+| v1.0 | 14 | API congelada + hardening |
 
 ---
 

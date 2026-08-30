@@ -3,6 +3,80 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-08-30
+
+Closes the five gaps left over from the previous cycle (#13–#17): the advanced
+query API, MySQL for real, and the migration CLI beyond SQLite.
+
+### ⚠️ Breaking
+
+- **`runMigrationCli` is now `async`** and returns `Promise<CliResult>`.
+  `CliConfig.driver` accepts `SyncDriver | AsyncDriver`. Callers of the function
+  need `await`; the `tempest-db` binary is already updated.
+
+  ```diff
+  - const result = runMigrationCli(["upgrade"], config);
+  + const result = await runMigrationCli(["upgrade"], config);
+  ```
+
+- **`SelectBuilder` gained a third type parameter** (`Grouped`, defaulting to
+  `false`), which is what makes `.having()` unreachable before `.aggregate()`. An
+  annotation of `SelectBuilder<Row, Proj>` now means "not grouped"; to accept
+  both, write `SelectBuilder<Row, Proj, boolean>`.
+
+### Added
+
+- **Subqueries in `IN`/`NOT IN`** — `.asSubquery(column)` projects one column and
+  marks the `SELECT` as an operand, so the queue's batch claim fits in a single
+  query (`UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED LIMIT n)`).
+  The subquery carries its own name map and binds its parameters at the position
+  it appears. MySQL rejects `LIMIT` in a subquery — an explicit compile-time
+  error.
+- **`HAVING`** — `.having(input)` after `.aggregate()`, with keys typed against
+  the aliases + grouped columns. The compiler re-emits the **expression**
+  (`COUNT(*) > $1`) because PostgreSQL does not accept an alias in `HAVING`;
+  `.orderBy()` now accepts an aggregate alias, which every dialect does accept.
+- **Expressions in `where`** — `col<Row>("column")`, `val(x)` and `fn.*`
+  (`lower`/`upper`/`trim`/`length`/`abs`/`coalesce` portable, `fn.call` for the
+  rest) make **column vs column** comparison and functional-index lookups
+  expressible. A column reference goes through the name map and join
+  qualification; an operand that is not an expression is still bound as a
+  parameter.
+- **`RETURNING` on MySQL** — `.returning()` works on a **single-row** insert: the
+  session inserts and reads the row back by `LAST_INSERT_ID()` (or by the supplied
+  PK) on the **same connection**, reserving one outside a transaction. That is
+  what makes `BaseRepository.create()` and `activeRecord.save()` work on MySQL. A
+  multi-row insert with `.returning()` throws, because `LAST_INSERT_ID()`
+  identifies only the first row.
+- **Async migration CLI** — `runMigrationCli` runs on `AsyncMigrationRunner` for
+  every dialect, adapting the driver with `toAsyncDriver`. `check` routes by
+  dialect through `checkDriftAsync` (new `introspectSqliteAsync`; PostgreSQL via
+  `information_schema`; MySQL returns an explicit not-implemented message).
+  **Migrating PostgreSQL through the CLI is unblocked.**
+- **CI** — a `mysql` job with a real MySQL 8 service; the `postgres` job also runs
+  the end-to-end CLI test. `mysql2` is declared as an optional peer dependency
+  (the code already imported it dynamically, without declaring it).
+- **Docs** — new bilingual recipes "Expressions in `where`" and "MySQL: what
+  changes"; "A durable queue" gained the single-query version; "Aggregations"
+  gained `HAVING`; "Migrations" gained the async/PostgreSQL flow.
+
+### Fixed
+
+- **`introspectSqlite` and the drift comparison** were factored so the sync and
+  async paths share one implementation — a second copy would diverge from the
+  first the next time a rule changes.
+- **An `Expression` inside `in`/`between`** was serialized as a parameter instead
+  of becoming SQL; it now raises while the query is built, on the same principle
+  as the `set()` guard.
+
+### Known limitations
+
+- Subqueries only in `IN`/`NOT IN`; `EXISTS` and scalar subqueries are still out.
+- MySQL introspection (`information_schema`) does not exist, so `check` cannot
+  detect drift there.
+- `col()`/`fn.*` check the column **name**, not the operand's type — comparing a
+  text column against a numeric one compiles.
+
 ## [0.5.0] — 2026-08-30
 
 A cycle focused on the gaps the first real service migration (`zap-api`, a WhatsApp
