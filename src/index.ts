@@ -738,9 +738,27 @@ type HasDefault<Col> = Col extends Column<unknown, infer F>
     : false
   : false;
 
-/** Keys of the model whose columns are optional on insert. */
+/** True when a column accepts NULL — neither `notNull` nor a primary key. */
+type IsNullable<Col> = Col extends Column<unknown, infer F>
+  ? F extends { notNull: true } | { primaryKey: true }
+    ? false
+    : true
+  : false;
+
+/**
+ * Keys of the model whose columns may be omitted on insert.
+ *
+ * A column is optional when it has a default **or** when it accepts NULL: SQL
+ * applies `NULL` to an omitted column that declares no other default, so
+ * requiring the caller to write `note: null` adds noise that reads like a
+ * deliberate decision to blank the column. Passing `null` explicitly still works.
+ */
 type OptionalInsertKeys<I> = {
-  [K in ColumnKeys<I>]: HasDefault<I[K]> extends true ? K : never;
+  [K in ColumnKeys<I>]: HasDefault<I[K]> extends true
+    ? K
+    : IsNullable<I[K]> extends true
+      ? K
+      : never;
 }[ColumnKeys<I>];
 
 /**
@@ -753,7 +771,9 @@ export type InferModel<C extends ModelClass> = {
 };
 
 /**
- * Infer the INSERT shape: columns with a default (or PK) are optional; the rest
+ * Infer the INSERT shape: a column is optional when it has a default (or is a PK)
+ * **or** when it is nullable — matching SQL, where an omitted column with no
+ * `DEFAULT` clause is written as `NULL`. Only `notNull` columns without a default
  * are required. Nullability is preserved on both sides.
  */
 export type InferInsert<C extends ModelClass> = Simplify<
@@ -903,6 +923,7 @@ export {
   type Executable,
   NoResultError,
   NodeSqliteDriver,
+  type NoticeLogger,
   type PoolOptions,
   QueryExecutionError,
   type QueryLogger,

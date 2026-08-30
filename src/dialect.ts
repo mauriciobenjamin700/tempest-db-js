@@ -58,6 +58,31 @@ export class Params {
   }
 }
 
+/**
+ * The column list of an INSERT: the union of every row's keys, in first-seen
+ * order.
+ *
+ * Taking only the first row's keys silently drops a value that a later row
+ * supplies — the column is never named, so the value has nowhere to go. That was
+ * unreachable while every row had to carry every key, and became reachable the
+ * moment nullable columns turned optional on insert.
+ *
+ * @param rows The rows being inserted.
+ * @returns Every column named by at least one row.
+ */
+function insertColumns(rows: readonly Record<string, unknown>[]): string[] {
+  const columns: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      columns.push(key);
+    }
+  }
+  return columns;
+}
+
 /** True when any value written by an INSERT is a SQL expression, not a literal. */
 function insertHasExpression(node: InsertNode): boolean {
   for (const row of node.values) {
@@ -335,7 +360,7 @@ export abstract class BaseDialect {
    * SQL order, so placeholder positions stay correct.
    */
   private compileInsert(node: InsertNode, params: Params): string {
-    const columns = node.values.length > 0 ? Object.keys(node.values[0] as object) : [];
+    const columns = insertColumns(node.values);
     const conflict = node.onConflict;
     const cacheable =
       conflict?.targetWhere === undefined &&

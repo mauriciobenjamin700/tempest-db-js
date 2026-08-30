@@ -22,14 +22,12 @@ describe(".unique() / .references() do not change inference", () => {
     }>();
   });
 
-  it("keeps insert optionality driven only by default/PK", () => {
-    // id is PK (optional); everything else without a default is required
-    // (unique/references never make a column optional or nullable on insert).
+  it("drives insert optionality by default/PK and nullability, not by constraints", () => {
     expectTypeOf<PostInsert>().toEqualTypeOf<{
       id?: number;
+      slug?: string | null;
       email: string;
       authorId: number;
-      slug: string | null;
     }>();
   });
 });

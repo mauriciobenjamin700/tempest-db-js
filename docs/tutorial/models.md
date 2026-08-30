@@ -133,25 +133,49 @@ SQL (uma coluna sem `NOT NULL` pode conter `NULL`).
 
 ## Passo 4 — Infira o tipo de inserção (INSERT)
 
-Inserir é diferente de ler: colunas com **default** (ou chave primária) são
-opcionais, porque o banco preenche. Use `InferInsert`:
+Inserir é diferente de ler. Uma coluna é **opcional** no insert quando o banco
+sabe o que fazer sem você: ela tem **default** (ou é chave primária), **ou** ela
+aceita `NULL`. Use `InferInsert`:
 
 ```ts
 import { type InferInsert } from "tempest-db-js";
 
 type UserInsert = InferInsert<typeof User>;
 // {
-//   name: string;             // obrigatório
-//   age: number;              // obrigatório
-//   nickname: string | null;  // obrigatório (anulável, mas sem default)
-//   id?: number;              // opcional (PK)
-//   createdAt?: Date | null;  // opcional (tem default)
+//   name: string;              // obrigatório (notNull, sem default)
+//   age: number;               // obrigatório (notNull, sem default)
+//   id?: number;               // opcional (PK)
+//   createdAt?: Date | null;   // opcional (tem default)
+//   nickname?: string | null;  // opcional (anulável → NULL é o default do SQL)
 // }
 ```
 
-`id` e `createdAt` viraram opcionais (`?`); o resto continua obrigatório. Você não
-precisa passar uma PK auto-incremento nem o timestamp com default ao criar um
-usuário.
+Só sobra obrigatório o que o banco **não** consegue preencher: coluna `notNull`
+sem default.
+
+!!! tip "Anulável é opcional porque o SQL já diz isso"
+
+    Omitir uma coluna anulável sem `DEFAULT` grava `NULL` — exatamente o que
+    `nickname: null` faria. Exigir o `null` escrito à mão só adiciona ruído que
+    **lê como decisão deliberada de zerar a coluna**, quando é só preenchimento
+    de tipo. E uma coluna nova adicionada por migration passaria a quebrar a
+    compilação de todo insert existente sem ter nada a dizer.
+
+    Passar `null` explicitamente continua válido — quem quer ser explícito, é.
+
+!!! warning "Insert de várias linhas compartilha uma lista de colunas"
+
+    Um `INSERT` só tem uma lista de colunas, então uma chave presente em algumas
+    linhas e ausente em outras é gravada como `NULL` nas que a omitem. Para
+    coluna anulável isso é o mesmo que omitir; para coluna **com default** não é,
+    e aí o builder recusa em vez de gravar `NULL` no lugar do default:
+
+    ```
+    values: "tier" has a default but is missing from some rows of this
+    multi-row insert — ...
+    ```
+
+    Dê a coluna em todas as linhas, ou insira separadamente.
 
 ## Recap
 
@@ -159,6 +183,7 @@ usuário.
 - Coluna = **valor** criado por `column.*()`, com modificadores encadeáveis.
 - `.notNull()` controla a nullability do tipo inferido.
 - `InferModel<typeof T>` → forma de linha pra **leitura**.
-- `InferInsert<typeof T>` → forma pra **inserção** (PK/default opcionais).
+- `InferInsert<typeof T>` → forma pra **inserção**: PK, default **e anuláveis**
+  são opcionais; só `notNull` sem default é obrigatório.
 
 Com o modelo no lugar, vamos consultá-lo. 👉 **[Consultas](queries.md)**

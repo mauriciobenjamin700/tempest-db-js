@@ -54,8 +54,49 @@ try {
 A `message` já traz um preview seguro (valores longos truncados, blobs como
 `<N bytes>`); as props `sql`/`params` têm o conteúdo completo para você logar.
 
+## Notices do servidor (`onNotice`)
+
+O PostgreSQL emite `NOTICE` em coisas corriqueiras — `CREATE TABLE IF NOT EXISTS`
+numa tabela que já existe, `DROP ... IF EXISTS` numa que não existe, criação de
+constraint com índice implícito. Qualquer runner de migration bate nisso.
+
+O driver `postgres.js` imprime esses notices com `console.log` por padrão, o que
+larga um objeto de nove linhas no **stdout do seu serviço**, no meio do log
+estruturado, a cada boot. O tempest-db-js **silencia** por default e te dá o hook:
+
+```ts
+const engine = createEngine(url, {
+  onNotice: (notice) => logger.debug({ pg: notice }, "postgres notice"),
+});
+```
+
+!!! info "Silenciar é o default de propósito"
+
+    Escrever no stdout do processo hospedeiro é decisão da aplicação, não de uma
+    biblioteca. Sem `onNotice`, o notice é descartado; com ele, você decide o
+    nível, o formato e o destino.
+
+Erro lançado dentro do `onNotice` é engolido, igual ao `onQuery`.
+
+## Opções do driver (`driverOptions`)
+
+Para o que a camada tipada não modela — `connection`, `types`, `transform`, `ssl`
+do postgres.js, ajustes próprios do mysql2, `readOnly` do `node:sqlite`:
+
+```ts
+const engine = createEngine(url, {
+  pool: { size: 10 },
+  driverOptions: { ssl: "require", transform: { undefined: null } },
+});
+```
+
+`driverOptions` é aplicado **por último** e vence tudo que a lib derivou
+(inclusive `pool` e `onNotice`) — é escape hatch, então tem a última palavra.
+
 ## Recap
 
 - `createEngine(url, { onQuery })` → hook por statement `{ sql, params }`.
+- `{ onNotice }` → notices do servidor; **sem ele, nada é impresso**.
 - Erro no logger é engolido — nunca quebra a query.
 - Falha do driver → `QueryExecutionError` com `sql`, `params`, `cause`.
+- `{ driverOptions }` repassa o que a lib não modela, aplicado por último.

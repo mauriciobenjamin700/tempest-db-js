@@ -24,13 +24,17 @@ describe("Phase 1 type inference spike", () => {
     }>();
   });
 
-  it("infers the INSERT shape: defaulted/PK columns optional, rest required", () => {
+  it("infers the INSERT shape: defaulted/PK and nullable columns optional", () => {
     expectTypeOf<UserInsert>().toEqualTypeOf<{
       id?: number;
       createdAt?: Date | null;
+      nickname?: string | null;
       name: string;
       age: number;
-      nickname: string | null;
     }>();
+  });
+
+  it("still accepts an explicit null on an optional nullable column", () => {
+    expectTypeOf<UserInsert>().toMatchTypeOf<{ nickname?: string | null }>();
   });
 });

@@ -133,24 +133,49 @@ matching SQL semantics (a column without `NOT NULL` can hold `NULL`).
 
 ## Step 4 — Infer the insert type (INSERT)
 
-Inserting differs from reading: columns with a **default** (or the primary key) are
-optional, because the database fills them in. Use `InferInsert`:
+Inserting is different from reading. A column is **optional** on insert when the
+database knows what to do without you: it has a **default** (or is a primary
+key), **or** it accepts `NULL`. Use `InferInsert`:
 
 ```ts
 import { type InferInsert } from "tempest-db-js";
 
 type UserInsert = InferInsert<typeof User>;
 // {
-//   name: string;             // required
-//   age: number;              // required
-//   nickname: string | null;  // required (nullable, but has no default)
-//   id?: number;              // optional (PK)
-//   createdAt?: Date | null;  // optional (has a default)
+//   name: string;              // required (notNull, no default)
+//   age: number;               // required (notNull, no default)
+//   id?: number;               // optional (PK)
+//   createdAt?: Date | null;   // optional (has a default)
+//   nickname?: string | null;  // optional (nullable → NULL is SQL's default)
 // }
 ```
 
-`id` and `createdAt` became optional (`?`); the rest stays required. You don't need
-to pass an auto-increment PK nor the defaulted timestamp when creating a user.
+The only thing left required is what the database **cannot** fill in: a `notNull`
+column with no default.
+
+!!! tip "Nullable is optional because SQL already says so"
+
+    Omitting a nullable column with no `DEFAULT` writes `NULL` — exactly what
+    `nickname: null` would do. Requiring the hand-written `null` only adds noise
+    that **reads like a deliberate decision to blank the column**, when it is
+    just filling in a type. And a new column added by a migration would break
+    every existing insert at compile time while having nothing to say about it.
+
+    Passing `null` explicitly is still valid — be explicit if you want to be.
+
+!!! warning "A multi-row insert shares one column list"
+
+    One `INSERT` has one column list, so a key present in some rows and absent in
+    others is written as `NULL` for the rows that omit it. For a nullable column
+    that is the same as omitting it; for a column **with a default** it is not, so
+    the builder refuses rather than writing `NULL` in place of the default:
+
+    ```
+    values: "tier" has a default but is missing from some rows of this
+    multi-row insert — ...
+    ```
+
+    Give the column in every row, or insert them separately.
 
 ## Recap
 
@@ -158,6 +183,7 @@ to pass an auto-increment PK nor the defaulted timestamp when creating a user.
 - Column = a **value** created by `column.*()`, with chainable modifiers.
 - `.notNull()` controls the nullability of the inferred type.
 - `InferModel<typeof T>` → the row shape for **reading**.
-- `InferInsert<typeof T>` → the shape for **inserting** (PK/default optional).
+- `InferInsert<typeof T>` → the shape for **inserting**: PK, defaulted **and
+  nullable** columns are optional; only `notNull` without a default is required.
 
 With the model in place, let's query it. 👉 **[Queries](queries.md)**

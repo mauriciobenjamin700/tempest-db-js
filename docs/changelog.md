@@ -3,6 +3,62 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.7.0] — 2026-08-30
+
+Duas correções vindas do mesmo consumidor real (`zap-api`): o ruído que o
+`InferInsert` obrigava a escrever, e o `NOTICE` do Postgres sujando o stdout do
+serviço.
+
+### ⚠️ Breaking
+
+- **Coluna anulável passou a ser opcional em `InferInsert`.** É uma frouxidão de
+  tipo, então nenhum código que compilava para de compilar — mas quem derivava
+  tipos de `InferInsert` esperando as anuláveis obrigatórias vê a forma mudar
+  (`nickname: string | null` → `nickname?: string | null`).
+- **`NOTICE` do PostgreSQL não é mais impresso.** Sem `onNotice`, ele é
+  descartado; antes o postgres.js o imprimia via `console.log`. Quem dependia
+  desse print precisa passar `onNotice`.
+
+### Adicionado
+
+- **`onNotice` em `EngineOptions`** — recebe os notices do servidor
+  (`CREATE TABLE IF NOT EXISTS` numa tabela existente, `DROP ... IF EXISTS`), no
+  mesmo espírito do `onQuery`, com erro do logger engolido. **O default é
+  silenciar:** escrever no stdout do processo hospedeiro é decisão da aplicação,
+  não de uma biblioteca — e o default anterior quebrava o log estruturado de
+  quem consome stdout (Docker, Loki, CloudWatch) a cada boot, já que um runner de
+  migration é a primeira coisa que roda.
+- **`driverOptions` em `EngineOptions`** — repasse direto para o driver, aplicado
+  **por último** (vence `pool` e `onNotice`), para o que a superfície tipada não
+  modela: `connection`/`types`/`transform`/`ssl` do postgres.js, ajustes do
+  mysql2, `readOnly` do `node:sqlite`. Evita que cada gap vire feature request.
+
+### Corrigido
+
+- **Coluna anulável sem default exigia `campo: null` em todo insert.** Omitir uma
+  coluna que aceita `NULL` e não declara `DEFAULT` grava `NULL` — o mesmo que
+  passar `null`. Exigir o `null` escrito à mão só adicionava ruído que **lê como
+  decisão deliberada de zerar a coluna**, e fazia toda coluna nova adicionada por
+  migration quebrar a compilação de todos os call sites de insert. Agora `notNull`
+  sem default é a única coisa obrigatória; `null` explícito continua aceito.
+- **Insert de várias linhas descartava chave ausente na primeira linha.** A lista
+  de colunas vinha de `values[0]`, então em
+  `values([{ a }, { a, note: "x" }])` o `note` nunca era nomeado e o valor sumia
+  sem erro. Agora a lista é a **união** das chaves de todas as linhas. Era
+  inalcançável enquanto toda linha precisava carregar toda chave — e passou a ser
+  alcançável no instante em que anulável virou opcional.
+- **Linhas que discordam sobre coluna com default** agora levantam
+  `ValidationError`. Um `INSERT` tem uma lista de colunas só, então a linha que
+  omite receberia `NULL` em vez do default; o SQLite não tem a palavra `DEFAULT`
+  dentro de `VALUES`, então não há saída portável por linha — falhar alto é a
+  opção honesta.
+
+### Limitações conhecidas
+
+- `EngineOptions.driver` (`"better-sqlite3"`) continua **documentado e não
+  implementado**: `openSqliteDriver` sempre usa `node:sqlite`. `driverOptions`
+  cobre as opções do driver, não a troca de driver.
+
 ## [0.6.0] — 2026-08-30
 
 Fecha as cinco lacunas que sobraram do ciclo anterior (#13–#17): a query API
