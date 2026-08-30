@@ -3,6 +3,87 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-08-30
+
+A cycle focused on the gaps the first real service migration (`zap-api`, a WhatsApp
+gateway) ran into — the outbox/queue pattern on PostgreSQL, end to end.
+
+### Added
+
+- **Row locking** — `.forUpdate({ skipLocked, noWait, of })` and `.forShare(...)`
+  on `SelectBuilder` (mirrors SQLAlchemy's `with_for_update()`). Renders
+  `FOR UPDATE [OF ...] [SKIP LOCKED | NOWAIT]` on PostgreSQL and MySQL 8.0+;
+  SQLite **throws an explicit error** instead of emitting an unlocked `SELECT`. A
+  lock combined with `DISTINCT`/an aggregate throws too. Unblocks the job-queue
+  pattern with competing workers.
+- **SQL expressions as write values** — `sql.raw("attempts + 1")`,
+  `` sql.expr`balance - ${amount}` `` (a tagged template where every `${}` becomes a
+  bound parameter) and the portable tokens (`sql.now()`, `sql.uuidv4()`, …) now work
+  in `.set()` and `.values()`, not only in `.default()`. The counter is incremented
+  in the database, with no read-modify-write and no race. Every expression carries a
+  brand (`isSqlExpression`) the dialect recognizes.
+- **A predicate on the conflict target** — `onConflictDoNothing(target, { where })`
+  and `onConflictDoUpdate(target, set, { indexWhere, updateWhere })` emit
+  `ON CONFLICT (...) WHERE <predicate>`, which PostgreSQL requires for a **partial
+  unique index** to match as a conflict target. Portable to SQLite; MySQL throws an
+  explicit error.
+- **`session.raw(sql, params, { as })`** — a runtime raw-SQL escape hatch, the
+  counterpart of migrations' `Op.execute`, on both async and sync sessions. Always
+  parameterized, integrated with `onQuery`, `QueryExecutionError` and the
+  transaction's reserved connection; `{ as: Model }` coerces rows through the
+  model's types.
+- **Explicit column names and a naming strategy** — `.name("consumer_name")` per
+  column (`mapped_column("...")` style) and `static naming = "snake_case"` per
+  table. The mapping applies across select/insert/update/delete, `where`,
+  `orderBy`, `groupBy`, aggregates, `returning`, conflict targets, joins,
+  `BaseRepository`, active-record **and the migration IR** — so it produces no false
+  drift. The returned row stays in property-name space. A name collision fails
+  loudly.
+- **`column.array(element)`** — PostgreSQL `text[]`/`integer[]` columns, with `T[]`
+  inferred, `DEFAULT ARRAY[...]::type[]`, and introspection (`data_type = ARRAY` +
+  `udt_name`) and drift aware of the element type. SQLite and MySQL throw an
+  explicit error instead of silently falling back to JSON.
+- **New operators** — `ieq` (case-insensitive equality → `lower(col) = lower($1)`,
+  portable across all three dialects and matching a functional index) and the array
+  operators `contains` (`@>`), `containedBy` (`<@`) and `overlaps` (`&&`),
+  PostgreSQL-only.
+- **Docs** — five new bilingual recipes: A durable queue on PostgreSQL, Column
+  names, PostgreSQL array columns, Case-insensitive comparison and Raw SQL at
+  runtime. An integration suite against a real PostgreSQL covering concurrent
+  locking, the partial index, arrays and the atomic counter.
+
+### Fixed
+
+- **`set()`/`values()` silently wrote garbage.** A non-scalar value —
+  `{ raw: "attempts + 1" }`, an array on a scalar column, a function — was **bound
+  as a parameter**, and the driver serialized it (or stored `null`) with no error at
+  all: an `INTEGER NOT NULL` column became `null`. Now any value that is neither a
+  scalar nor a branded expression raises `ValidationError` while the query is built,
+  naming the column and the expected type. A key that is not a column of the model
+  is rejected too.
+- **The INSERT template cache** must not serve statements carrying a conflict
+  predicate or an expression among the values, whose SQL depends on the values.
+  Those take an uncached path that renders the clauses in statement order, keeping
+  placeholder positions correct.
+- **PostgreSQL introspection** read every array column as `text`, which made
+  `checkDriftPostgres` report drift forever on a correct schema.
+
+### Documented
+
+- `ilike` is **pattern matching**, not equality: `%` and `_` are wildcards, and
+  `{ ilike: "%" }` matches every row. Used as a "case-insensitive eq" in an
+  authentication lookup, it is a login bypass. The operator's documentation now says
+  so, and `ieq` exists precisely to remove the temptation.
+
+### Known limitations
+
+- `FOR UPDATE`/`FOR SHARE`, the `ON CONFLICT` predicate and `column.array()` have no
+  equivalent on every dialect; each throws an explicit error where it is
+  unsupported, rather than degrading silently.
+- Subqueries in `WHERE ... IN (...)` are still outside the builder — the queue
+  pattern is written as `SELECT ... FOR UPDATE SKIP LOCKED` followed by
+  `UPDATE ... WHERE id IN (ids)` in the same transaction, or via `session.raw`.
+
 ## [0.4.0] — 2026-07-09
 
 ### Added

@@ -12,7 +12,12 @@
  */
 
 import { type CondNode, type Condition, toCondNode } from "./conditions.js";
-import type { InferModel, ModelClass } from "./index.js";
+import {
+  type InferModel,
+  type ModelClass,
+  type NameMap,
+  columnNamesOf,
+} from "./index.js";
 
 // --------------------------------------------------------------------------
 // AST
@@ -36,6 +41,30 @@ export interface AggregateTerm {
   readonly alias: string;
 }
 
+/**
+ * A row-level locking clause (`SELECT ... FOR UPDATE`).
+ *
+ * `wait` decides what happens when another transaction already holds the lock:
+ * `"block"` waits, `"skipLocked"` skips those rows (the job-queue claim), and
+ * `"noWait"` fails immediately.
+ */
+export interface LockClause {
+  readonly strength: "update" | "share";
+  readonly wait: "block" | "skipLocked" | "noWait";
+  /** Tables to lock (`FOR UPDATE OF t`); empty locks every table in the query. */
+  readonly of: readonly string[];
+}
+
+/** Options accepted by {@link SelectBuilder.forUpdate} / {@link SelectBuilder.forShare}. */
+export interface LockOptions {
+  /** Skip rows another transaction has locked instead of waiting for them. */
+  readonly skipLocked?: boolean;
+  /** Fail immediately instead of waiting for a locked row. */
+  readonly noWait?: boolean;
+  /** Restrict the lock to these tables (`FOR UPDATE OF ...`). */
+  readonly of?: readonly string[];
+}
+
 /** Serializable AST for a SELECT. Dialects (Phase 4) compile this to SQL. */
 export interface SelectNode {
   readonly kind: "select";
@@ -52,6 +81,10 @@ export interface SelectNode {
   readonly orderBy: readonly OrderTerm[];
   readonly limit: number | undefined;
   readonly offset: number | undefined;
+  /** Row-level locking clause, or `undefined` for none. */
+  readonly lock?: LockClause | undefined;
+  /** Property → column map, or `undefined` when every name is the identity. */
+  readonly names?: NameMap | undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -88,30 +121,55 @@ interface OrderedOperators<T> extends BaseOperators<T> {
 
 /** Extra operators for string-like types. */
 interface StringOperators<T> extends BaseOperators<T> {
-  /** `LIKE` pattern (case-sensitive). */
+  /** `LIKE` pattern (case-sensitive). `%` and `_` are wildcards. */
   like?: string;
-  /** `ILIKE` pattern (case-insensitive). */
+  /**
+   * `ILIKE` **pattern** (case-insensitive). This is pattern matching, not
+   * equality: `%` and `_` in the operand are wildcards, so `{ ilike: "%" }`
+   * matches every row. Never feed it unescaped user input — for a
+   * case-insensitive *equality* test use {@link StringOperators.ieq}, and to
+   * match a literal that may contain wildcards, wrap it in `escapeLike`.
+   */
   ilike?: string;
+  /**
+   * Case-insensitive equality — compiles to `lower(col) = lower($1)`, with no
+   * wildcards. The safe operator for a case-insensitive lookup (login, email),
+   * and the one that matches a `lower(col)` functional index.
+   */
+  ieq?: T;
+}
+
+/** Extra operators for array columns (PostgreSQL). */
+interface ArrayOperators<T> extends BaseOperators<T> {
+  /** `@>` — the column contains every element of the operand. */
+  contains?: T;
+  /** `<@` — every element of the column is in the operand. */
+  containedBy?: T;
+  /** `&&` — the column and the operand share at least one element. */
+  overlaps?: T;
 }
 
 /**
  * The operator object allowed for a column of (non-null) type `T`:
- *   - `string` → equality, `in`, `like`/`ilike`
+ *   - `T[]` → equality, `in`, `contains`/`containedBy`/`overlaps` (PostgreSQL)
+ *   - `string` → equality, `in`, `like`/`ilike`/`ieq`
  *   - `number` / `bigint` / `Date` → equality, `in`, ordered comparisons, `between`
  *   - `boolean` → equality, `isNull`
  *   - anything else (json/blob) → equality and `in` only
  */
-export type OperatorsFor<T> = [T] extends [string]
-  ? StringOperators<T>
-  : [T] extends [number]
-    ? OrderedOperators<T>
-    : [T] extends [bigint]
+export type OperatorsFor<T> = [T] extends [readonly unknown[]]
+  ? ArrayOperators<T>
+  : [T] extends [string]
+    ? StringOperators<T>
+    : [T] extends [number]
       ? OrderedOperators<T>
-      : [T] extends [Date]
+      : [T] extends [bigint]
         ? OrderedOperators<T>
-        : [T] extends [boolean]
-          ? BaseOperators<T>
-          : BaseOperators<T>;
+        : [T] extends [Date]
+          ? OrderedOperators<T>
+          : [T] extends [boolean]
+            ? BaseOperators<T>
+            : BaseOperators<T>;
 
 /**
  * `where` shape: each key must be a real column; each value accepts either a
@@ -133,10 +191,14 @@ export const OPERATORS = [
   "lte",
   "like",
   "ilike",
+  "ieq",
   "in",
   "notIn",
   "between",
   "isNull",
+  "contains",
+  "containedBy",
+  "overlaps",
 ] as const;
 
 /** One supported operator name. */
@@ -272,6 +334,66 @@ export class SelectBuilder<Full, Proj = Full> {
   offset(n: number): SelectBuilder<Full, Proj> {
     return this.with({ offset: n });
   }
+
+  /**
+   * Lock the selected rows for update (`SELECT ... FOR UPDATE`), à la
+   * SQLAlchemy's `with_for_update()`.
+   *
+   * `{ skipLocked: true }` is the job-queue claim: competing workers each take a
+   * disjoint batch instead of blocking on — or worse, double-processing — the
+   * same rows.
+   *
+   * PostgreSQL and MySQL 8.0+ only. SQLite has no row-level locking, and its
+   * dialect throws rather than emitting a `SELECT` that silently locks nothing —
+   * a lock that does not exist only fails under production concurrency.
+   *
+   * @param options `skipLocked` / `noWait` wait behavior, and `of` to restrict
+   *   the lock to specific tables.
+   * @returns A builder carrying the locking clause.
+   * @throws Error When both `skipLocked` and `noWait` are set.
+   *
+   * @example
+   * ```ts
+   * const batch = await session.execute(
+   *   select(Outbound)
+   *     .where({ status: "queued" })
+   *     .orderBy("nextAttemptAt")
+   *     .limit(10)
+   *     .forUpdate({ skipLocked: true }),
+   * ).all();
+   * ```
+   */
+  forUpdate(options?: LockOptions): SelectBuilder<Full, Proj> {
+    return this.with({ lock: buildLock("update", options) });
+  }
+
+  /**
+   * Take a shared read lock on the selected rows (`SELECT ... FOR SHARE`), the
+   * weaker counterpart of {@link SelectBuilder.forUpdate}.
+   *
+   * @param options `skipLocked` / `noWait` wait behavior, and `of` tables.
+   * @returns A builder carrying the locking clause.
+   * @throws Error When both `skipLocked` and `noWait` are set.
+   */
+  forShare(options?: LockOptions): SelectBuilder<Full, Proj> {
+    return this.with({ lock: buildLock("share", options) });
+  }
+}
+
+/** Normalize {@link LockOptions} into the AST's {@link LockClause}. */
+function buildLock(
+  strength: LockClause["strength"],
+  options: LockOptions | undefined,
+): LockClause {
+  if (options?.skipLocked && options?.noWait) {
+    throw new Error("forUpdate/forShare accept skipLocked or noWait, not both.");
+  }
+  const wait: LockClause["wait"] = options?.skipLocked
+    ? "skipLocked"
+    : options?.noWait
+      ? "noWait"
+      : "block";
+  return { strength, wait, of: options?.of ?? [] };
 }
 
 // --------------------------------------------------------------------------
@@ -305,6 +427,7 @@ export function select(
       orderBy: [],
       limit: undefined,
       offset: undefined,
+      names: columnNamesOf(model) ?? undefined,
     },
     model,
   );

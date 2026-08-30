@@ -72,6 +72,7 @@ describe("Column type descriptor is preserved at runtime", () => {
       | "json"
       | "uuid"
       | "enum"
+      | "array"
     >();
   });
 });

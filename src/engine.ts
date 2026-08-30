@@ -13,7 +13,7 @@
 
 import { createRequire } from "node:module";
 import { type BaseDialect, getDialect } from "./dialect.js";
-import { type ModelClass, columnsOf } from "./index.js";
+import { type ModelClass, columnNamesOf, columnsOf } from "./index.js";
 import type { JoinBuilder, JoinNode } from "./join.js";
 import type { InsertBuilder, UpdateBuilder } from "./mutations.js";
 import type { SelectBuilder } from "./query.js";
@@ -196,11 +196,12 @@ function splitJoinRow(
   const out: Record<string, unknown> = {};
   for (const [alias, model] of Object.entries(sources)) {
     const sub: Record<string, unknown> = {};
+    const names = columnNamesOf(model);
     let allNull = true;
     for (const colName of Object.keys(columnsOf(model))) {
       const value = raw[`${alias}.${colName}`];
       if (value !== null && value !== undefined) allNull = false;
-      sub[colName] = value;
+      sub[names?.[colName] ?? colName] = value;
     }
     out[alias] = leftAliases.has(alias) && allNull ? null : coerceRow(model, sub);
   }
@@ -365,6 +366,15 @@ export class AsyncResult<Row> {
 
 let savepointCounter = 0;
 
+/** Reject a `raw()` call whose parameters are not an array. */
+function assertRawParams(params: readonly unknown[]): void {
+  if (!Array.isArray(params)) {
+    throw new TypeError(
+      "session.raw(sql, params) takes an array of bound parameters — never interpolate values into the SQL string.",
+    );
+  }
+}
+
 /** A synchronous unit of work (SQLite). */
 export class SyncSession {
   constructor(
@@ -382,6 +392,51 @@ export class SyncSession {
     } catch (error) {
       throw new QueryExecutionError(error, sql, params);
     }
+  }
+
+  /**
+   * Run a raw, parameterized SQL statement (synchronous) — the runtime counterpart of the
+   * migrations' `Op.execute`.
+   *
+   * A query builder never covers all of SQL, and without an escape hatch a single
+   * unsupported query forces a whole second database stack alongside this one. Use
+   * it for what the builder cannot yet express, and keep everything else typed.
+   *
+   * The statement goes through the same path as a compiled one: it is logged via
+   * `onQuery`, wrapped in {@link QueryExecutionError} on failure, and runs on the
+   * reserved connection inside `transaction()`.
+   *
+   * @param sql The statement text. Placeholders only (`$1` / `?` per dialect) —
+   *   never interpolate a value into this string.
+   * @param params The bound parameters, in placeholder order.
+   * @param options Pass `as` to coerce the returned rows with a model's column
+   *   types (and its column-name mapping).
+   * @returns The result view over the returned rows.
+   * @throws Error When `params` is not an array — the guard against calling this
+   *   with an interpolated string and no parameters by mistake.
+   *
+   * @example
+   * ```ts
+   * const claimed = await session.raw<OutboundRow>(
+   *   `UPDATE outbound_messages SET status = 'sending'
+   *      WHERE id = ANY($1) RETURNING *`,
+   *   [ids],
+   *   { as: Outbound },
+   * ).all();
+   * ```
+   */
+  raw<Row = Record<string, unknown>>(
+    sql: string,
+    params: readonly unknown[] = [],
+    options?: { readonly as?: ModelClass },
+  ): SyncResult<Row> {
+    assertRawParams(params);
+    const result = this.exec(sql, params);
+    const model = options?.as;
+    const rows = (
+      model ? result.rows.map((row) => coerceRow(model, row)) : result.rows
+    ) as Row[];
+    return new SyncResult<Row>(rows, result.changes);
   }
 
   /** Compile, run, and coerce a builder into a result. */
@@ -473,6 +528,53 @@ export class AsyncSession {
     } catch (error) {
       throw new QueryExecutionError(error, sql, params);
     }
+  }
+
+  /**
+   * Run a raw, parameterized SQL statement — the runtime counterpart of the
+   * migrations' `Op.execute`.
+   *
+   * A query builder never covers all of SQL, and without an escape hatch a single
+   * unsupported query forces a whole second database stack alongside this one. Use
+   * it for what the builder cannot yet express, and keep everything else typed.
+   *
+   * The statement goes through the same path as a compiled one: it is logged via
+   * `onQuery`, wrapped in {@link QueryExecutionError} on failure, and runs on the
+   * reserved connection inside `transaction()`.
+   *
+   * @param sql The statement text. Placeholders only (`$1` / `?` per dialect) —
+   *   never interpolate a value into this string.
+   * @param params The bound parameters, in placeholder order.
+   * @param options Pass `as` to coerce the returned rows with a model's column
+   *   types (and its column-name mapping).
+   * @returns The result view over the returned rows.
+   * @throws Error When `params` is not an array — the guard against calling this
+   *   with an interpolated string and no parameters by mistake.
+   *
+   * @example
+   * ```ts
+   * const claimed = await session.raw<OutboundRow>(
+   *   `UPDATE outbound_messages SET status = 'sending'
+   *      WHERE id = ANY($1) RETURNING *`,
+   *   [ids],
+   *   { as: Outbound },
+   * ).all();
+   * ```
+   */
+  raw<Row = Record<string, unknown>>(
+    sql: string,
+    params: readonly unknown[] = [],
+    options?: { readonly as?: ModelClass },
+  ): AsyncResult<Row> {
+    assertRawParams(params);
+    const model = options?.as;
+    const inner = this.exec(sql, params).then((result) => {
+      const rows = (
+        model ? result.rows.map((row) => coerceRow(model, row)) : result.rows
+      ) as Row[];
+      return new SyncResult<Row>(rows, result.changes);
+    });
+    return new AsyncResult<Row>(inner);
   }
 
   execute<B extends Executable>(builder: B): AsyncResult<RowOf<B>> {

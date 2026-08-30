@@ -64,4 +64,4 @@ jobs:
       - name: PostgreSQL integration tests (real database)
         env:
           TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/tdbjs
-        run: npx vitest run tests/postgres.integration.test.ts
+        run: npx vitest run tests/postgres.integration.test.ts tests/postgres-gaps.integration.test.ts

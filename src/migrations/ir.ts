@@ -13,6 +13,7 @@ import {
   type FkAction,
   type ForeignKeyRef,
   type ModelClass,
+  columnNamesOf,
   columnsOf,
 } from "../index.js";
 
@@ -82,12 +83,25 @@ function constraintName(
   return `${prefix}_${table}_${columns.join("_")}`;
 }
 
-/** Reflect one model class into a `TableIR`. */
+/**
+ * Reflect one model class into a `TableIR`.
+ *
+ * The IR is keyed by **database** column names, so a model that maps
+ * `consumerName` to `consumer_name` produces the same IR that introspecting the
+ * live database does — otherwise the drift check would report every renamed
+ * column as missing.
+ *
+ * @param model The model class.
+ * @returns The table IR in database-name space.
+ */
 export function reflectTable(model: ModelClass): TableIR {
+  const names = columnNamesOf(model);
+  const toColumn = (prop: string): string => names?.[prop] ?? prop;
   const columns: Record<string, ColumnIR> = {};
   const primaryKey: string[] = [];
-  for (const [name, col] of Object.entries(columnsOf(model))) {
+  for (const [prop, col] of Object.entries(columnsOf(model))) {
     const isPk = col.flags.primaryKey;
+    const name = toColumn(prop);
     columns[name] = {
       name,
       type: col.type,
@@ -103,15 +117,16 @@ export function reflectTable(model: ModelClass): TableIR {
   const uniqueConstraints: UniqueConstraintIR[] = [];
   const foreignKeys: ForeignKeyIR[] = [];
   for (const c of model.tableArgs?.() ?? []) {
+    const cols = c.columns.map(toColumn);
     if (c.kind === "unique") {
       uniqueConstraints.push({
-        name: c.name ?? constraintName("uq", model.tablename, c.columns),
-        columns: c.columns,
+        name: c.name ?? constraintName("uq", model.tablename, cols),
+        columns: cols,
       });
     } else {
       foreignKeys.push({
-        name: c.name ?? constraintName("fk", model.tablename, c.columns),
-        columns: c.columns,
+        name: c.name ?? constraintName("fk", model.tablename, cols),
+        columns: cols,
         refTable: c.refTable,
         refColumns: c.refColumns,
         onDelete: c.onDelete,

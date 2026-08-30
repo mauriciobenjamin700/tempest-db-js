@@ -194,7 +194,7 @@ describe("Sync engine — real SQLite execution (node:sqlite)", () => {
 
   it("server-default sql.now() column accepts an explicit Date too", () => {
     // sanity: sql.now() marker is unchanged; explicit values still bind
-    expect(sql.now()).toEqual({ kind: "expression", expression: "now" });
+    expect(sql.now()).toMatchObject({ kind: "expression", expression: "now" });
   });
 });
 

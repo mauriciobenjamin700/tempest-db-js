@@ -10,9 +10,11 @@
  */
 
 import type { CondNode } from "./conditions.js";
+import { renderPortableToken } from "./expressions.js";
+import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
-import { OPERATORS, type SelectNode } from "./query.js";
+import { type LockClause, OPERATORS, type SelectNode } from "./query.js";
 import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
@@ -41,8 +43,11 @@ function isOperatorObject(value: unknown): value is Record<string, unknown> {
   return keys.length > 0 && keys.every((k) => OPERATOR_SET.has(k));
 }
 
-/** Collects bound parameters and renders placeholders in dialect style. */
-class Params {
+/**
+ * Collects bound parameters and renders placeholders in dialect style. Exposed
+ * because dialect subclasses receive it when overriding clause rendering.
+ */
+export class Params {
   readonly values: unknown[] = [];
 
   constructor(private readonly placeholder: (index: number) => string) {}
@@ -51,6 +56,22 @@ class Params {
     this.values.push(value);
     return this.placeholder(this.values.length);
   }
+}
+
+/** True when any value written by an INSERT is a SQL expression, not a literal. */
+function insertHasExpression(node: InsertNode): boolean {
+  for (const row of node.values) {
+    for (const value of Object.values(row)) {
+      if (isSqlExpression(value)) return true;
+    }
+  }
+  const update = node.onConflict?.update;
+  if (update && update !== "nothing") {
+    for (const value of Object.values(update)) {
+      if (isSqlExpression(value)) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -75,6 +96,22 @@ export abstract class BaseDialect {
 
   /** Render a case-insensitive LIKE for the active dialect. */
   protected abstract ilike(column: string, param: string): string;
+
+  /**
+   * The SQL operator for an array containment/overlap test.
+   *
+   * Only PostgreSQL has native arrays; the other dialects throw rather than
+   * emitting an operator that means something else there.
+   *
+   * @param op The array operator name.
+   * @returns The SQL operator text.
+   * @throws Error On a dialect without native array support.
+   */
+  protected arrayOperator(op: "contains" | "containedBy" | "overlaps"): string {
+    throw new Error(
+      `The "${op}" operator needs native array support, which ${this.name} does not have.`,
+    );
+  }
 
   /**
    * Quote an identifier (column/table) for the active dialect.
@@ -116,53 +153,160 @@ export abstract class BaseDialect {
     return { sql, params: params.values };
   }
 
-  /** Render a qualified `alias.column` ref as `"alias"."column"`. */
-  private qualify(ref: string): string {
+  /**
+   * Render a qualified `alias.column` ref as `"alias"."column"`, translating the
+   * property name to the real column name for that alias's model.
+   *
+   * @param ref The `alias.property` reference (a bare name is left unqualified).
+   * @param names The node's per-alias name maps, if any source renames columns.
+   * @returns The quoted, qualified identifier.
+   */
+  private qualify(
+    ref: string,
+    names?: Readonly<Record<string, NameMap>> | undefined,
+  ): string {
     const dot = ref.indexOf(".");
     if (dot === -1) return this.quoteId(ref);
-    return `${this.quoteId(ref.slice(0, dot))}.${this.quoteId(ref.slice(dot + 1))}`;
+    const alias = ref.slice(0, dot);
+    const prop = ref.slice(dot + 1);
+    return `${this.quoteId(alias)}.${this.columnId(prop, names?.[alias])}`;
+  }
+
+  /**
+   * Quote a column identifier, translating the model property name to the real
+   * database column name first.
+   *
+   * `names` is `undefined` for a model that renames nothing — the overwhelmingly
+   * common case — so this stays a single lookup plus the memoized quote.
+   *
+   * @param prop The model property name as written in the builder.
+   * @param names The node's property → column map, if any.
+   * @returns The quoted database identifier.
+   */
+  protected columnId(prop: string, names: NameMap | undefined): string {
+    return this.quoteId(names?.[prop] ?? prop);
+  }
+
+  /**
+   * Render a {@link SqlExpression} inline, binding the parameters it carries.
+   *
+   * This is what keeps `set({ attempts: sql.raw("attempts + 1") })` an expression
+   * instead of a bound object: the fragment goes into the statement text, and
+   * only a `sql.expr` template's interpolations become parameters.
+   *
+   * @param expr The branded expression.
+   * @param params The parameter collector for the statement being compiled.
+   * @returns The SQL text of the expression.
+   */
+  protected renderExpression(expr: SqlExpression, params: Params): string {
+    const token = expr.expression;
+    if (typeof token === "string") return renderPortableToken(token, this.name);
+    if ("raw" in token) return token.raw;
+    const parts = token.parts;
+    let sql = parts[0] ?? "";
+    for (let i = 1; i < parts.length; i++) {
+      sql += `${params.bind(expr.params[i - 1])}${parts[i]}`;
+    }
+    return sql;
+  }
+
+  /** Render one write value: a SQL expression inline, anything else as a parameter. */
+  protected renderValue(value: unknown, params: Params): string {
+    return isSqlExpression(value)
+      ? this.renderExpression(value, params)
+      : params.bind(value);
+  }
+
+  /**
+   * Render a row-level locking clause (`FOR UPDATE ...`).
+   *
+   * Standard on PostgreSQL and MySQL 8.0+; SQLite overrides it to throw.
+   *
+   * @param lock The locking clause from the node.
+   * @returns The SQL text, leading space included.
+   */
+  protected renderLock(lock: LockClause): string {
+    const strength = lock.strength === "update" ? "FOR UPDATE" : "FOR SHARE";
+    const of =
+      lock.of.length > 0 ? ` OF ${lock.of.map((t) => this.quoteId(t)).join(", ")}` : "";
+    const wait =
+      lock.wait === "skipLocked"
+        ? " SKIP LOCKED"
+        : lock.wait === "noWait"
+          ? " NOWAIT"
+          : "";
+    return ` ${strength}${of}${wait}`;
   }
 
   // ---- statements -------------------------------------------------------
 
   private compileSelect(node: SelectNode, params: Params): string {
+    const names = node.names;
     let cols: string;
     if (node.aggregates.length > 0) {
       // Grouped/aggregate query: SELECT group cols + `FN(col) AS "alias"`.
-      const groupSel = node.groupBy.map((c) => this.quoteId(c));
+      const groupSel = node.groupBy.map((c) => this.columnId(c, names));
       const aggSel = node.aggregates.map((a) => {
-        const inner = a.column === "*" ? "*" : this.quoteId(a.column);
+        const inner = a.column === "*" ? "*" : this.columnId(a.column, names);
         return `${a.fn.toUpperCase()}(${inner}) AS ${this.quoteId(a.alias)}`;
       });
       cols = [...groupSel, ...aggSel].join(", ");
     } else {
       cols =
-        node.columns === "*" ? "*" : node.columns.map((c) => this.quoteId(c)).join(", ");
+        node.columns === "*"
+          ? "*"
+          : node.columns.map((c) => this.columnId(c, names)).join(", ");
     }
     let sql = `SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
 
-    const where = this.compileCondition(node.where, params, (k) => this.quoteId(k));
+    const where = this.compileCondition(node.where, params, (k) =>
+      this.columnId(k, names),
+    );
     if (where) sql += ` WHERE ${where}`;
 
     if (node.groupBy.length > 0) {
-      sql += ` GROUP BY ${node.groupBy.map((c) => this.quoteId(c)).join(", ")}`;
+      sql += ` GROUP BY ${node.groupBy.map((c) => this.columnId(c, names)).join(", ")}`;
     }
 
     if (node.orderBy.length > 0) {
       const terms = node.orderBy
         .map(
-          (t) => `${this.quoteId(t.column)} ${t.direction === "desc" ? "DESC" : "ASC"}`,
+          (t) =>
+            `${this.columnId(t.column, names)} ${t.direction === "desc" ? "DESC" : "ASC"}`,
         )
         .join(", ");
       sql += ` ORDER BY ${terms}`;
     }
     if (node.limit !== undefined) sql += ` LIMIT ${params.bind(node.limit)}`;
     if (node.offset !== undefined) sql += ` OFFSET ${params.bind(node.offset)}`;
+    if (node.lock) {
+      if (node.distinct || node.groupBy.length > 0 || node.aggregates.length > 0) {
+        throw new Error(
+          "FOR UPDATE / FOR SHARE cannot be combined with DISTINCT or an aggregate query — lock the underlying rows in a separate SELECT.",
+        );
+      }
+      sql += this.renderLock(node.lock);
+    }
     return sql;
   }
 
+  /**
+   * Compile an INSERT.
+   *
+   * Takes the cached fast path only when the statement text is a pure function of
+   * its structure. A SQL expression among the values, or a conflict predicate,
+   * makes the text depend on the values themselves — those compile uncached, in
+   * SQL order, so placeholder positions stay correct.
+   */
   private compileInsert(node: InsertNode, params: Params): string {
     const columns = node.values.length > 0 ? Object.keys(node.values[0] as object) : [];
+    const conflict = node.onConflict;
+    const cacheable =
+      conflict?.targetWhere === undefined &&
+      conflict?.updateWhere === undefined &&
+      !insertHasExpression(node);
+    if (!cacheable) return this.compileInsertDirect(node, columns, params);
+
     // Bind every value in row-major, column order. The SQL text is independent of
     // the values (a null becomes a placeholder like any other), so it depends only
     // on the structure — which lets us cache the template below.
@@ -171,13 +315,55 @@ export abstract class BaseDialect {
     }
     // ON CONFLICT DO UPDATE binds its SET values after the row values, in key order.
     const conflictCols =
-      node.onConflict && node.onConflict.update !== "nothing"
-        ? Object.keys(node.onConflict.update)
-        : [];
+      conflict && conflict.update !== "nothing" ? Object.keys(conflict.update) : [];
     for (const c of conflictCols) {
-      params.bind((node.onConflict?.update as Record<string, unknown>)[c]);
+      params.bind((conflict?.update as Record<string, unknown>)[c]);
     }
-    return this.insertTemplate(node, columns, conflictCols);
+    return this.insertTemplate(node, columns, conflictCols, params);
+  }
+
+  /**
+   * Compile an INSERT without the template cache, rendering clauses in statement
+   * order so every parameter is bound at the position it appears.
+   *
+   * @param node The insert node.
+   * @param columns The column keys shared by every row.
+   * @param params The parameter collector.
+   * @returns The SQL text.
+   */
+  private compileInsertDirect(
+    node: InsertNode,
+    columns: readonly string[],
+    params: Params,
+  ): string {
+    const names = node.names;
+    const colSql = columns.map((c) => this.columnId(c, names)).join(", ");
+    const rowsSql = node.values
+      .map((row) => {
+        const cells = columns.map((c) =>
+          this.renderValue((row as Record<string, unknown>)[c] ?? null, params),
+        );
+        return `(${cells.join(", ")})`;
+      })
+      .join(", ");
+    let sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}`;
+    if (node.onConflict) {
+      const update = node.onConflict.update;
+      const conflictCols = update === "nothing" ? [] : Object.keys(update);
+      let cursor = 0;
+      sql += this.renderConflict(
+        node.onConflict,
+        conflictCols,
+        () => {
+          const key = conflictCols[cursor++] as string;
+          return this.renderValue((update as Record<string, unknown>)[key], params);
+        },
+        names,
+        params,
+      );
+    }
+    sql += this.compileReturning(node.returning, names);
+    return sql;
   }
 
   /**
@@ -192,6 +378,7 @@ export abstract class BaseDialect {
     node: InsertNode,
     columns: readonly string[],
     conflictCols: readonly string[],
+    params: Params,
   ): string {
     const returningKey =
       node.returning === null
@@ -206,82 +393,117 @@ export abstract class BaseDialect {
     const cached = BaseDialect.insertTemplates.get(key);
     if (cached !== undefined) return cached;
 
-    const colSql = columns.map((c) => this.quoteId(c)).join(", ");
+    const names = node.names;
+    const colSql = columns.map((c) => this.columnId(c, names)).join(", ");
     let position = 0;
     const rowsSql = node.values
       .map(() => `(${columns.map(() => this.placeholder(++position)).join(", ")})`)
       .join(", ");
     let sql = `INSERT INTO ${this.quoteId(node.table)} (${colSql}) VALUES ${rowsSql}`;
     if (node.onConflict) {
-      sql += this.renderConflict(node.onConflict, conflictCols, () =>
-        this.placeholder(++position),
+      sql += this.renderConflict(
+        node.onConflict,
+        conflictCols,
+        () => this.placeholder(++position),
+        names,
+        params,
       );
     }
-    sql += this.compileReturning(node.returning);
+    sql += this.compileReturning(node.returning, names);
     BaseDialect.insertTemplates.set(key, sql);
     return sql;
   }
 
   /**
    * Render the conflict-handling clause. Standard SQL (SQLite/PostgreSQL) uses
-   * `ON CONFLICT (...) DO NOTHING | DO UPDATE SET ...`; MySQL overrides this.
+   * `ON CONFLICT (...) [WHERE predicate] DO NOTHING | DO UPDATE SET ... [WHERE ...]`;
+   * MySQL overrides this.
+   *
+   * The index predicate is rendered before the `DO UPDATE` assignments because
+   * that is where it sits in the statement, so its parameters bind first.
    *
    * @param onConflict The conflict clause from the node.
    * @param conflictCols The columns to overwrite on `DO UPDATE` (empty for nothing).
-   * @param nextPlaceholder Yields the next positional placeholder (advances the count).
+   * @param nextValue Yields the SQL for the next `DO UPDATE` assignment value.
+   * @param names The node's property → column map, if any.
+   * @param params The parameter collector, for the predicates.
+   * @returns The SQL text, leading space included.
    */
   protected renderConflict(
     onConflict: NonNullable<InsertNode["onConflict"]>,
     conflictCols: readonly string[],
-    nextPlaceholder: () => string,
+    nextValue: () => string,
+    names: NameMap | undefined,
+    params: Params,
   ): string {
-    const target = onConflict.target.map((c) => this.quoteId(c)).join(", ");
-    if (onConflict.update === "nothing") return ` ON CONFLICT (${target}) DO NOTHING`;
+    const idFor = (key: string): string => this.columnId(key, names);
+    const target = onConflict.target.map(idFor).join(", ");
+    const indexWhere = this.compileCondition(onConflict.targetWhere, params, idFor);
+    const targetSql = indexWhere ? `(${target}) WHERE ${indexWhere}` : `(${target})`;
+    if (onConflict.update === "nothing") return ` ON CONFLICT ${targetSql} DO NOTHING`;
     const assignments = conflictCols
-      .map((c) => `${this.quoteId(c)} = ${nextPlaceholder()}`)
+      .map((c) => `${idFor(c)} = ${nextValue()}`)
       .join(", ");
-    return ` ON CONFLICT (${target}) DO UPDATE SET ${assignments}`;
+    let sql = ` ON CONFLICT ${targetSql} DO UPDATE SET ${assignments}`;
+    const updateWhere = this.compileCondition(onConflict.updateWhere, params, idFor);
+    if (updateWhere) sql += ` WHERE ${updateWhere}`;
+    return sql;
   }
 
   private compileUpdate(node: UpdateNode, params: Params): string {
+    const names = node.names;
     const sets = Object.entries(node.set)
-      .map(([col, value]) => `${this.quoteId(col)} = ${params.bind(value)}`)
+      .map(
+        ([col, value]) =>
+          `${this.columnId(col, names)} = ${this.renderValue(value, params)}`,
+      )
       .join(", ");
     let sql = `UPDATE ${this.quoteId(node.table)} SET ${sets}`;
-    const where = this.compileCondition(node.where, params, (k) => this.quoteId(k));
+    const where = this.compileCondition(node.where, params, (k) =>
+      this.columnId(k, names),
+    );
     if (where) sql += ` WHERE ${where}`;
-    sql += this.compileReturning(node.returning);
+    sql += this.compileReturning(node.returning, names);
     return sql;
   }
 
   private compileDelete(node: DeleteNode, params: Params): string {
+    const names = node.names;
     let sql = `DELETE FROM ${this.quoteId(node.table)}`;
-    const where = this.compileCondition(node.where, params, (k) => this.quoteId(k));
+    const where = this.compileCondition(node.where, params, (k) =>
+      this.columnId(k, names),
+    );
     if (where) sql += ` WHERE ${where}`;
-    sql += this.compileReturning(node.returning);
+    sql += this.compileReturning(node.returning, names);
     return sql;
   }
 
   private compileJoin(node: JoinNode, params: Params): string {
+    const names = node.names;
     const cols = node.selections
       .map((s) => {
         const ref = `${s.alias}.${s.column}`;
-        return `${this.qualify(ref)} AS ${this.quoteId(ref)}`;
+        return `${this.qualify(ref, names)} AS ${this.quoteId(ref)}`;
       })
       .join(", ");
     let sql = `SELECT ${cols} FROM ${this.quoteId(node.base.table)} AS ${this.quoteId(node.base.alias)}`;
     for (const j of node.joins) {
       const kw = j.kind === "left" ? "LEFT JOIN" : "INNER JOIN";
       const on = j.on
-        .map(([l, r]) => `${this.qualify(l)} = ${this.qualify(r)}`)
+        .map(([l, r]) => `${this.qualify(l, names)} = ${this.qualify(r, names)}`)
         .join(" AND ");
       sql += ` ${kw} ${this.quoteId(j.table)} AS ${this.quoteId(j.alias)} ON ${on}`;
     }
-    const where = this.compileCondition(node.where, params, (k) => this.qualify(k));
+    const where = this.compileCondition(node.where, params, (k) =>
+      this.qualify(k, names),
+    );
     if (where) sql += ` WHERE ${where}`;
     if (node.orderBy.length > 0) {
       const terms = node.orderBy
-        .map((t) => `${this.qualify(t.ref)} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+        .map(
+          (t) =>
+            `${this.qualify(t.ref, names)} ${t.direction === "desc" ? "DESC" : "ASC"}`,
+        )
         .join(", ");
       sql += ` ORDER BY ${terms}`;
     }
@@ -292,10 +514,13 @@ export abstract class BaseDialect {
 
   // ---- clauses ----------------------------------------------------------
 
-  protected compileReturning(returning: readonly string[] | "*" | null): string {
+  protected compileReturning(
+    returning: readonly string[] | "*" | null,
+    names?: NameMap | undefined,
+  ): string {
     if (returning === null) return "";
     if (returning === "*") return " RETURNING *";
-    return ` RETURNING ${returning.map((c) => this.quoteId(c)).join(", ")}`;
+    return ` RETURNING ${returning.map((c) => this.columnId(c, names)).join(", ")}`;
   }
 
   /**
@@ -368,6 +593,16 @@ export abstract class BaseDialect {
         return `${id} LIKE ${params.bind(operand)}`;
       case "ilike":
         return this.ilike(id, params.bind(operand));
+      case "ieq":
+        return operand === null
+          ? `${id} IS NULL`
+          : `lower(${id}) = lower(${params.bind(operand)})`;
+      case "contains":
+        return `${id} ${this.arrayOperator("contains")} ${params.bind(operand)}`;
+      case "containedBy":
+        return `${id} ${this.arrayOperator("containedBy")} ${params.bind(operand)}`;
+      case "overlaps":
+        return `${id} ${this.arrayOperator("overlaps")} ${params.bind(operand)}`;
       case "in":
         return this.compileIn(id, operand as readonly unknown[], params, false);
       case "notIn":
@@ -409,9 +644,20 @@ export class SqliteDialect extends BaseDialect {
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`;
   }
+
+  /**
+   * SQLite has no row-level locking, so a lock request is an error rather than a
+   * silently unlocked `SELECT` — a lock that does not exist only shows up as
+   * duplicated work under production concurrency.
+   */
+  protected override renderLock(): string {
+    throw new Error(
+      "SQLite has no row-level locking — FOR UPDATE / FOR SHARE is unsupported. Serialize the claim inside a transaction instead.",
+    );
+  }
 }
 
-/** PostgreSQL dialect: `$1` placeholders; native `ILIKE`. */
+/** PostgreSQL dialect: `$1` placeholders; native `ILIKE`; native array operators. */
 export class PostgresDialect extends BaseDialect {
   readonly name = "postgresql" as const;
 
@@ -421,6 +667,12 @@ export class PostgresDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} ILIKE ${param}`;
+  }
+
+  protected override arrayOperator(op: "contains" | "containedBy" | "overlaps"): string {
+    if (op === "contains") return "@>";
+    if (op === "containedBy") return "<@";
+    return "&&";
   }
 }
 
@@ -454,16 +706,22 @@ export class MysqlDialect extends BaseDialect {
   protected override renderConflict(
     onConflict: NonNullable<InsertNode["onConflict"]>,
     conflictCols: readonly string[],
-    nextPlaceholder: () => string,
+    nextValue: () => string,
+    names: NameMap | undefined,
   ): string {
+    if (onConflict.targetWhere || onConflict.updateWhere) {
+      throw new Error(
+        "MySQL's ON DUPLICATE KEY UPDATE has no conflict-target predicate — a partial unique index is PostgreSQL/SQLite only.",
+      );
+    }
     if (onConflict.update === "nothing") {
       // MySQL has no DO NOTHING; a no-op self-assignment on a target column is
       // the idiomatic equivalent (keeps the existing row untouched).
-      const col = this.quoteId(onConflict.target[0] ?? "id");
+      const col = this.columnId(onConflict.target[0] ?? "id", names);
       return ` ON DUPLICATE KEY UPDATE ${col} = ${col}`;
     }
     const assignments = conflictCols
-      .map((c) => `${this.quoteId(c)} = ${nextPlaceholder()}`)
+      .map((c) => `${this.columnId(c, names)} = ${nextValue()}`)
       .join(", ");
     return ` ON DUPLICATE KEY UPDATE ${assignments}`;
   }

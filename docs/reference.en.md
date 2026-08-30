@@ -43,6 +43,7 @@ A factory for typed columns (mirrors SQLAlchemy's generic types).
 
 | Method | TS type | SQL type |
 | --- | --- | --- |
+| `column.array(element)` | `T[]` | `TEXT[]` / `INTEGER[]` (PostgreSQL) |
 | `column.smallInteger()` | `number` | `SMALLINT` |
 | `column.integer()` | `number` | `INTEGER` |
 | `column.bigInteger()` | `bigint` | `BIGINT` |
@@ -83,9 +84,37 @@ Server-side expressions, rendered per dialect (à la SQLAlchemy's `func`):
 | `sql.currentTime()` | `CURRENT_TIME` | time |
 | `sql.uuidv4()` | `gen_random_uuid()` / fallback | UUID PK |
 | `sql.raw(expr)` | verbatim | escape hatch |
+| `` sql.expr`...${v}` `` | parameterized fragment | expression with a bound value |
 
 The default is stored in `column.<field>.defaultValue` / `.onUpdateValue` — it feeds
 the migration IR.
+
+Every `sql.*` expression is **branded** (`isSqlExpression`) and works both as a
+column default and as a write value in `.set()` / `.values()`, where it is rendered
+inline instead of being bound as a parameter:
+
+```ts
+update(Outbound)
+  .set({ attempts: sql.raw("attempts + 1"), updatedAt: sql.now() })
+  .where({ id });
+```
+
+!!! warning "`sql.expr` cannot be a column default"
+
+    A `DEFAULT` has nowhere to bind parameters — `.default(sql.expr\`...\`)` throws
+    immediately. Use `sql.raw()` there.
+
+### Column names
+
+| Symbol | Does |
+| --- | --- |
+| `.name("column")` | Maps the property to a different column name. |
+| `static naming` | `"preserve"` (default) or `"snake_case"` for the whole table. |
+| `columnNamesOf(Model)` | Property → column map, or `null` when nothing is renamed. |
+| `columnPropsOf(Model)` | The inverse map, column → property. |
+| `toSnakeCase(name)` | The conversion used by the `"snake_case"` strategy. |
+
+See the [Column names](recipes/naming.md) recipe.
 
 ### `columnsOf(Model)`
 
@@ -119,7 +148,13 @@ are required.
 | `.orderBy(column, direction?)` | Orders by column (`"asc"` \| `"desc"`, default `"asc"`). |
 | `.limit(n)` | Limits the number of rows. |
 | `.offset(n)` | Skips the first `n` rows. |
+| `.forUpdate(options?)` | `FOR UPDATE [OF ...] [SKIP LOCKED \| NOWAIT]`. PostgreSQL/MySQL; SQLite throws. |
+| `.forShare(options?)` | Same, with a shared lock (`FOR SHARE`). |
 | `.node` | The `SelectNode` AST (read-only). |
+
+`LockOptions` = `{ skipLocked?: boolean; noWait?: boolean; of?: readonly string[] }`.
+`skipLocked` and `noWait` are mutually exclusive, and a lock combined with
+`DISTINCT`/an aggregate throws at compile time.
 
 ### `where` operators (`OperatorsFor<T>`)
 
@@ -128,10 +163,21 @@ restricted to the column's type:
 
 | Type | Allowed operators |
 | --- | --- |
-| `string` | `eq`, `ne`, `in`, `notIn`, `like`, `ilike`, `isNull` |
+| `string` | `eq`, `ne`, `in`, `notIn`, `like`, `ilike`, `ieq`, `isNull` |
 | `number` / `bigint` / `Date` | `eq`, `ne`, `in`, `notIn`, `gt`, `gte`, `lt`, `lte`, `between`, `isNull` |
 | `boolean` | `eq`, `ne`, `isNull` |
+| `T[]` (array) | `eq`, `ne`, `in`, `notIn`, `contains`, `containedBy`, `overlaps`, `isNull` |
 | json / blob | `eq`, `ne`, `in`, `notIn`, `isNull` |
+
+!!! danger "`ilike` is a pattern, `ieq` is equality"
+
+    `%` and `_` are wildcards in `like`/`ilike` — `{ ilike: "%" }` matches every
+    row. For a case-insensitive lookup (login, e-mail) use `ieq`, which compiles to
+    `lower(col) = lower($1)` and matches a functional index. See
+    [Case-insensitive comparison](recipes/case-insensitive.md).
+
+The array operators (`contains` → `@>`, `containedBy` → `<@`, `overlaps` → `&&`)
+are native to PostgreSQL; the other dialects throw an explicit error.
 
 `OPERATORS` (runtime) and the `Operator` type list the full set. An operator that's
 invalid for the type = compile error.
@@ -159,10 +205,20 @@ Returns `InsertBuilder`.
 | Method | Description |
 | --- | --- |
 | `.values(row \| rows)` | Typed by `InferInsert<typeof Model>`. Accepts 1 or N. |
+| `.onConflictDoNothing(target, options?)` | `ON CONFLICT (target) [WHERE ...] DO NOTHING`. |
+| `.onConflictDoUpdate(target, set, options?)` | Upsert, with optional `indexWhere`/`updateWhere`. |
 | `.returning()` | Result becomes the full row. |
 | `.returning(columns)` | Result becomes a `Pick` of the columns. |
 
 Without `returning`, the execution result is `number` (affected rows).
+
+`OnConflictOptions` = `{ where? }` (the predicate of a **partial** unique index —
+required on PostgreSQL for it to match as a conflict target).
+`OnConflictUpdateOptions` = `{ indexWhere?, updateWhere? }`. Both take the same
+condition language as `where`. MySQL throws for any predicate.
+
+Values in `.values()` and `.set()` accept the column's value **or** a `sql.*`
+expression; any other object raises `ValidationError` while the query is built.
 
 ## UPDATE
 
@@ -172,7 +228,7 @@ Returns `UpdateBuilder<Full, false>` (unguarded).
 
 | Method | Description |
 | --- | --- |
-| `.set(values)` | `Partial<Full>` — only the columns you pass get changed. |
+| `.set(values)` | `WritePatch<Full>` — only the columns you pass change; accepts a `sql.*` expression. |
 | `.where(input)` | Filters **and** marks `Guarded = true`. |
 | `.unguarded()` | Explicit opt-in to update all rows (`Guarded = true`). |
 | `.returning()` / `.returning(cols)` | As in insert. |
@@ -192,7 +248,9 @@ Returns `DeleteBuilder<Full, false>` (`del` because `delete` is reserved).
 ## AST types
 
 Exposed for tooling and dialects: `SelectNode`, `InsertNode`,
-`UpdateNode`, `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`.
+`UpdateNode`, `DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`,
+`LockClause`, `LockOptions`, `OnConflict`, `OnConflictOptions`,
+`OnConflictUpdateOptions`, `WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`.
 
 ## Database URL
 
@@ -269,8 +327,10 @@ const compiled = sqlite.compile(
 | `CompiledQuery` | `{ sql: string; params: readonly unknown[] }`. |
 | `QueryNode` | The union of compilable ASTs. |
 
-Differences per dialect: placeholder (`?` vs `$1`) and `ilike` (native `ILIKE` in
-Postgres; `LIKE` in SQLite, case-insensitive in ASCII).
+Differences per dialect: placeholder (`?` vs `$1`), `ilike` (native `ILIKE` in
+Postgres; `LIKE` in SQLite, case-insensitive in ASCII), row locking (`FOR UPDATE` on
+Postgres/MySQL, an error on SQLite), the `ON CONFLICT` predicate (Postgres/SQLite,
+an error on MySQL) and native arrays (PostgreSQL only).
 
 ## Execution (engine / session)
 
@@ -284,6 +344,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `engine.transaction(fn)` | Transactional block (automatic commit/rollback). |
 | `engine.close()` | Closes the driver. |
 | `session.execute(builder)` | Runs and coerces; returns a `Result`. |
+| `session.raw(sql, params?, opts?)` | Raw **parameterized** statement; same `Result`. `{ as: Model }` coerces rows. |
 | `session.stream(builder)` | Lazy iteration (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (nested transaction). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
@@ -303,6 +364,11 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 Drivers: SQLite via the built-in `node:sqlite` (`NodeSqliteDriver`); PostgreSQL via
 `postgres.js` (lazy). The `update`/`del` guard is required by `execute` (the
 `Executable` type).
+
+`session.raw` is the way out for the query the builder cannot yet express — it goes
+through the same `onQuery`, the same `QueryExecutionError` and the transaction's
+reserved connection. Never interpolate values into the string: they go in `params`.
+See [Raw SQL at runtime](recipes/raw-sql.md).
 
 ## Joins
 

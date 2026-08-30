@@ -25,6 +25,11 @@ recipes show you how to apply them in real day-to-day situations.
 | [JSON and enum columns](json-enum.en.md) | Store typed objects and literal unions with type safety. |
 | [Serialization (row ↔ JSON)](serialization.en.md) | Convert rows to JSON and validate JSON back into a row. |
 | [Connecting to PostgreSQL](postgres.en.md) | Swap SQLite for Postgres via the URL and tune the pool. |
+| [A durable queue on PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, atomic counters and idempotency via a partial index. |
+| [Column names](naming.md) | A `snake_case` schema behind a `camelCase` model, with no false drift. |
+| [PostgreSQL array columns](arrays.md) | Typed `text[]`/`integer[]`, with `@>`, `<@` and `&&`. |
+| [Case-insensitive comparison](case-insensitive.md) | `ieq` for case-insensitive login — and the `ilike` trap. |
+| [Raw SQL at runtime](raw-sql.md) | `session.raw` for the query the builder cannot yet express. |
 
 ## Looking for something bigger?
 

@@ -280,6 +280,69 @@ export function checkDrift(driver: SyncDriver, models: readonly ModelClass[]): s
   return issues;
 }
 
+/**
+ * Map a PostgreSQL `information_schema` row to the closest IR column type.
+ *
+ * An array column reports `data_type = "ARRAY"` with the element type hidden in
+ * `udt_name` as `_text` / `_int4`, so it is unpacked here into a nested element
+ * type — otherwise every `text[]` column would read back as plain text and the
+ * drift check would fire forever.
+ *
+ * @param dataType The `information_schema.columns.data_type` value.
+ * @param udtName The `information_schema.columns.udt_name` value.
+ * @returns The IR column type.
+ */
+function pgTypeToColumnType(dataType: string, udtName: string): ColumnType {
+  if (dataType.toLowerCase() === "array") {
+    return {
+      kind: "array",
+      meta: { element: { kind: pgUdtToKind(udtName.replace(/^_/, "")), meta: {} } },
+    };
+  }
+  return { kind: pgTypeToKind(dataType, udtName), meta: {} };
+}
+
+/** Map a PostgreSQL internal type name (`text`, `int4`) to the closest IR kind. */
+function pgUdtToKind(udtName: string): ColumnType["kind"] {
+  switch (udtName) {
+    case "int2":
+      return "smallint";
+    case "int4":
+      return "integer";
+    case "int8":
+      return "bigint";
+    case "float4":
+      return "real";
+    case "float8":
+      return "double";
+    case "numeric":
+      return "numeric";
+    case "varchar":
+      return "varchar";
+    case "bpchar":
+      return "char";
+    case "bool":
+      return "boolean";
+    case "date":
+      return "date";
+    case "time":
+    case "timetz":
+      return "time";
+    case "timestamp":
+    case "timestamptz":
+      return "timestamp";
+    case "bytea":
+      return "blob";
+    case "json":
+    case "jsonb":
+      return "json";
+    case "uuid":
+      return "uuid";
+    default:
+      return "text";
+  }
+}
+
 /** Map a PostgreSQL `information_schema` type name to the closest IR kind. */
 function pgTypeToKind(dataType: string, udtName: string): ColumnType["kind"] {
   const t = dataType.toLowerCase();
@@ -338,10 +401,7 @@ export async function introspectPostgres(driver: AsyncDriver): Promise<SchemaIR>
       const isPk = pkSet.has(name);
       columns[name] = {
         name,
-        type: {
-          kind: pgTypeToKind(String(col.data_type), String(col.udt_name)),
-          meta: {},
-        },
+        type: pgTypeToColumnType(String(col.data_type), String(col.udt_name)),
         notNull: col.is_nullable === "NO" || isPk,
         primaryKey: isPk,
         default: null,
@@ -408,6 +468,12 @@ async function postgresUniques(
   }));
 }
 
+/** The comparable name of a column type — `text[]` for arrays, the kind otherwise. */
+function describeKind(type: ColumnType): string {
+  if (type.kind !== "array") return type.kind;
+  return `${type.meta.element ? describeKind(type.meta.element) : "unknown"}[]`;
+}
+
 /**
  * Drift check for PostgreSQL: compares the live schema (introspected) against the
  * models by column kind, nullability, primary-key, and presence. Structural —
@@ -436,9 +502,9 @@ export async function checkDriftPostgres(
         issues.push(`column "${tableName}.${colName}" is missing from the database`);
         continue;
       }
-      if (expectedCol.type.kind !== actualCol.type.kind) {
+      if (describeKind(expectedCol.type) !== describeKind(actualCol.type)) {
         issues.push(
-          `column "${tableName}.${colName}" type differs: model ${expectedCol.type.kind}, db ${actualCol.type.kind}`,
+          `column "${tableName}.${colName}" type differs: model ${describeKind(expectedCol.type)}, db ${describeKind(actualCol.type)}`,
         );
       }
       if (expectedCol.notNull !== actualCol.notNull) {

@@ -53,7 +53,8 @@ export type ColumnTypeKind =
   | "blob"
   | "json"
   | "uuid"
-  | "enum";
+  | "enum"
+  | "array";
 
 /** Parameters that refine a column type and feed the migration IR / DDL. */
 export interface ColumnTypeMeta {
@@ -69,6 +70,8 @@ export interface ColumnTypeMeta {
   readonly values?: readonly string[] | undefined;
   /** Render as `JSONB` (PostgreSQL) instead of `JSON`. */
   readonly jsonb?: boolean | undefined;
+  /** The element type of an `array` column (`text[]`, `integer[]`). */
+  readonly element?: ColumnType | undefined;
 }
 
 /** A structured, dialect-neutral column type descriptor. */
@@ -81,14 +84,17 @@ export interface ColumnType {
  * A portable default expression. The token is dialect-neutral; the renderer
  * (Phase 4/6) maps it to the right SQL per database — e.g. `"now"` becomes
  * `CURRENT_TIMESTAMP` on SQLite and `now()` on PostgreSQL. Use `{ raw }` as an
- * escape hatch for a verbatim SQL fragment.
+ * escape hatch for a verbatim SQL fragment, or `{ parts }` for a parameterized
+ * fragment built by the `sql.expr` tagged template (one bound parameter per gap
+ * between consecutive parts).
  */
 export type PortableExpression =
   | "now"
   | "current_date"
   | "current_time"
   | "uuidv4"
-  | { readonly raw: string };
+  | { readonly raw: string }
+  | { readonly parts: readonly string[] };
 
 /**
  * A column default. Either a constant literal value or a server-side expression
@@ -99,21 +105,97 @@ export type DefaultValue =
   | { readonly kind: "literal"; readonly value: unknown }
   | { readonly kind: "expression"; readonly expression: PortableExpression };
 
-/** Portable server-side default expressions, à la SQLAlchemy's `func`. */
+/**
+ * Brand marking a value as a SQL expression rather than a bound parameter.
+ *
+ * A plain object reaching `set()`/`values()` is a mistake (it would be bound as a
+ * parameter and silently written as JSON or null); an object carrying this symbol
+ * is deliberate, and the dialect renders it inline instead of binding it. Mirrors
+ * how `Condition` is branded, so the check is a symbol lookup, not duck typing.
+ */
+const EXPRESSION = Symbol.for("tempest-db-js.expression");
+
+/**
+ * A SQL expression, usable both as a column default (`.default(sql.now())`) and
+ * as a write value (`.set({ attempts: sql.raw("attempts + 1") })`). The dialect
+ * renders `expression` inline and binds `params` in the order of the fragment's
+ * gaps.
+ */
+export interface SqlExpression {
+  readonly [EXPRESSION]: true;
+  readonly kind: "expression";
+  readonly expression: PortableExpression;
+  /** Parameters bound into the fragment's gaps, in order (empty for a token). */
+  readonly params: readonly unknown[];
+}
+
+/** Build a branded {@link SqlExpression} from a portable token or fragment. */
+function expression(
+  token: PortableExpression,
+  params: readonly unknown[] = [],
+): SqlExpression {
+  return { [EXPRESSION]: true, kind: "expression", expression: token, params };
+}
+
+/**
+ * Runtime guard: is this value a branded {@link SqlExpression}?
+ *
+ * @param value Any value handed to `set()`, `values()` or `.default()`.
+ * @returns True when the value carries the expression brand.
+ */
+export function isSqlExpression(value: unknown): value is SqlExpression {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[EXPRESSION] === true
+  );
+}
+
+/**
+ * Portable server-side expressions, à la SQLAlchemy's `func`.
+ *
+ * Every entry doubles as a column default and as a write value, so
+ * `.default(sql.now())` and `.set({ updatedAt: sql.now() })` both work.
+ */
 export const sql = {
   /** Current timestamp at insert (`CURRENT_TIMESTAMP` / `now()`). */
-  now: (): DefaultValue => ({ kind: "expression", expression: "now" }),
+  now: (): SqlExpression => expression("now"),
   /** Current date. */
-  currentDate: (): DefaultValue => ({ kind: "expression", expression: "current_date" }),
+  currentDate: (): SqlExpression => expression("current_date"),
   /** Current time. */
-  currentTime: (): DefaultValue => ({ kind: "expression", expression: "current_time" }),
+  currentTime: (): SqlExpression => expression("current_time"),
   /** A freshly generated UUID v4 (`gen_random_uuid()` / portable fallback). */
-  uuidv4: (): DefaultValue => ({ kind: "expression", expression: "uuidv4" }),
-  /** Escape hatch: a verbatim SQL expression rendered as-is. */
-  raw: (expression: string): DefaultValue => ({
-    kind: "expression",
-    expression: { raw: expression },
-  }),
+  uuidv4: (): SqlExpression => expression("uuidv4"),
+  /**
+   * Escape hatch: a verbatim SQL expression rendered as-is, with no parameters.
+   *
+   * The fragment is interpolated into the statement untouched, so it must never
+   * carry user input — use {@link sql.expr} when a value has to be bound.
+   *
+   * @param fragment The SQL text (e.g. `"attempts + 1"`).
+   * @returns The expression, usable as a default and as a write value.
+   */
+  raw: (fragment: string): SqlExpression => expression({ raw: fragment }),
+  /**
+   * A parameterized SQL expression, written as a tagged template. Static text is
+   * SQL; every `${...}` interpolation becomes a bound parameter, so the fragment
+   * is injection-safe by construction.
+   *
+   * Cannot be used as a column default — a `DEFAULT` clause has nowhere to bind
+   * parameters; use {@link sql.raw} there.
+   *
+   * @param parts The static SQL segments supplied by the template tag.
+   * @param values The interpolated values, bound in order.
+   * @returns The expression, usable as a write value.
+   *
+   * @example
+   * ```ts
+   * update(Account).set({ balance: sql.expr`balance - ${amount}` }).where({ id });
+   * // UPDATE "accounts" SET "balance" = balance - $1 WHERE "id" = $2
+   * ```
+   */
+  expr: (parts: TemplateStringsArray, ...values: unknown[]): SqlExpression =>
+    expression({ parts: Array.from(parts) }, values),
 } as const;
 
 /** Narrow a `.default()` argument to a `DefaultValue` expression/literal marker. */
@@ -124,6 +206,15 @@ function isDefaultValue(value: unknown): value is DefaultValue {
     "kind" in value &&
     ((value as { kind: unknown }).kind === "literal" ||
       (value as { kind: unknown }).kind === "expression")
+  );
+}
+
+/** True when an expression carries bound parameters (illegal in a DDL default). */
+function bindsParameters(value: DefaultValue): boolean {
+  return (
+    value.kind === "expression" &&
+    typeof value.expression === "object" &&
+    "parts" in value.expression
   );
 }
 
@@ -183,26 +274,34 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     readonly onUpdateValue: DefaultValue | null = null,
     /** The foreign-key reference this column points to, or `null` for none. */
     readonly reference: ForeignKeyRef | null = null,
+    /** An explicit database column name overriding the property name, or `null`. */
+    readonly dbName: string | null = null,
   ) {}
 
-  primaryKey(): Column<T, F & { primaryKey: true; hasDefault: true }> {
-    return new Column(
+  /** Clone this column with one facet replaced, carrying every other over. */
+  private derive<F2 extends ColumnFlags>(patch: {
+    flags?: F2;
+    defaultValue?: DefaultValue | null;
+    onUpdateValue?: DefaultValue | null;
+    reference?: ForeignKeyRef | null;
+    dbName?: string | null;
+  }): Column<T, F2> {
+    return new Column<T, F2>(
       this.type,
-      { ...this.flags, primaryKey: true, hasDefault: true },
-      this.defaultValue,
-      this.onUpdateValue,
-      this.reference,
+      (patch.flags ?? this.flags) as F2,
+      patch.defaultValue !== undefined ? patch.defaultValue : this.defaultValue,
+      patch.onUpdateValue !== undefined ? patch.onUpdateValue : this.onUpdateValue,
+      patch.reference !== undefined ? patch.reference : this.reference,
+      patch.dbName !== undefined ? patch.dbName : this.dbName,
     );
   }
 
+  primaryKey(): Column<T, F & { primaryKey: true; hasDefault: true }> {
+    return this.derive({ flags: { ...this.flags, primaryKey: true, hasDefault: true } });
+  }
+
   notNull(): Column<T, F & { notNull: true }> {
-    return new Column(
-      this.type,
-      { ...this.flags, notNull: true },
-      this.defaultValue,
-      this.onUpdateValue,
-      this.reference,
-    );
+    return this.derive({ flags: { ...this.flags, notNull: true } });
   }
 
   /**
@@ -210,13 +309,36 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
    * `mapped_column(unique=True)`). DDL-only — does not change the inferred type.
    */
   unique(): Column<T, F & { unique: true }> {
-    return new Column(
-      this.type,
-      { ...this.flags, unique: true },
-      this.defaultValue,
-      this.onUpdateValue,
-      this.reference,
-    );
+    return this.derive({ flags: { ...this.flags, unique: true } });
+  }
+
+  /**
+   * Map this property to a differently-named database column, à la SQLAlchemy's
+   * `mapped_column("consumer_name")` (Django's `db_column`, Prisma's `@map`).
+   *
+   * The override applies everywhere the name reaches SQL — select, insert,
+   * update, delete, where, order by, group by, returning, conflict targets, the
+   * migration IR and the drift check — while the TypeScript row keeps the
+   * property name. Use it to keep a `snake_case` schema behind a `camelCase`
+   * model; {@link Model.naming} does the same for a whole table at once.
+   *
+   * @param dbName The real column name in the database.
+   * @returns A new column bound to that name.
+   * @throws Error When `dbName` is empty.
+   *
+   * @example
+   * ```ts
+   * class ApiKey extends Model {
+   *   static tablename = "api_keys";
+   *   consumerName = column.text().name("consumer_name").notNull();
+   * }
+   * ```
+   */
+  name(dbName: string): Column<T, F> {
+    if (dbName.length === 0) {
+      throw new Error("column.name() requires a non-empty database column name.");
+    }
+    return this.derive({ dbName });
   }
 
   /**
@@ -230,41 +352,51 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
    * @throws Error When `ref` is not a valid `"table.column"` string.
    */
   references(ref: string, options?: ForeignKeyOptions): Column<T, F> {
-    return new Column(
-      this.type,
-      this.flags,
-      this.defaultValue,
-      this.onUpdateValue,
-      parseReference(ref, options),
-    );
+    return this.derive({ reference: parseReference(ref, options) });
   }
 
   /**
    * Set the insert-time default: a constant value of type `T`, or a portable
    * server-side expression from {@link sql} (e.g. `sql.now()`, `sql.uuidv4()`).
+   *
+   * @param value The literal default, or a {@link sql} expression.
+   * @returns A new column carrying the default.
+   * @throws Error When given a `sql.expr` fragment — a `DEFAULT` clause has
+   *   nowhere to bind parameters; use `sql.raw()` for a verbatim expression.
    */
   default(value: T | DefaultValue): Column<T, F & { hasDefault: true }> {
     const resolved: DefaultValue = isDefaultValue(value)
       ? value
       : { kind: "literal", value };
-    return new Column(
-      this.type,
-      { ...this.flags, hasDefault: true },
-      resolved,
-      this.onUpdateValue,
-      this.reference,
-    );
+    if (bindsParameters(resolved)) {
+      throw new Error(
+        "sql.expr`...` binds parameters and cannot be a column default — use sql.raw() for a verbatim DEFAULT expression.",
+      );
+    }
+    return this.derive({
+      flags: { ...this.flags, hasDefault: true },
+      defaultValue: resolved,
+    });
   }
 
   /**
    * Re-apply a value whenever the row is updated (e.g. an `updated_at` column
    * with `sql.now()`). Mirrors SQLAlchemy's `onupdate`.
+   *
+   * @param value The literal value, or a {@link sql} expression.
+   * @returns A new column carrying the on-update value.
+   * @throws Error When given a `sql.expr` fragment (see {@link Column.default}).
    */
   onUpdate(value: T | DefaultValue): Column<T, F> {
     const resolved: DefaultValue = isDefaultValue(value)
       ? value
       : { kind: "literal", value };
-    return new Column(this.type, this.flags, this.defaultValue, resolved, this.reference);
+    if (bindsParameters(resolved)) {
+      throw new Error(
+        "sql.expr`...` binds parameters and cannot be an onUpdate default — use sql.raw() for a verbatim expression.",
+      );
+    }
+    return this.derive({ onUpdateValue: resolved });
   }
 }
 
@@ -345,6 +477,27 @@ export const column = {
   /** `ENUM(...values)` → a string-literal union of the given values. */
   enum: <const E extends string>(...values: E[]): Column<E, ColumnFlags> =>
     makeColumn<E>("enum", { values }),
+  /**
+   * A PostgreSQL array column (`text[]`, `integer[]`) → `T[]`.
+   *
+   * PostgreSQL only: SQLite and MySQL have no native array type, and rendering
+   * one as JSON there would give the same model different semantics per dialect
+   * (`@>` and `&&` work on one and not the other), so the DDL renderer throws
+   * for those dialects instead of falling back silently.
+   *
+   * @param element The element column (its type, not its flags, is what is used).
+   * @returns A column whose inferred type is an array of the element's type.
+   *
+   * @example
+   * ```ts
+   * class ApiKey extends Model {
+   *   static tablename = "api_keys";
+   *   scopes = column.array(column.text()).notNull().default(["send"]);
+   * }
+   * ```
+   */
+  array: <T>(element: Column<T, ColumnFlags>): Column<T[], ColumnFlags> =>
+    makeColumn<T[]>("array", { element: element.type }),
 } as const;
 
 /**
@@ -416,6 +569,23 @@ export function foreignKey(
   };
 }
 
+/**
+ * How property names map to database column names when a column declares no
+ * explicit {@link Column.name}.
+ *
+ *   - `"preserve"` (default) — the column name is the property name, verbatim.
+ *   - `"snake_case"` — `consumerName` becomes `consumer_name`.
+ */
+export type NamingStrategy = "preserve" | "snake_case";
+
+/** Convert a `camelCase` / `PascalCase` identifier to `snake_case`. */
+export function toSnakeCase(name: string): string {
+  return name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+}
+
 /** Base class every model extends, SQLAlchemy-declarative style. */
 // biome-ignore lint/complexity/noStaticOnlyClass: declarative base users subclass; column fields live on instances.
 export abstract class Model {
@@ -426,6 +596,12 @@ export abstract class Model {
    * `__table_args__`.
    */
   static tableArgs?: () => readonly TableConstraint[];
+  /**
+   * How to derive column names from property names (default `"preserve"`). Set
+   * `"snake_case"` to keep a `snake_case` schema behind a `camelCase` model
+   * without annotating every column; {@link Column.name} overrides it per column.
+   */
+  static naming?: NamingStrategy;
 }
 
 /** Memoized column maps, keyed by model class (identity is stable per class). */
@@ -458,6 +634,78 @@ export function columnsOf(model: ModelClass): Record<string, Column<unknown>> {
   return out;
 }
 
+/** A mapping between property names and database column names. */
+export type NameMap = Readonly<Record<string, string>>;
+
+/** Memoized property → column maps (`null` when every name is the identity). */
+const nameMapCache = new WeakMap<ModelClass, NameMap | null>();
+
+/** Memoized column → property maps (`null` when every name is the identity). */
+const propMapCache = new WeakMap<ModelClass, NameMap | null>();
+
+/**
+ * The property → database-column map for a model, or `null` when every column
+ * keeps its property name.
+ *
+ * `null` is the common case and the fast path: builders and the row coercer skip
+ * translation entirely, so a model that renames nothing costs nothing. The map
+ * is memoized per class, like {@link columnsOf}.
+ *
+ * @param model The model class.
+ * @returns The name map, or `null` when no column is renamed.
+ * @throws Error When two properties resolve to the same column name.
+ */
+export function columnNamesOf(model: ModelClass): NameMap | null {
+  const cached = nameMapCache.get(model);
+  if (cached !== undefined) return cached;
+  const strategy: NamingStrategy = model.naming ?? "preserve";
+  const map: Record<string, string> = {};
+  const seen = new Map<string, string>();
+  let renamed = false;
+  for (const [prop, col] of Object.entries(columnsOf(model))) {
+    const dbName = col.dbName ?? (strategy === "snake_case" ? toSnakeCase(prop) : prop);
+    const collision = seen.get(dbName);
+    if (collision !== undefined) {
+      throw new Error(
+        `${model.tablename}: properties "${collision}" and "${prop}" both map to column "${dbName}".`,
+      );
+    }
+    seen.set(dbName, prop);
+    map[prop] = dbName;
+    if (dbName !== prop) renamed = true;
+  }
+  const result = renamed ? (map as NameMap) : null;
+  nameMapCache.set(model, result);
+  return result;
+}
+
+/**
+ * The database-column → property map for a model, or `null` when every column
+ * keeps its property name. The inverse of {@link columnNamesOf}, used to map
+ * driver rows back into property space.
+ *
+ * @param model The model class.
+ * @returns The inverse name map, or `null` when no column is renamed.
+ */
+export function columnPropsOf(model: ModelClass): NameMap | null {
+  const cached = propMapCache.get(model);
+  if (cached !== undefined) return cached;
+  const forward = columnNamesOf(model);
+  let result: NameMap | null = null;
+  if (forward) {
+    const inverse: Record<string, string> = {};
+    for (const [prop, dbName] of Object.entries(forward)) inverse[dbName] = prop;
+    result = inverse as NameMap;
+  }
+  propMapCache.set(model, result);
+  return result;
+}
+
+/** Resolve one property name to its database column name. */
+export function dbColumn(names: NameMap | null | undefined, prop: string): string {
+  return names?.[prop] ?? prop;
+}
+
 /** Pull the static type out of a Column. */
 type ColType<C> = C extends Column<infer T, infer _F> ? T : never;
 
@@ -470,6 +718,7 @@ type ColumnKeys<M> = {
 type ModelClass = (new () => Model) & {
   tablename: string;
   tableArgs?: () => readonly TableConstraint[];
+  naming?: NamingStrategy;
 };
 
 /** Flatten an intersection into a single object literal for clean inference. */
@@ -536,6 +785,8 @@ export {
   type AggregateTerm,
   avg,
   count,
+  type LockClause,
+  type LockOptions,
   max,
   min,
   type Operator,
@@ -558,7 +809,11 @@ export {
   type InsertNode,
   insert,
   type OnConflict,
+  type OnConflictOptions,
+  type OnConflictUpdateOptions,
   type Returning,
+  type WritePatch,
+  type WriteValues,
   UpdateBuilder,
   type UpdateNode,
   update,
@@ -586,6 +841,7 @@ export {
   type CompiledQuery,
   getDialect,
   MysqlDialect,
+  Params,
   PostgresDialect,
   type QueryNode,
   SqliteDialect,

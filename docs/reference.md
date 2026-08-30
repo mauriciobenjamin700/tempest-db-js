@@ -43,6 +43,7 @@ Fábrica de colunas tipadas (espelha os tipos genéricos do SQLAlchemy).
 
 | Método | Tipo TS | Tipo SQL |
 | --- | --- | --- |
+| `column.array(element)` | `T[]` | `TEXT[]` / `INTEGER[]` (PostgreSQL) |
 | `column.smallInteger()` | `number` | `SMALLINT` |
 | `column.integer()` | `number` | `INTEGER` |
 | `column.bigInteger()` | `bigint` | `BIGINT` |
@@ -83,9 +84,37 @@ Expressões server-side, renderizadas por dialeto (à la `func` do SQLAlchemy):
 | `sql.currentTime()` | `CURRENT_TIME` | hora |
 | `sql.uuidv4()` | `gen_random_uuid()` / fallback | PK UUID |
 | `sql.raw(expr)` | verbatim | escape hatch |
+| `` sql.expr`...${v}` `` | fragmento parametrizado | expressão com valor ligado |
 
 O default fica guardado em `column.<campo>.defaultValue` / `.onUpdateValue` —
 alimenta o IR de migração.
+
+Toda expressão `sql.*` é **marcada** (`isSqlExpression`) e serve tanto como default
+de coluna quanto como valor de escrita em `.set()` / `.values()`, onde é renderizada
+inline em vez de virar parâmetro:
+
+```ts
+update(Outbound)
+  .set({ attempts: sql.raw("attempts + 1"), updatedAt: sql.now() })
+  .where({ id });
+```
+
+!!! warning "`sql.expr` não pode ser default de coluna"
+
+    Um `DEFAULT` não tem onde ligar parâmetros — `.default(sql.expr\`...\`)` lança
+    erro na hora. Use `sql.raw()` ali.
+
+### Nomes de coluna
+
+| Símbolo | Faz |
+| --- | --- |
+| `.name("coluna")` | Mapeia a propriedade para outro nome de coluna. |
+| `static naming` | `"preserve"` (default) ou `"snake_case"` para a tabela toda. |
+| `columnNamesOf(Model)` | Mapa propriedade → coluna, ou `null` sem renomeações. |
+| `columnPropsOf(Model)` | O mapa inverso, coluna → propriedade. |
+| `toSnakeCase(name)` | A conversão usada pela estratégia `"snake_case"`. |
+
+Veja a receita [Nomes de coluna](recipes/naming.md).
 
 ### `columnsOf(Model)`
 
@@ -119,7 +148,13 @@ Tipo da **linha a inserir**. Colunas com default (ou PK) são opcionais (`?`); o
 | `.orderBy(column, direction?)` | Ordena por coluna (`"asc"` \| `"desc"`, default `"asc"`). |
 | `.limit(n)` | Limita o número de linhas. |
 | `.offset(n)` | Pula as primeiras `n` linhas. |
+| `.forUpdate(options?)` | `FOR UPDATE [OF ...] [SKIP LOCKED \| NOWAIT]`. PostgreSQL/MySQL; SQLite lança. |
+| `.forShare(options?)` | Idem, com lock compartilhado (`FOR SHARE`). |
 | `.node` | A AST `SelectNode` (read-only). |
+
+`LockOptions` = `{ skipLocked?: boolean; noWait?: boolean; of?: readonly string[] }`.
+`skipLocked` e `noWait` são mutuamente exclusivos, e um lock combinado com
+`DISTINCT`/agregação lança erro na compilação.
 
 ### Operadores de `where` (`OperatorsFor<T>`)
 
@@ -128,10 +163,21 @@ operador restrito ao tipo da coluna:
 
 | Tipo | Operadores permitidos |
 | --- | --- |
-| `string` | `eq`, `ne`, `in`, `notIn`, `like`, `ilike`, `isNull` |
+| `string` | `eq`, `ne`, `in`, `notIn`, `like`, `ilike`, `ieq`, `isNull` |
 | `number` / `bigint` / `Date` | `eq`, `ne`, `in`, `notIn`, `gt`, `gte`, `lt`, `lte`, `between`, `isNull` |
 | `boolean` | `eq`, `ne`, `isNull` |
+| `T[]` (array) | `eq`, `ne`, `in`, `notIn`, `contains`, `containedBy`, `overlaps`, `isNull` |
 | json / blob | `eq`, `ne`, `in`, `notIn`, `isNull` |
+
+!!! danger "`ilike` é pattern, `ieq` é igualdade"
+
+    `%` e `_` são coringas em `like`/`ilike` — `{ ilike: "%" }` casa todas as
+    linhas. Para lookup case-insensitive (login, e-mail) use `ieq`, que compila
+    para `lower(col) = lower($1)` e casa índice funcional. Veja
+    [Comparação case-insensitive](recipes/case-insensitive.md).
+
+Os operadores de array (`contains` → `@>`, `containedBy` → `<@`, `overlaps` →
+`&&`) são nativos do PostgreSQL; os outros dialetos lançam erro explícito.
 
 `OPERATORS` (runtime) e o tipo `Operator` listam o conjunto completo. Operador
 inválido pro tipo = erro de compilação.
@@ -159,10 +205,20 @@ Retorna `InsertBuilder`.
 | Método | Descrição |
 | --- | --- |
 | `.values(row \| rows)` | Tipado por `InferInsert<typeof Model>`. Aceita 1 ou N. |
+| `.onConflictDoNothing(target, options?)` | `ON CONFLICT (target) [WHERE ...] DO NOTHING`. |
+| `.onConflictDoUpdate(target, set, options?)` | Upsert, com `indexWhere`/`updateWhere` opcionais. |
 | `.returning()` | Resultado vira a linha completa. |
 | `.returning(columns)` | Resultado vira `Pick` das colunas. |
 
 Sem `returning`, o resultado da execução é `number` (linhas afetadas).
+
+`OnConflictOptions` = `{ where? }` (o predicado de um índice único **parcial** —
+obrigatório no PostgreSQL para que ele case como conflict target).
+`OnConflictUpdateOptions` = `{ indexWhere?, updateWhere? }`. Ambos aceitam a mesma
+linguagem de condição do `where`. O MySQL lança erro para qualquer predicado.
+
+Valores de `.values()` e `.set()` aceitam o valor da coluna **ou** uma expressão
+`sql.*`; qualquer outro objeto levanta `ValidationError` na montagem da query.
 
 ## UPDATE
 
@@ -172,7 +228,7 @@ Retorna `UpdateBuilder<Full, false>` (não-guarded).
 
 | Método | Descrição |
 | --- | --- |
-| `.set(values)` | `Partial<Full>` — só as colunas informadas mudam. |
+| `.set(values)` | `WritePatch<Full>` — só as colunas informadas mudam; aceita expressão `sql.*`. |
 | `.where(input)` | Filtra **e** marca `Guarded = true`. |
 | `.unguarded()` | Opt-in explícito pra atualizar todas as linhas (`Guarded = true`). |
 | `.returning()` / `.returning(cols)` | Como no insert. |
@@ -192,7 +248,9 @@ Retorna `DeleteBuilder<Full, false>` (`del` porque `delete` é reservado).
 ## Tipos da AST
 
 Expostos pra ferramentas e dialetos: `SelectNode`, `InsertNode`, `UpdateNode`,
-`DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`.
+`DeleteNode`, `OrderTerm`, `SortDirection`, `WhereInput`, `Returning`, `LockClause`,
+`LockOptions`, `OnConflict`, `OnConflictOptions`, `OnConflictUpdateOptions`,
+`WriteValues`, `WritePatch`, `NameMap`, `SqlExpression`.
 
 ## URL do banco
 
@@ -269,8 +327,10 @@ const compiled = sqlite.compile(
 | `CompiledQuery` | `{ sql: string; params: readonly unknown[] }`. |
 | `QueryNode` | União das ASTs compiláveis. |
 
-Diferenças por dialeto: placeholder (`?` vs `$1`) e `ilike` (nativo `ILIKE` no
-Postgres; `LIKE` no SQLite, case-insensitive em ASCII).
+Diferenças por dialeto: placeholder (`?` vs `$1`), `ilike` (nativo `ILIKE` no
+Postgres; `LIKE` no SQLite, case-insensitive em ASCII), lock de linha
+(`FOR UPDATE` no Postgres/MySQL, erro no SQLite), predicado de `ON CONFLICT`
+(Postgres/SQLite, erro no MySQL) e arrays nativos (só Postgres).
 
 ## Execução (engine / sessão)
 
@@ -284,6 +344,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `engine.transaction(fn)` | Bloco transacional (commit/rollback automático). |
 | `engine.close()` | Fecha o driver. |
 | `session.execute(builder)` | Roda e coage; retorna um `Result`. |
+| `session.raw(sql, params?, opts?)` | Statement cru **parametrizado**; mesmo `Result`. `{ as: Model }` coage as linhas. |
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (transação aninhada). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
@@ -303,6 +364,11 @@ Terminais do `Result` (async retornam `Promise`):
 Drivers: SQLite via `node:sqlite` embutido (`NodeSqliteDriver`); PostgreSQL via
 `postgres.js` (lazy). O guard de `update`/`del` é exigido por `execute` (tipo
 `Executable`).
+
+`session.raw` é a saída para a query que o builder ainda não expressa — passa pelo
+mesmo `onQuery`, pelo mesmo `QueryExecutionError` e pela conexão reservada da
+transação. Nunca interpole valores na string: eles vão em `params`. Veja
+[SQL cru em runtime](recipes/raw-sql.md).
 
 ## Joins
 

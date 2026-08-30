@@ -56,15 +56,67 @@ segundo é o que sobrescrever quando há conflito.
       .one();
     ```
 
+## Índice único parcial — o predicado do conflict target
+
+No PostgreSQL, um **índice único parcial** só é reconhecido como alvo de
+`ON CONFLICT` se a query repetir o predicado do índice. Sem isso o banco responde
+`there is no unique or exclusion constraint matching the ON CONFLICT specification`.
+
+```sql
+CREATE UNIQUE INDEX outbound_idempotency_unique
+    ON outbound_messages (consumer, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+```
+
+```ts
+insert(Outbound)
+  .values(message)
+  .onConflictDoNothing(["consumer", "idempotencyKey"], {
+    where: { idempotencyKey: { isNull: false } },  // (1)!
+  })
+  .returning();
+```
+
+1. Mesma linguagem de condição do `where` normal — nada de string crua.
+
+No `DO UPDATE` os dois predicados são separados, porque o Postgres os coloca em
+lugares distintos da cláusula:
+
+```ts
+insert(Outbound)
+  .values(message)
+  .onConflictDoUpdate(
+    ["consumer", "idempotencyKey"],
+    { status: "queued" },
+    {
+      indexWhere: { idempotencyKey: { isNull: false } },  // predicado do índice
+      updateWhere: { attempts: { lt: 5 } },               // filtra quem é reescrito
+    },
+  );
+```
+
+Veja a receita [Fila durável com PostgreSQL](queue.md) para o caso de uso
+completo.
+
 ## Portabilidade
 
 `ON CONFLICT` funciona igual em **SQLite** e **PostgreSQL** — o dialeto gera a
-mesma cláusula. Os valores do `SET` são parametrizados (ligados após os da linha),
-nunca interpolados.
+mesma cláusula, predicado incluído. Os valores do `SET` são parametrizados
+(ligados após os da linha), nunca interpolados.
+
+!!! warning "MySQL"
+
+    O MySQL usa `ON DUPLICATE KEY UPDATE`, que não tem alvo de conflito. O upsert
+    simples funciona; passar `where`/`indexWhere` lança erro explícito em vez de
+    emitir SQL que ignora a regra.
 
 ## Recap
 
 - `.onConflictDoNothing(target)` → mantém a linha existente.
 - `.onConflictDoUpdate(target, set)` → upsert: sobrescreve as colunas dadas.
 - `target` = coluna(s) da constraint única/PK.
-- Combina com `.returning()`; portável SQLite ↔ PostgreSQL.
+- `{ where }` / `{ indexWhere }` repetem o predicado de um índice único parcial —
+  obrigatório no PostgreSQL para que ele case como conflict target.
+- `{ updateWhere }` restringe quais linhas em conflito são de fato reescritas.
+- Combina com `.returning()`; portável SQLite ↔ PostgreSQL (MySQL lança erro para
+  o predicado).
