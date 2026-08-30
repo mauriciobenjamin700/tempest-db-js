@@ -5,7 +5,7 @@
 
 📖 **Documentation:** [Português (BR)](https://mauriciobenjamin700.github.io/tempest-db-js/) · [English (US)](https://mauriciobenjamin700.github.io/tempest-db-js/en/)
 
-> ✅ **Status: alpha (v0.4.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE and table constraints**, typed query builder (aggregations, `DISTINCT`, upsert), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, and an opt-in active-record layer. The public API may still shift before v1.0.
+> ✅ **Status: alpha (v0.5.0), published on [npm](https://www.npmjs.com/package/tempest-db-js).** The full path works end-to-end — declarative models with **foreign keys, UNIQUE, table constraints, explicit column names and PostgreSQL arrays**, a typed query builder (aggregations, `DISTINCT`, upsert with **partial-index predicates**, **`FOR UPDATE SKIP LOCKED`**, SQL expressions in writes), **real SQLite + PostgreSQL execution**, a **MySQL** dialect, joins, relations, Alembic-style migrations (sync + **async** runner) with a `tempest-db` CLI, a typed `BaseRepository`, an opt-in active-record layer, and a `session.raw` escape hatch. The public API may still shift before v1.0.
 
 ## Why tempest-db-js
 
@@ -76,6 +76,12 @@ Typed extras, each with a [docs recipe](https://mauriciobenjamin700.github.io/te
 - **Upsert** — `insert(Row).values(...).onConflictDoUpdate(["key"], { ... })` / `.onConflictDoNothing(["key"])` (portable SQLite ↔ PostgreSQL).
 - **Active-record (opt-in)** — `activeRecord(User, session)` → `save`/`update`/`delete`/`reload` over `.data`; the plain-object default is unchanged.
 - **Query logging & errors** — `createEngine(url, { onQuery })` traces every statement; a failed statement throws `QueryExecutionError` carrying the SQL + params.
+- **Durable queues** — `select(Job).where(...).limit(10).forUpdate({ skipLocked: true })` inside a transaction hands each worker a disjoint batch, and `set({ attempts: sql.raw("attempts + 1") })` increments in the database instead of read-modify-write. SQLite throws rather than emitting an unlocked `SELECT`.
+- **Partial-index upsert** — `onConflictDoNothing(["consumer", "idempotencyKey"], { where: { idempotencyKey: { isNull: false } } })` repeats the index predicate PostgreSQL requires to match a **partial** unique index as a conflict target.
+- **Column names** — `.name("consumer_name")` per column, or `static naming = "snake_case"` per table: a `snake_case` schema behind a `camelCase` model, mapped everywhere including the migration IR (so no false drift).
+- **PostgreSQL arrays** — `column.array(column.text())` → `text[]` typed as `string[]`, with `contains` (`@>`), `containedBy` (`<@`) and `overlaps` (`&&`) in `where`.
+- **Case-insensitive lookups** — `{ ieq: probe }` → `lower(col) = lower($1)`: no wildcards, matches a `lower(col)` functional index. (`ilike` is pattern matching — `{ ilike: "%" }` matches every row.)
+- **Raw SQL escape hatch** — `session.raw(sql, params, { as: Model })` for the query the builder cannot yet express, always parameterized and integrated with logging, errors and transactions.
 
 ## Migrations CLI
 
@@ -106,7 +112,7 @@ HTTP integration recipes (Hono, Express, Fastify) live in the [docs](https://mau
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md). Shipped (v0.4.0): declarative schema with foreign keys / UNIQUE / table constraints, SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
+See [ROADMAP.md](./ROADMAP.md). Shipped (v0.5.0): declarative schema with foreign keys / UNIQUE / table constraints / explicit column names / PostgreSQL arrays, SQLite + PostgreSQL execution (both tested in CI, Postgres against a live database), a MySQL dialect, row locking, SQL expressions in writes, partial-index upsert, `session.raw`, joins, relations, sync + async migration runners with a `tempest-db` CLI, repository, aggregations/upsert, opt-in active-record. Next: subqueries in `IN`/`EXISTS` and `HAVING`, MySQL execution in CI + `RETURNING` round-trip, async CLI wiring, then `tempest-ts-sdk`.
 
 ## Development
 

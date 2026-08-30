@@ -6,6 +6,7 @@
  * right DDL for SQLite, PostgreSQL or MySQL.
  */
 
+import { renderPortableToken } from "../expressions.js";
 import type { ColumnType, DefaultValue, FkAction } from "../index.js";
 import type { Dialect } from "../url.js";
 import type {
@@ -45,6 +46,8 @@ export function renderColumnType(type: ColumnType, dialect: Dialect): string {
         return "NUMERIC";
       case "blob":
         return "BLOB";
+      case "array":
+        throw new Error(unsupportedArray("sqlite"));
       default:
         return "TEXT"; // varchar/char/text/uuid/enum/json/date/time/datetime/timestamp
     }
@@ -88,6 +91,8 @@ export function renderColumnType(type: ColumnType, dialect: Dialect): string {
         return "CHAR(36)";
       case "enum":
         return `ENUM(${(meta.values ?? []).map(quoteLiteral).join(", ")})`;
+      case "array":
+        throw new Error(unsupportedArray("mysql"));
     }
   }
   // PostgreSQL
@@ -130,29 +135,49 @@ export function renderColumnType(type: ColumnType, dialect: Dialect): string {
     case "enum":
       // Named PG enum types are handled in renderCreateTable; fall back to TEXT.
       return "TEXT";
+    case "array":
+      return `${renderColumnType(arrayElement(meta.element), dialect)}[]`;
   }
 }
 
+/** The message for an array column on a dialect without native arrays. */
+function unsupportedArray(dialect: Dialect): string {
+  return `column.array() is PostgreSQL-only — ${dialect} has no native array type. Model the column as JSON there, accepting that array operators will not work.`;
+}
+
+/** The element type of an array column, or a hard error when it is missing. */
+function arrayElement(element: ColumnType | undefined): ColumnType {
+  if (!element) {
+    throw new Error(
+      "An array column has no element type — build it with column.array().",
+    );
+  }
+  return element;
+}
+
 /** Render a default value into a SQL `DEFAULT` expression for the dialect. */
-export function renderDefault(def: DefaultValue, dialect: Dialect): string {
+export function renderDefault(
+  def: DefaultValue,
+  dialect: Dialect,
+  type?: ColumnType,
+): string {
   if (def.kind === "expression") {
     const expr = def.expression;
-    if (typeof expr === "object") return expr.raw;
-    switch (expr) {
-      case "now":
-        return dialect === "postgresql" ? "now()" : "CURRENT_TIMESTAMP";
-      case "current_date":
-        return "CURRENT_DATE";
-      case "current_time":
-        return "CURRENT_TIME";
-      case "uuidv4":
-        if (dialect === "postgresql") return "gen_random_uuid()";
-        if (dialect === "mysql") return "(UUID())";
-        return "(lower(hex(randomblob(16))))";
+    if (typeof expr === "object") {
+      if ("raw" in expr) return expr.raw;
+      throw new Error(
+        "sql.expr`...` binds parameters and cannot be rendered as a DEFAULT — use sql.raw().",
+      );
     }
+    return renderPortableToken(expr, dialect);
   }
   const value = def.value;
   if (value === null) return "NULL";
+  if (Array.isArray(value) && type?.kind === "array") {
+    const elementType = renderColumnType(arrayElement(type.meta.element), dialect);
+    const items = value.map((v) => renderDefault({ kind: "literal", value: v }, dialect));
+    return `ARRAY[${items.join(", ")}]::${elementType}[]`;
+  }
   if (typeof value === "boolean") {
     return dialect === "postgresql" ? (value ? "TRUE" : "FALSE") : value ? "1" : "0";
   }
@@ -225,7 +250,9 @@ function tableConstraintClauses(table: TableIR, dialect: Dialect): string[] {
 export function renderColumnDef(col: ColumnIR, dialect: Dialect): string {
   let sql = `${quoteId(col.name, dialect)} ${renderColumnType(col.type, dialect)}`;
   if (col.notNull) sql += " NOT NULL";
-  if (col.default !== null) sql += ` DEFAULT ${renderDefault(col.default, dialect)}`;
+  if (col.default !== null) {
+    sql += ` DEFAULT ${renderDefault(col.default, dialect, col.type)}`;
+  }
   sql += columnConstraintSuffix(col, dialect);
   return sql;
 }
@@ -272,7 +299,9 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
       typeStmts.push(`CREATE TYPE ${quoteId(typeName, dialect)} AS ENUM (${values})`);
       let def = `${quoteId(c.name, dialect)} ${quoteId(typeName, dialect)}`;
       if (c.notNull) def += " NOT NULL";
-      if (c.default !== null) def += ` DEFAULT ${renderDefault(c.default, dialect)}`;
+      if (c.default !== null) {
+        def += ` DEFAULT ${renderDefault(c.default, dialect, c.type)}`;
+      }
       return def + columnConstraintSuffix(c, dialect);
     }
     if (dialect === "postgresql" && isAutoIncrementPk(table, c)) {
@@ -469,7 +498,7 @@ function renderAlterColumn(table: string, to: ColumnIR, dialect: Dialect): strin
   );
   stmts.push(
     to.default !== null
-      ? `ALTER TABLE ${t} ALTER COLUMN ${c} SET DEFAULT ${renderDefault(to.default, dialect)}`
+      ? `ALTER TABLE ${t} ALTER COLUMN ${c} SET DEFAULT ${renderDefault(to.default, dialect, to.type)}`
       : `ALTER TABLE ${t} ALTER COLUMN ${c} DROP DEFAULT`,
   );
   return stmts;

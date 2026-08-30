@@ -10,7 +10,13 @@
  */
 
 import { type CondNode, type Condition, toCondNode } from "./conditions.js";
-import { type InferModel, type ModelClass, columnsOf } from "./index.js";
+import {
+  type InferModel,
+  type ModelClass,
+  type NameMap,
+  columnNamesOf,
+  columnsOf,
+} from "./index.js";
 import type { OperatorsFor, SortDirection } from "./query.js";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +77,8 @@ export interface JoinNode {
   }[];
   readonly limit: number | undefined;
   readonly offset: number | undefined;
+  /** Per-alias property → column maps, for the sources that rename columns. */
+  readonly names?: Readonly<Record<string, NameMap>> | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +114,25 @@ function selectionsFor(alias: string, model: ModelClass): JoinSelection[] {
 }
 
 /**
+ * Register a source's property → column map under its alias, or keep the node
+ * map untouched when the model renames nothing.
+ *
+ * @param current The node's existing per-alias maps.
+ * @param alias The alias the model is joined under.
+ * @param model The joined model.
+ * @returns The updated map, or `undefined` when no source renames anything.
+ */
+function withAliasNames(
+  current: Readonly<Record<string, NameMap>> | undefined,
+  alias: string,
+  model: ModelClass,
+): Readonly<Record<string, NameMap>> | undefined {
+  const names = columnNamesOf(model);
+  if (!names) return current;
+  return { ...(current ?? {}), [alias]: names };
+}
+
+/**
  * Immutable, chainable multi-table SELECT builder.
  *
  * @typeParam S - the accumulated sources (alias → row type; nullable for left joins).
@@ -129,6 +156,7 @@ export class JoinBuilder<S extends Sources> {
         ...this.node,
         joins: [...this.node.joins, clause],
         selections: [...this.node.selections, ...selectionsFor(clause.alias, model)],
+        names: withAliasNames(this.node.names, clause.alias, model),
       },
       { ...this.sources, [clause.alias]: model },
     );
@@ -225,6 +253,7 @@ export function join<C extends ModelClass, A extends string>(
       orderBy: [],
       limit: undefined,
       offset: undefined,
+      names: withAliasNames(undefined, alias, model),
     },
     { [alias]: model },
   );

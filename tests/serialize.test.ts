@@ -168,10 +168,13 @@ describe("columnsOf — memoized per class", () => {
 describe("default storage feeds the migration IR", () => {
   it("records literal and expression defaults on the column", () => {
     const created = column.datetime().default(sql.now());
-    expect(created.defaultValue).toEqual({ kind: "expression", expression: "now" });
+    expect(created.defaultValue).toMatchObject({ kind: "expression", expression: "now" });
     const active = column.boolean().default(true);
     expect(active.defaultValue).toEqual({ kind: "literal", value: true });
     const updated = column.datetime().onUpdate(sql.now());
-    expect(updated.onUpdateValue).toEqual({ kind: "expression", expression: "now" });
+    expect(updated.onUpdateValue).toMatchObject({
+      kind: "expression",
+      expression: "now",
+    });
   });
 });

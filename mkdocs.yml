@@ -87,6 +87,11 @@ plugins:
             Colunas JSON e enum: JSON & enum columns
             Serialização (linha ↔ JSON): Serialization (row ↔ JSON)
             Conectando ao PostgreSQL: Connecting to PostgreSQL
+            Fila durável com PostgreSQL: A durable queue on PostgreSQL
+            Nomes de coluna: Column names
+            Colunas array do PostgreSQL: PostgreSQL array columns
+            Comparação case-insensitive: Case-insensitive comparison
+            SQL cru em runtime: Raw SQL at runtime
             Exemplos: Examples
             Galeria: Gallery
             Todo CLI (SQLite): Todo CLI (SQLite)
@@ -157,6 +162,11 @@ nav:
       - Colunas JSON e enum: recipes/json-enum.md
       - Serialização (linha ↔ JSON): recipes/serialization.md
       - Conectando ao PostgreSQL: recipes/postgres.md
+      - Fila durável com PostgreSQL: recipes/queue.md
+      - Nomes de coluna: recipes/naming.md
+      - Colunas array do PostgreSQL: recipes/arrays.md
+      - Comparação case-insensitive: recipes/case-insensitive.md
+      - SQL cru em runtime: recipes/raw-sql.md
   - Exemplos:
       - examples/index.md
       - Todo CLI (SQLite): examples/todo-cli.md

@@ -227,6 +227,6 @@ describe("server-side default expressions are bound as values (Phase 4a)", () =>
     const q = insert(User).values({ name: "x", age: 1, active: true });
     expect(sqlite.compile(q.node).params).toEqual(["x", 1, true]);
     // sanity: sql.now() is a marker object, not executed here
-    expect(sql.now()).toEqual({ kind: "expression", expression: "now" });
+    expect(sql.now()).toMatchObject({ kind: "expression", expression: "now" });
   });
 });

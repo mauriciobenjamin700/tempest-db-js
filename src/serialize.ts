@@ -16,9 +16,11 @@
 
 import {
   type Column,
-  type ColumnTypeKind,
+  type ColumnType,
   type InferModel,
   type ModelClass,
+  type NameMap,
+  columnPropsOf,
   columnsOf,
 } from "./index.js";
 
@@ -81,6 +83,13 @@ function decodeValue(column: Column<unknown>, value: unknown): unknown {
       return value instanceof Uint8Array ? value : fromBase64(value as string);
     case "json":
       return typeof value === "string" ? JSON.parse(value) : value;
+    case "array": {
+      const element = column.type.meta.element;
+      const items = typeof value === "string" ? JSON.parse(value) : value;
+      if (!Array.isArray(items)) return items;
+      if (!element) return items;
+      return items.map((item) => decodeValue({ type: element } as Column<unknown>, item));
+    }
     case "numeric":
       return typeof value === "string" ? value : String(value);
     case "boolean":
@@ -194,13 +203,13 @@ export function parse<C extends ModelClass>(model: C, json: string): InferModel<
 type Decoder = (value: unknown) => unknown;
 
 /**
- * Build the specialized decoder for a column kind, or `null` when the kind needs
+ * Build the specialized decoder for a column type, or `null` when the type needs
  * no coercion (varchar/text/char/uuid/enum/time — plain string passthrough).
  * Dispatching on the kind once here (at build time) keeps the per-row path a
  * single indirect call instead of a switch.
  */
-function decoderForKind(kind: ColumnTypeKind): Decoder | null {
-  switch (kind) {
+function decoderFor(type: ColumnType): Decoder | null {
+  switch (type.kind) {
     case "bigint":
       return (v) => (v == null ? null : typeof v === "bigint" ? v : BigInt(v as string));
     case "date":
@@ -212,6 +221,12 @@ function decoderForKind(kind: ColumnTypeKind): Decoder | null {
         v == null ? null : v instanceof Uint8Array ? v : fromBase64(v as string);
     case "json":
       return (v) => (v == null ? null : typeof v === "string" ? JSON.parse(v) : v);
+    case "array": {
+      const element = type.meta.element;
+      const inner = element ? decoderFor(element) : null;
+      if (!inner) return null;
+      return (v) => (v == null ? null : Array.isArray(v) ? v.map(inner) : v);
+    }
     case "numeric":
       return (v) => (v == null ? null : typeof v === "string" ? v : String(v));
     case "boolean":
@@ -227,24 +242,45 @@ function decoderForKind(kind: ColumnTypeKind): Decoder | null {
   }
 }
 
-/** Memoized per-column decoder maps, keyed by model class. */
-const decoderCache = new WeakMap<ModelClass, Map<string, Decoder>>();
+/**
+ * Everything needed to turn a raw driver row into a model row: how to rename the
+ * keys back into property space, and how to coerce the values.
+ */
+interface RowMapper {
+  /** Database column → property name, or `null` when every name is the identity. */
+  readonly props: NameMap | null;
+  /** Database column → decoder, for the columns that need coercion. */
+  readonly decoders: Map<string, Decoder>;
+}
 
-/** The (memoized) decoder map for a model: column name → decoder (coercing ones only). */
-function decodersFor(model: ModelClass): Map<string, Decoder> {
-  const cached = decoderCache.get(model);
+/** Memoized per-model row mappers. */
+const mapperCache = new WeakMap<ModelClass, RowMapper>();
+
+/**
+ * The (memoized) row mapper for a model. Keyed by **database** column name,
+ * because that is what the driver hands back — a model that renames its columns
+ * still lands in property space after one lookup.
+ */
+function mapperFor(model: ModelClass): RowMapper {
+  const cached = mapperCache.get(model);
   if (cached) return cached;
-  const map = new Map<string, Decoder>();
-  for (const [name, col] of Object.entries(columnsOf(model))) {
-    const decoder = decoderForKind(col.type.kind);
-    if (decoder) map.set(name, decoder);
+  const props = columnPropsOf(model);
+  const names = props
+    ? Object.fromEntries(Object.entries(props).map(([db, prop]) => [prop, db]))
+    : null;
+  const decoders = new Map<string, Decoder>();
+  for (const [prop, col] of Object.entries(columnsOf(model))) {
+    const decoder = decoderFor(col.type);
+    if (decoder) decoders.set(names?.[prop] ?? prop, decoder);
   }
-  decoderCache.set(model, map);
-  return map;
+  const mapper: RowMapper = { props, decoders };
+  mapperCache.set(model, mapper);
+  return mapper;
 }
 
 /**
- * Coerce a raw driver row into native row values, by column type. Unlike
+ * Coerce a raw driver row into native row values, by column type, renaming the
+ * keys back to model property names when the model maps columns explicitly. Unlike
  * `fromDict`, it does NOT validate required columns — a row read from the
  * database (or a projection) is taken as-is, only its values are normalized
  * (e.g. `0/1` → boolean, ISO string → `Date`, JSON string → object). Keys that
@@ -262,11 +298,11 @@ export function coerceRow<C extends ModelClass>(
   model: C,
   raw: Record<string, unknown>,
 ): InferModel<C> {
-  const decoders = decodersFor(model);
+  const { props, decoders } = mapperFor(model);
   const out: Record<string, unknown> = {};
   for (const name of Object.keys(raw)) {
     const decode = decoders.get(name);
-    out[name] = decode ? decode(raw[name]) : raw[name];
+    out[props?.[name] ?? name] = decode ? decode(raw[name]) : raw[name];
   }
   return out as InferModel<C>;
 }

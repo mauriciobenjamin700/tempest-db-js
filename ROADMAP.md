@@ -49,20 +49,52 @@ O 3º e último banco do escopo travado. Entra agora que SQLite+PG estão fechad
 **Entrega:** os **3 bancos** (SQLite, PostgreSQL, MySQL) com execução, migração e
 introspecção — escopo de bancos fechado.
 
-### Fase 10 — `tempest-ts-sdk` (repo próprio)
+### Fase 10 — Fechar os buracos do primeiro consumidor real ⭐ ✅
+
+> ✅ **v0.5.0** — sete lacunas encontradas na migração do `zap-api` (gateway
+> WhatsApp) de `pg` cru para o tempest-db-js, todas fechadas num ciclo. O padrão
+> outbox/fila sobre PostgreSQL agora é expressável ponta a ponta.
+
+Entrou na frente do SDK de propósito: construir o `tempest-ts-sdk` sobre uma base
+que não expressa `attempts = attempts + 1` nem tem escape hatch seria empilhar em
+cima do buraco.
+
+- `SelectBuilder.forUpdate/forShare` (`FOR UPDATE [OF] [SKIP LOCKED|NOWAIT]`),
+  com erro explícito no SQLite.
+- Expressões SQL marcadas (`sql.raw`, `` sql.expr`` ``, tokens portáveis) como
+  valor de escrita em `.set()`/`.values()`; objeto solto passa a ser
+  `ValidationError` em vez de corrupção silenciosa.
+- Predicado de índice parcial no `ON CONFLICT` (`{ where }` / `{ indexWhere,
+  updateWhere }`).
+- `session.raw(sql, params, { as })` — escape hatch de runtime, paralelo do
+  `Op.execute`.
+- Nome de coluna explícito (`.name()`) + naming strategy (`static naming`),
+  válidos também no IR de migração (sem drift falso).
+- `column.array()` com `@>`, `<@`, `&&` e introspecção ciente do elemento.
+- Operador `ieq` (`lower(col) = lower($1)`) e a doc da armadilha de wildcard do
+  `ilike`.
+
+**Entrega:** suíte de integração contra PostgreSQL real cobrindo lock concorrente
+(lotes disjuntos), índice único parcial, arrays nativos e contador atômico.
+
+### Fase 11 — `tempest-ts-sdk` (repo próprio)
 
 Pacote separado (flat-layout) consumindo tempest-db-js, espelhando o
 `tempest-fastapi-sdk`: `BaseRepository` estendido, settings via env, hierarquia
 `AppException`, integração HTTP (Express/Hono/Fastify). Fora deste repo.
 
-### Fase 11 — Query API avançada
+### Fase 12 — Query API avançada
+
+Prioridade 1 do que sobrou: **subquery em `WHERE ... IN (...)`**, a única peça do
+padrão de fila ainda escrita em duas roundtrips (`SELECT ... FOR UPDATE SKIP
+LOCKED` + `UPDATE ... WHERE id IN (ids)` na mesma transação).
 
 `HAVING` nas agregações; subqueries (IN/EXISTS/scalar); prepared-query API
 explícita (compilar uma vez, executar N com params — o ganho que o cache de
 SELECT value-independent não entrega escondido); unit-of-work/identity-map
 opcional pro active-record.
 
-### Fase 12 — Rumo a `v1.0`
+### Fase 13 — Rumo a `v1.0`
 
 Congelar a API pública, cobertura de testes, docs completas (todas as receitas +
 migração async + MySQL), critérios de saída do alpha.
@@ -73,9 +105,10 @@ migração async + MySQL), critérios de saída do alpha.
 |---|---|---|
 | v0.3 | 8 | Migração async (Postgres real) |
 | v0.4 | 9 | Dialeto MySQL — 3 bancos fechados |
-| v0.5 | 10 | `tempest-ts-sdk` |
-| v0.6 | 11 | Query API avançada |
-| v1.0 | 12 | API congelada + hardening |
+| v0.5 | 10 | Buracos do primeiro consumidor real ✅ |
+| v0.6 | 11 | `tempest-ts-sdk` |
+| v0.7 | 12 | Query API avançada (subquery em `IN` primeiro) |
+| v1.0 | 13 | API congelada + hardening |
 
 ---
 

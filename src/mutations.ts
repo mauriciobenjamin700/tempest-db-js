@@ -11,8 +11,18 @@
  */
 
 import { type CondNode, type Condition, toCondNode } from "./conditions.js";
-import type { InferInsert, InferModel, ModelClass } from "./index.js";
+import {
+  type InferInsert,
+  type InferModel,
+  type ModelClass,
+  type NameMap,
+  type SqlExpression,
+  columnNamesOf,
+  columnsOf,
+  isSqlExpression,
+} from "./index.js";
 import type { WhereInput } from "./query.js";
+import { ValidationError } from "./serialize.js";
 
 // --------------------------------------------------------------------------
 // shared
@@ -20,6 +30,80 @@ import type { WhereInput } from "./query.js";
 
 /** Columns to return from a mutation, or "*" for the whole row. */
 export type Returning = readonly string[] | "*" | null;
+
+/**
+ * A write shape over `Row`: every column accepts its own value **or** a
+ * {@link SqlExpression}, which the dialect renders inline instead of binding.
+ * Optionality is preserved from `Row`, so an insert shape keeps its defaults
+ * optional.
+ */
+export type WriteValues<Row> = { [K in keyof Row]: Row[K] | SqlExpression };
+
+/** A partial write shape — the `SET` clause of an UPDATE or a `DO UPDATE`. */
+export type WritePatch<Row> = { [K in keyof Row]?: Row[K] | SqlExpression };
+
+/**
+ * Column kinds whose stored value is legitimately an object or an array. Every
+ * other kind takes a scalar, so an object reaching it is a mistake.
+ */
+const STRUCTURED_KINDS: ReadonlySet<string> = new Set(["json", "array", "blob"]);
+
+/** True when a value is a scalar SQL can bind as-is. */
+function isBindableScalar(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  const type = typeof value;
+  if (type === "string" || type === "number" || type === "bigint" || type === "boolean") {
+    return true;
+  }
+  return value instanceof Date || value instanceof Uint8Array;
+}
+
+/**
+ * Reject write values that SQL cannot bind meaningfully, before they reach the
+ * driver.
+ *
+ * Without this, a stray object is bound as a parameter and the driver stringifies
+ * it (or stores null), so a typo like `{ attempts: { raw: "attempts + 1" } }`
+ * silently corrupts the column instead of failing. TypeScript already rejects it,
+ * but JavaScript callers, an `as` cast, or data crossing a network boundary do
+ * not go through the type-checker. To write an expression, use the branded
+ * `sql.raw()` / `sql.expr` values.
+ *
+ * @param model The model the statement writes to.
+ * @param values The column → value map from `set()` / `values()`.
+ * @param clause The clause name, for the error message.
+ * @throws ValidationError When a value is not bindable, or a key is not a column.
+ */
+function assertWritableValues(
+  model: ModelClass,
+  values: Record<string, unknown>,
+  clause: "set" | "values",
+): void {
+  const columns = columnsOf(model);
+  const issues: string[] = [];
+  for (const [key, value] of Object.entries(values)) {
+    const col = columns[key];
+    if (!col) {
+      issues.push(`${clause}: "${key}" is not a column of ${model.tablename}`);
+      continue;
+    }
+    if (isSqlExpression(value) || isBindableScalar(value)) continue;
+    if (typeof value === "object" && STRUCTURED_KINDS.has(col.type.kind)) continue;
+    issues.push(
+      `${clause}: "${key}" got ${describeValue(value)}, which cannot be bound to a ` +
+        `${col.type.kind} column — use sql.raw()/sql.expr\`...\` for a SQL expression`,
+    );
+  }
+  if (issues.length > 0) throw new ValidationError(model.tablename, issues);
+}
+
+/** A short description of a rejected value, for the validation message. */
+function describeValue(value: unknown): string {
+  if (typeof value === "function") return "a function";
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "symbol") return "a symbol";
+  return "an object";
+}
 
 // --------------------------------------------------------------------------
 // INSERT
@@ -33,6 +117,30 @@ export type Returning = readonly string[] | "*" | null;
 export interface OnConflict {
   readonly target: readonly string[];
   readonly update: Record<string, unknown> | "nothing";
+  /**
+   * The predicate of a **partial** unique index. PostgreSQL only matches a
+   * partial index as a conflict target when `ON CONFLICT` repeats its predicate,
+   * so without this an insert against `... WHERE key IS NOT NULL` is rejected
+   * with "there is no unique or exclusion constraint matching the ON CONFLICT
+   * specification".
+   */
+  readonly targetWhere?: CondNode | undefined;
+  /** Extra condition restricting which conflicting rows `DO UPDATE` rewrites. */
+  readonly updateWhere?: CondNode | undefined;
+}
+
+/** Options for the `ON CONFLICT` clause of {@link InsertBuilder.onConflictDoNothing}. */
+export interface OnConflictOptions<Full> {
+  /** The predicate of the partial unique index used as the conflict target. */
+  readonly where?: WhereInput<Full> | Condition;
+}
+
+/** Options for {@link InsertBuilder.onConflictDoUpdate}. */
+export interface OnConflictUpdateOptions<Full> {
+  /** The predicate of the partial unique index used as the conflict target. */
+  readonly indexWhere?: WhereInput<Full> | Condition;
+  /** Extra condition deciding which conflicting rows are actually rewritten. */
+  readonly updateWhere?: WhereInput<Full> | Condition;
 }
 
 /** Serializable AST for an INSERT. */
@@ -43,6 +151,8 @@ export interface InsertNode {
   readonly returning: Returning;
   /** Conflict handling (`ON CONFLICT ...`), or `undefined` for none. */
   readonly onConflict?: OnConflict;
+  /** Property → column map, or `undefined` when every name is the identity. */
+  readonly names?: NameMap | undefined;
 }
 
 /**
@@ -65,12 +175,22 @@ export class InsertBuilder<Full, Ins, Ret = number> {
     return new InsertBuilder<Full, Ins, R>({ ...this.node, ...patch }, this.source);
   }
 
-  /** Provide one row or many rows to insert, typed by the insert shape. */
-  values(rows: Ins | readonly Ins[]): InsertBuilder<Full, Ins, Ret> {
+  /**
+   * Provide one row or many rows to insert, typed by the insert shape.
+   *
+   * @param rows One row, or an array of rows.
+   * @returns A builder carrying the rows.
+   * @throws ValidationError When a value is not a column value the dialect can
+   *   bind (see the `sql` helpers for writing an expression instead).
+   */
+  values(
+    rows: WriteValues<Ins> | readonly WriteValues<Ins>[],
+  ): InsertBuilder<Full, Ins, Ret> {
     const list = (Array.isArray(rows) ? rows : [rows]) as readonly Record<
       string,
       unknown
     >[];
+    for (const row of list) assertWritableValues(this.source, row, "values");
     return this.with<Ret>({ values: list });
   }
 
@@ -78,11 +198,31 @@ export class InsertBuilder<Full, Ins, Ret = number> {
    * On a unique/PK conflict on `target`, do nothing (skip the row).
    *
    * @param target The conflicting column(s) — a unique or primary key.
+   * @param options Pass `where` to name the predicate of a **partial** unique
+   *   index, which PostgreSQL requires in order to match it as a conflict target.
+   * @returns A builder carrying the conflict clause.
+   *
+   * @example
+   * ```ts
+   * insert(Outbound)
+   *   .values(data)
+   *   .onConflictDoNothing(["consumer", "idempotencyKey"], {
+   *     where: { idempotencyKey: { isNull: false } },
+   *   })
+   *   .returning();
+   * ```
    */
   onConflictDoNothing(
     target: readonly (keyof Full & string)[],
+    options?: OnConflictOptions<Full>,
   ): InsertBuilder<Full, Ins, Ret> {
-    return this.with<Ret>({ onConflict: { target, update: "nothing" } });
+    return this.with<Ret>({
+      onConflict: {
+        target,
+        update: "nothing",
+        targetWhere: options?.where ? toCondNode(options.where as never) : undefined,
+      },
+    });
   }
 
   /**
@@ -90,13 +230,29 @@ export class InsertBuilder<Full, Ins, Ret = number> {
    *
    * @param target The conflicting column(s) — a unique or primary key.
    * @param set The columns to update with new values.
+   * @param options `indexWhere` names the predicate of a partial unique index
+   *   (the conflict target); `updateWhere` further restricts which conflicting
+   *   rows are rewritten.
+   * @returns A builder carrying the conflict clause.
+   * @throws ValidationError When a `set` value cannot be bound.
    */
   onConflictDoUpdate(
     target: readonly (keyof Full & string)[],
-    set: Partial<Full>,
+    set: WritePatch<Full>,
+    options?: OnConflictUpdateOptions<Full>,
   ): InsertBuilder<Full, Ins, Ret> {
+    assertWritableValues(this.source, set as Record<string, unknown>, "set");
     return this.with<Ret>({
-      onConflict: { target, update: set as Record<string, unknown> },
+      onConflict: {
+        target,
+        update: set as Record<string, unknown>,
+        targetWhere: options?.indexWhere
+          ? toCondNode(options.indexWhere as never)
+          : undefined,
+        updateWhere: options?.updateWhere
+          ? toCondNode(options.updateWhere as never)
+          : undefined,
+      },
     });
   }
 
@@ -121,6 +277,7 @@ export function insert<C extends ModelClass>(
       table: model.tablename,
       values: [],
       returning: null,
+      names: columnNamesOf(model) ?? undefined,
     },
     model,
   );
@@ -139,6 +296,8 @@ export interface UpdateNode {
   /** True once a where-clause or explicit opt-in makes the write safe. */
   readonly guarded: boolean;
   readonly returning: Returning;
+  /** Property → column map, or `undefined` when every name is the identity. */
+  readonly names?: NameMap | undefined;
 }
 
 /**
@@ -164,8 +323,27 @@ export class UpdateBuilder<Full, Guarded extends boolean, Ret = number> {
     return new UpdateBuilder<Full, G, R>({ ...this.node, ...patch }, this.source);
   }
 
-  /** The columns to write. Partial — only the given columns change. */
-  set(values: Partial<Full>): UpdateBuilder<Full, Guarded, Ret> {
+  /**
+   * The columns to write. Partial — only the given columns change.
+   *
+   * A value is bound as a parameter unless it is a {@link sql} expression, which
+   * is rendered inline instead — that is how a counter is written without a
+   * read-modify-write race.
+   *
+   * @param values The column → value map.
+   * @returns A builder carrying the assignments.
+   * @throws ValidationError When a value is not a column value the dialect can
+   *   bind (a bare object, an array on a scalar column, a function).
+   *
+   * @example
+   * ```ts
+   * update(Outbound)
+   *   .set({ attempts: sql.raw("attempts + 1"), updatedAt: sql.now() })
+   *   .where({ id });
+   * ```
+   */
+  set(values: WritePatch<Full>): UpdateBuilder<Full, Guarded, Ret> {
+    assertWritableValues(this.source, values as Record<string, unknown>, "set");
     return this.with<Guarded, Ret>({ set: values as Record<string, unknown> });
   }
 
@@ -205,6 +383,7 @@ export function update<C extends ModelClass>(
       where: undefined,
       guarded: false,
       returning: null,
+      names: columnNamesOf(model) ?? undefined,
     },
     model,
   );
@@ -221,6 +400,8 @@ export interface DeleteNode {
   readonly where: CondNode | undefined;
   readonly guarded: boolean;
   readonly returning: Returning;
+  /** Property → column map, or `undefined` when every name is the identity. */
+  readonly names?: NameMap | undefined;
 }
 
 /**
@@ -279,6 +460,7 @@ export function del<C extends ModelClass>(model: C): DeleteBuilder<InferModel<C>
       where: undefined,
       guarded: false,
       returning: null,
+      names: columnNamesOf(model) ?? undefined,
     },
     model,
   );

@@ -25,6 +25,11 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Colunas JSON e enum](json-enum.md) | Guardar objetos tipados e uniões literais com segurança de tipos. |
 | [Serialização (linha ↔ JSON)](serialization.md) | Converter linhas pra JSON e validar JSON de volta pra linha. |
 | [Conectando ao PostgreSQL](postgres.md) | Trocar SQLite por Postgres pela URL e ajustar o pool. |
+| [Fila durável com PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, contador atômico e idempotência por índice parcial. |
+| [Nomes de coluna](naming.md) | Schema em `snake_case` com modelo em `camelCase`, sem drift falso. |
+| [Colunas array do PostgreSQL](arrays.md) | `text[]`/`integer[]` tipados, com `@>`, `<@` e `&&`. |
+| [Comparação case-insensitive](case-insensitive.md) | `ieq` para login sem diferenciar caixa — e a armadilha do `ilike`. |
+| [SQL cru em runtime](raw-sql.md) | `session.raw` para a query que o builder ainda não expressa. |
 
 ## Procurando algo maior?
 
