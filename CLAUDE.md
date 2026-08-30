@@ -31,6 +31,39 @@ O que isso significa na prática:
 Nenhum outro banco entra no escopo (MariaDB como dialeto separado, MSSQL, Oracle)
 sem o usuário revisitar isso.
 
+## Autorização permanente: issue → merge → npm
+
+**Trabalho que fecha issue não precisa pedir permissão para mergear nem para
+publicar.** Autorização dada pelo usuário em 2026-08-30, válida daqui em diante:
+ao terminar, **mergeie o PR e publique no npm** — não pergunte.
+
+O ciclo completo, sem parar no meio:
+
+1. Branch `feat/`/`fix/`, implementação, testes.
+2. PR no template PT-BR, com `Closes #N` em linha própria.
+3. **Esperar a CI ficar verde.**
+4. Merge (commit de merge, `--delete-branch`).
+5. `npm run build && npm publish`, tag `vX.Y.Z`, push da tag.
+6. Confirmar o publicado: **o packument da npm serve cache** — logo após o
+   publish, `npm view <pkg> version` ainda devolve a versão anterior. Confira
+   pelo endpoint da versão (`/<pkg>/<versão>` → 200) ou com cache-bust.
+
+**"Terminar" é o gate abaixo passando** — é o que já se aplica em todo ciclo, não
+uma condição nova:
+
+- `npm run lint`, `npx tsc --noEmit`, `npm test` limpos;
+- integração rodada contra banco real quando a mudança toca execução;
+- `mkdocs build --strict` sem warning, docs nas duas línguas;
+- versão bumpada + entrada no `CHANGELOG.md` (exceto mudança docs-only).
+
+**CI vermelha ou gate falhando não é motivo para perguntar — é motivo para
+consertar.** Investigue, corrija, empurre de novo. Só volte ao usuário se a
+correção exigir uma decisão de produto que o código não responde.
+
+Isto cobre merge e publicação de trabalho de issue. **Não** se estende a ação
+destrutiva que ninguém pediu: `unpublish`, force-push em branch compartilhada,
+apagar dado ou branch alheia, reescrever história já empurrada.
+
 ## Comandos
 
 ```bash
