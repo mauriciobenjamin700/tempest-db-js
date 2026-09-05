@@ -26,6 +26,7 @@ import type { InsertBuilder, InsertNode, UpdateBuilder } from "./mutations.js";
 import { type SelectBuilder, select } from "./query.js";
 import { coerceRow } from "./serialize.js";
 import type { SetBuilder } from "./setops.js";
+import { UnitOfWork } from "./unit-of-work.js";
 import { type Dialect, type ParsedDatabaseUrl, parseDatabaseUrl } from "./url.js";
 
 /** A synchronous `require`, usable from both ESM and CJS builds. */
@@ -1157,6 +1158,18 @@ export class AsyncSession {
       await this.exec(`ROLLBACK TO ${name}`, []);
       throw error;
     }
+  }
+
+  /**
+   * Open an opt-in {@link UnitOfWork} over this session.
+   *
+   * The default stays a plain object written when you ask; this is the other
+   * model, for code that prefers to mutate and flush once.
+   *
+   * @returns A new, empty unit of work.
+   */
+  unitOfWork(): UnitOfWork {
+    return new UnitOfWork(this);
   }
 
   async close(): Promise<void> {

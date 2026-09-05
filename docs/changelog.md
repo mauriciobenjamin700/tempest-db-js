@@ -24,6 +24,16 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Unit of work com identity map, opt-in** — `session.unitOfWork()` devolve um mapa de
+  identidade mais um log de mudanças: `get` da mesma chave duas vezes devolve **a mesma
+  instância** sem segunda query, e um `flush()` escreve tudo numa transação (inserts →
+  updates → deletes, a ordem que mantém FK satisfeita quando pai novo e filhos vão
+  juntos). O update leva **só** o que mudou, com `Date` e `Uint8Array` comparados por
+  conteúdo — por referência, toda linha com data seria reescrita a cada flush. Falha no
+  meio faz rollback do conjunto e **preserva** o estado rastreado, para corrigir e
+  reflushar. `Tracked<Row>` distingue no tipo a linha rastreada da solta. O caminho padrão
+  de objeto simples não muda (#51).
+
 - **`aliased(Model, alias)`** — lê o mesmo model sob outro nome (`FROM "employees" AS
   "sub"`). O join builder já exigia alias, mas o `select()` não tinha como nomear a
   tabela, e sem isso uma subquery correlacionada sobre a **mesma** tabela não era

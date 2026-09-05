@@ -21,6 +21,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Agregações e DISTINCT](aggregations.md) | `count`/`sum`/`avg`/`min`/`max` + `GROUP BY` tipado e `DISTINCT`. |
 | [Upsert (ON CONFLICT)](upsert.md) | Inserir resolvendo conflito de chave: `DO NOTHING` ou `DO UPDATE`. |
 | [Active-record (opt-in)](active-record.md) | Métodos `save`/`update`/`delete`/`reload` numa linha, quando você prefere. |
+| [Unit of work (opt-in)](unit-of-work.md) | Identity map + flush em lote, numa transação. O padrão continua objeto simples. |
 | [Logging e erros](logging.md) | Ver o SQL que roda (`onQuery`) e erros com o SQL/params que falharam. |
 | [Erros de integridade (409)](integrity-errors.md) | Ler o erro do driver de volta para a constraint que recusou a escrita. |
 | [Signals do repositório](signals.md) | `preSave`/`postSave`/`preDelete`/`postDelete` — reagir a escrita sem envolver todo call site. |

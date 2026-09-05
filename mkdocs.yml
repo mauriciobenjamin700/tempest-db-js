@@ -83,6 +83,7 @@ plugins:
             Agregações e DISTINCT: Aggregations & DISTINCT
             Upsert (ON CONFLICT): Upsert (ON CONFLICT)
             Active-record (opt-in): Active-record (opt-in)
+            Unit of work (opt-in): Unit of work (opt-in)
             Logging e erros: Logging & errors
             Erros de integridade (409): Integrity errors (409)
             Signals do repositório: Repository signals
@@ -171,6 +172,7 @@ nav:
       - Agregações e DISTINCT: recipes/aggregations.md
       - Upsert (ON CONFLICT): recipes/upsert.md
       - Active-record (opt-in): recipes/active-record.md
+      - Unit of work (opt-in): recipes/unit-of-work.md
       - Logging e erros: recipes/logging.md
       - Erros de integridade (409): recipes/integrity-errors.md
       - Signals do repositório: recipes/signals.md

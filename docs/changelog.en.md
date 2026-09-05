@@ -25,6 +25,17 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Opt-in unit of work with an identity map** — `session.unitOfWork()` returns an
+  identity map plus a change log: `get` of the same key twice returns **the same
+  instance** with no second query, and one `flush()` writes everything in a transaction
+  (inserts → updates → deletes, the order that keeps a foreign key satisfied when a new
+  parent and its children go together). An update carries **only** what changed, with
+  `Date` and `Uint8Array` compared by content — by reference, every row holding a date
+  would be rewritten on every flush. A mid-flush failure rolls the set back and **keeps**
+  the tracked state, so it can be fixed and flushed again. `Tracked<Row>` distinguishes a
+  tracked row from a loose one in the type. The plain-object default path is unchanged
+  (#51).
+
 - **`aliased(Model, alias)`** — reads the same model under another name
   (`FROM "employees" AS "sub"`). The join builder already required an alias, but
   `select()` had no way to name its table, and without that a correlated subquery over the
