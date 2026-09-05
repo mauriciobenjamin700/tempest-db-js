@@ -84,9 +84,62 @@ async function listProducts(query: { page?: number; size?: number }) {
     A client that already consumes a paginated Python backend **doesn't need to change anything**
     to consume a TS backend built with tempest-db-js.
 
+## Cursor pagination
+
+`paginate` uses `LIMIT/OFFSET` plus a `COUNT(*)`. On a large table that gets expensive
+(the database scans and discards the offset) and it **shifts the boundary**: a row
+inserted while the user reads pushes a record from page 2 to page 3, and they see it
+twice.
+
+`cursorPaginate` trades random access for stability:
+
+```ts
+let cursor: string | null = null;
+do {
+  const page = await orders.cursorPaginate({
+    cursor,
+    limit: 50,
+    orderBy: "createdAt",
+    ascending: false,
+    filters: { status: "open" },
+  });
+  handle(page.items);
+  cursor = page.nextCursor;   // null on the last page
+} while (cursor !== null);
+```
+
+| | `paginate` | `cursorPaginate` |
+| --- | --- | --- |
+| Navigation | any page (`page: 7`) | next only |
+| `COUNT(*)` | yes, per page | no |
+| Under concurrent inserts | may repeat/skip | stable |
+| Metadata | `total`, `pages` | `nextCursor` |
+
+!!! info "The primary key is always the tie-break"
+
+    Ordering only by `createdAt` with rows sharing the same instant puts the page
+    boundary in the middle of the tie — and a row then falls out of the walk without
+    ever being read. The primary key is appended as the second sort key, so the
+    (`orderBy`, key) pair is unique and the comparison is total. A composite key is
+    appended in full.
+
+!!! tip "The cursor is opaque — and validated"
+
+    It is base64 of the last page's ordering pair, not a disguised offset. A corrupted
+    cursor, one from another version, or one produced under a **different `orderBy`**,
+    throws `InvalidCursor` instead of silently building the wrong `WHERE`:
+
+    ```ts
+    await orders.cursorPaginate({ cursor: byCreatedAt.nextCursor, orderBy: "total" });
+    // InvalidCursor: it does not carry "total" — the ordering changed between pages
+    ```
+
+    Do not persist cursors across a deploy that changes a route's default ordering.
+
 ## Recap
 
 - `repository.paginate({ page, pageSize, orderBy, ascending, filters })`.
 - `orderBy` is a typed column of the model — typo = compile error.
 - Result: `{ items, total, page, pageSize, pages }`.
 - Structure identical to `tempest-fastapi-sdk`'s `BasePaginationSchema<T>`.
+- `cursorPaginate` for large tables: no `COUNT(*)`, stable boundary, opaque cursor.

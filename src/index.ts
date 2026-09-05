@@ -934,6 +934,8 @@ export {
 } from "./url.js";
 
 export {
+  decodeValue as decodeColumnValue,
+  encodeValue as encodeColumnValue,
   fromDict,
   parse,
   stringify,
@@ -976,6 +978,9 @@ export {
 
 export {
   BaseRepository,
+  type CursorPage,
+  type CursorPaginationFilter,
+  InvalidCursor,
   type PaginationFilter,
   type PaginationResult,
   RecordNotFound,
