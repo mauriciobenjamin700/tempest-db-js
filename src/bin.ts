@@ -179,8 +179,7 @@ async function runBackupCommand(argv: readonly string[]): Promise<boolean> {
 
   if (!file || !url) {
     process.stderr.write(
-      `tempest-db: usage: tempest-db ${command} <file> --url <database-url>\n` +
-        "  (or set DATABASE_URL)\n",
+      `tempest-db: usage: tempest-db ${command} <file> --url <database-url>\n  (or set DATABASE_URL)\n`,
     );
     process.exitCode = 1;
     return true;
