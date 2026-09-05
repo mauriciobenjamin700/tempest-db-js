@@ -93,6 +93,34 @@ No PostgreSQL, `column.enum(...)` vira um **`CREATE TYPE ... AS ENUM`** nomeado,
     exercitados contra um Postgres real no CI (só SQLite é). Trate o caminho Postgres
     como **beta** e valide no seu ambiente — veja o [Roadmap](../roadmap.md).
 
+## Conexão que morreu sem avisar
+
+Conexão de pool morre sem o pool perceber — failover, restart do pgbouncer, firewall
+cortando socket ocioso. O estrago cai em quem pegar ela depois, e cai pior numa
+transação: o `BEGIN` passa, um statement no meio falha, e o bloco morre pela metade.
+
+```ts
+createEngine(url, {
+  pool: {
+    size: 10,
+    prePing: true,       // valida a conexão antes de pinar para a transação
+    recycleMs: 3_600_000 // fecha conexão viva há mais de 1h
+  },
+});
+```
+
+- **`prePing`** roda um `SELECT 1` na conexão reservada antes de usar; se falhar,
+  descarta e reserva outra. Custa um round trip por transação — por isso é opt-in.
+- **`recycleMs`** vira `max_lifetime` do postgres.js: limita **quanto tempo** uma
+  conexão pode estar viva, o que impede um timeout do lado do servidor de virar erro
+  misterioso horas depois.
+
+!!! info "PostgreSQL só"
+
+    O mysql2 não tem knob equivalente, então passar `prePing`/`recycleMs` num engine
+    MySQL **lança** em vez de ser ignorado em silêncio. No SQLite o bloco `pool` inteiro
+    não se aplica.
+
 ## Recap
 
 - Banco identificado pela **URL** — trocar de banco é trocar a string.

@@ -24,6 +24,13 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`pool.prePing` e `pool.recycleMs`** — o que faltava para conexão que morre sem
+  avisar (failover, restart de pgbouncer, firewall cortando socket ocioso).
+  `prePing` valida a conexão com `SELECT 1` **antes de pinar para a transação**, que é
+  onde o estrago é pior: `BEGIN` passa e o bloco morre pela metade. `recycleMs` vira o
+  `max_lifetime` do postgres.js. Os dois são PostgreSQL: no MySQL **lançam**, porque o
+  mysql2 não tem knob equivalente, e no SQLite o bloco `pool` não se aplica (#33).
+
 - **Nível de isolamento e bloco somente-leitura por transação** —
   `transaction(fn, { isolation, readOnly })`. O PostgreSQL põe tudo no próprio `BEGIN`;
   o MySQL precisa de um `SET TRANSACTION` antes e usa `START TRANSACTION READ ONLY`; o
