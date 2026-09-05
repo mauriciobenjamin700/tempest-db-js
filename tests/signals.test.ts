@@ -147,8 +147,12 @@ describe("repository signals", () => {
 
   it("scopes handlers per model and unregisters on demand", async () => {
     const calls: string[] = [];
-    const off = onSignal(Item, "postSave", () => calls.push("item"));
-    onSignal(Other, "postSave", () => calls.push("other"));
+    const off = onSignal(Item, "postSave", () => {
+      calls.push("item");
+    });
+    onSignal(Other, "postSave", () => {
+      calls.push("other");
+    });
 
     expect(hasHandlers(Item, "postSave")).toBe(true);
     expect(hasHandlers(Item, "preDelete")).toBe(false);
