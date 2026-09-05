@@ -419,6 +419,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `auditLogModel(table)` / `enableAudit(Model, opts)` | Append-only trail with a diff; written in the change's own transaction. |
 | `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` on the repository path; a throwing `pre*` vetoes. |
 | `hasHandlers` / `clearSignals` | Whether anything listens (the repository skips the extra SELECT otherwise); test cleanup. |
+| `backupDatabase(url, file)` / `restoreDatabase(url, file)` | `pg_dump`/`pg_restore`/`psql`, or `VACUUM INTO` on SQLite. Also `tempest-db backup\|restore`. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 

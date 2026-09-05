@@ -1065,6 +1065,17 @@ export {
 } from "./audit.js";
 
 export {
+  type BackupOptions,
+  type BackupResult,
+  BackupToolMissing,
+  backupDatabase,
+  backupFormat,
+  restoreDatabase,
+  toolUrl,
+  UnsupportedBackupBackend,
+} from "./backup.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,

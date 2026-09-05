@@ -185,6 +185,46 @@ export default defineMigrationConfig({
     **PostgreSQL** through `information_schema`, and **MySQL** returns an explicit
     "not implemented" message — MySQL introspection does not exist yet.
 
+## 9. Backup and restore
+
+The step every runbook asks for **before** running a migration in production:
+
+```bash
+tempest-db backup out/app-2026-09-05.dump --url "$DATABASE_URL"
+tempest-db restore out/app-2026-09-05.dump --url "$DATABASE_URL"
+```
+
+Without `--url` it falls back to `DATABASE_URL`. It is callable programmatically too
+(`backupDatabase(url, file)` / `restoreDatabase(url, file)`).
+
+| Database | Backup | Restore |
+| --- | --- | --- |
+| PostgreSQL (`.dump`) | `pg_dump --format=custom` | `pg_restore` |
+| PostgreSQL (`.sql`) | plain `pg_dump` | `psql --file` |
+| SQLite | `VACUUM INTO` | file copy |
+
+The **extension** picks the format, so the two commands cannot disagree about the file.
+
+!!! danger "On SQLite, copying the file is **not** a backup"
+
+    With WAL on, the `.db` file alone is not the whole database — part of the data lives
+    in the `-wal`. `VACUUM INTO` produces a consistent file **even while another
+    connection is writing**, which is why it is used here instead of `cp`.
+
+!!! info "The password goes through `PGPASSWORD`, never `argv`"
+
+    Any process on the machine can read another's command line. The URL's password is
+    handed to the child process through the environment.
+
+!!! tip "The driver suffix is stripped"
+
+    `postgresql+asyncpg://…` is a Python service's URL; `pg_dump` does not know that
+    scheme. The suffix is removed before the command is built.
+
+A missing tool becomes a named error (`BackupToolMissing`), not a spawn stack trace.
+`backup`/`restore` are dispatched **before** the config is loaded: a database that cannot
+be migrated yet is exactly the one somebody needs a dump of.
+
 ## Recap
 
 - `reflectSchema(models)` → IR; `diffSchema(current, target)` → typed operations.

@@ -183,6 +183,47 @@ export default defineMigrationConfig({
     **PostgreSQL** via `information_schema`, e **MySQL** devolve uma mensagem
     explícita de "não implementado" — a introspecção MySQL ainda não existe.
 
+## 9. Backup e restore
+
+O passo que todo runbook pede **antes** de rodar migração em produção:
+
+```bash
+tempest-db backup out/app-2026-09-05.dump --url "$DATABASE_URL"
+tempest-db restore out/app-2026-09-05.dump --url "$DATABASE_URL"
+```
+
+Sem `--url`, usa `DATABASE_URL`. Também dá para chamar programaticamente
+(`backupDatabase(url, file)` / `restoreDatabase(url, file)`).
+
+| Banco | Backup | Restore |
+| --- | --- | --- |
+| PostgreSQL (`.dump`) | `pg_dump --format=custom` | `pg_restore` |
+| PostgreSQL (`.sql`) | `pg_dump` plano | `psql --file` |
+| SQLite | `VACUUM INTO` | cópia do arquivo |
+
+A **extensão** escolhe o formato, então os dois comandos não podem discordar sobre o
+arquivo.
+
+!!! danger "No SQLite, copiar o arquivo **não** é backup"
+
+    Com WAL ligado, o `.db` sozinho não é o banco inteiro — parte dos dados está no
+    `-wal`. `VACUUM INTO` produz um arquivo consistente **mesmo com outra conexão
+    escrevendo**, e é por isso que ele é usado aqui em vez de `cp`.
+
+!!! info "A senha vai por `PGPASSWORD`, nunca em `argv`"
+
+    Qualquer processo da máquina lê a linha de comando alheia. A senha da URL é passada
+    por variável de ambiente ao processo filho.
+
+!!! tip "Sufixo de driver é removido"
+
+    `postgresql+asyncpg://…` é URL de serviço Python; o `pg_dump` não conhece esse
+    esquema. O sufixo sai antes de montar o comando.
+
+Ferramenta ausente no PATH vira erro nomeado (`BackupToolMissing`), não stack trace de
+spawn. `backup`/`restore` são despachados **antes** do carregamento do config: um banco
+que ainda não migra é exatamente o que alguém precisa dumpar.
+
 ## Recap
 
 - `reflectSchema(models)` → IR; `diffSchema(atual, alvo)` → operações tipadas.
