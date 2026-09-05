@@ -390,6 +390,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
 | `createEngine(url, { onNotice })` | Notices do servidor (PG `NOTICE`); **sem ele, nada é impresso**. |
 | `createEngine(url, { driverOptions })` | Repasse direto ao driver, aplicado por último (vence `pool`/`onNotice`). |
+| `createEngine(url, { driver })` | Escolhe o driver do SQLite: `"node:sqlite"` (padrão) ou `"better-sqlite3"`. Nome desconhecido lança. |
+| `NodeSqliteDriver` / `BetterSqliteDriver` | Os dois drivers SQLite; `.open(path, options?)` abre um handle direto. |
 
 Terminais do `Result` (async retornam `Promise`):
 

@@ -3,6 +3,44 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.8.0] — 2026-09-05
+
+O `better-sqlite3` deixou de ser promessa: `EngineOptions.driver` e o sufixo
+`sqlite+better-sqlite3` passaram a selecionar driver de verdade.
+
+### Adicionado
+
+- **`BetterSqliteDriver`** — driver SQLite sobre a peer dependency opcional
+  `better-sqlite3`, exportado no índice público e com o mesmo cache de prepared
+  statement do `NodeSqliteDriver`. Linhas, coerção (`bigint`, `Date`, `boolean`,
+  JSON), `RETURNING` e `stream()` são idênticos entre os dois — trocar de driver
+  não muda o código do consumidor. O pacote é carregado **lazy**, como `postgres`
+  e `mysql2`, e a falta dele dá erro nomeando o `npm install`.
+- **Seleção de driver de verdade** — `{ driver: "better-sqlite3" }` e
+  `sqlite+better-sqlite3:///app.db` abrem o `better-sqlite3`; a opção vence o
+  sufixo quando os dois aparecem. `node:sqlite` continua o padrão, sem instalar
+  nada. Receita nova: *Escolhendo o driver do SQLite*.
+
+### ⚠️ Breaking
+
+- **`EngineOptions.driver` com nome desconhecido agora lança.** Antes o campo era
+  ignorado em silêncio para qualquer valor, em qualquer dialeto — quem passava
+  `{ driver: "better-sqlite3" }` rodava no `node:sqlite` sem aviso. Agora
+  `"sqlite3"` no SQLite, `"asyncpg"` no PostgreSQL e `"mysql3"` no MySQL falham na
+  criação do engine. É breaking em runtime só para quem já estava sendo ignorado,
+  que é exatamente o engano que a issue #22 registrou.
+- O **sufixo da URL** continua tolerante de propósito: `sqlite+aiosqlite`,
+  `postgresql+asyncpg` e afins são ignorados, não rejeitados, para URL copiada de
+  serviço Python continuar conectando.
+
+### Corrigido
+
+- **`EngineOptions.driver`, o sufixo `+better-sqlite3` e a peer dependency
+  opcional eram documentados e ignorados** (#22). `openSqliteDriver` nunca lia
+  `options.driver` nem `parsed.driver`, e nenhuma linha de `src/` carregava
+  `better-sqlite3`. Quem escolhia o driver — por WAL, `pragma()`, extensão
+  carregável, ou por já usá-lo no resto do serviço — rodava em outro sem saber.
+
 ## [0.7.0] — 2026-08-30
 
 Duas correções vindas do mesmo consumidor real (`zap-api`): o ruído que o
