@@ -78,6 +78,7 @@ plugins:
             Receitas: Recipes
             Visão geral: Overview
             created_at / updated_at: created_at / updated_at
+            Mixins de modelo: Model mixins
             Paginação tipada: Typed pagination
             Agregações e DISTINCT: Aggregations & DISTINCT
             Upsert (ON CONFLICT): Upsert (ON CONFLICT)
@@ -156,6 +157,7 @@ nav:
       - recipes/index.md
       - Chaves estrangeiras e UNIQUE: recipes/constraints.md
       - created_at / updated_at: recipes/timestamps.md
+      - Mixins de modelo: recipes/mixins.md
       - Paginação tipada: recipes/pagination.md
       - Agregações e DISTINCT: recipes/aggregations.md
       - Upsert (ON CONFLICT): recipes/upsert.md

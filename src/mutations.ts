@@ -19,6 +19,7 @@ import {
   type SqlExpression,
   columnNamesOf,
   columnsOf,
+  defaultAsWriteValue,
   isSqlExpression,
 } from "./index.js";
 import type { WhereInput } from "./query.js";
@@ -337,6 +338,31 @@ export interface UpdateNode {
 }
 
 /**
+ * Add each column's `onUpdate` value to a patch that does not already set it.
+ *
+ * `.onUpdate(sql.now())` is applied here, on the write path, rather than in DDL:
+ * only MySQL has a column-level `ON UPDATE`, so rendering it into the schema
+ * would make the same model behave differently per database. An explicit value in
+ * the patch always wins — the column's `onUpdate` is a default, not an override.
+ *
+ * @param model The model being updated.
+ * @param values The caller's patch.
+ * @returns The patch, plus every applicable `onUpdate` value.
+ */
+function withOnUpdateValues(
+  model: ModelClass,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...values };
+  for (const [name, col] of Object.entries(columnsOf(model))) {
+    if (col.onUpdateValue !== null && !(name in merged)) {
+      merged[name] = defaultAsWriteValue(col.onUpdateValue);
+    }
+  }
+  return merged;
+}
+
+/**
  * UPDATE builder.
  *
  * @typeParam Full     - the complete row type.
@@ -380,7 +406,9 @@ export class UpdateBuilder<Full, Guarded extends boolean, Ret = number> {
    */
   set(values: WritePatch<Full>): UpdateBuilder<Full, Guarded, Ret> {
     assertWritableValues(this.source, values as Record<string, unknown>, "set");
-    return this.with<Guarded, Ret>({ set: values as Record<string, unknown> });
+    return this.with<Guarded, Ret>({
+      set: withOnUpdateValues(this.source, values as Record<string, unknown>),
+    });
   }
 
   /** Restrict the rows to update. Marks the builder safe to execute. */

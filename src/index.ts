@@ -138,6 +138,21 @@ function expression(
 }
 
 /**
+ * Turn a stored column default (or `onUpdate` value) into something the write
+ * path can render.
+ *
+ * A default is kept as a {@link DefaultValue} — the shape the migration IR wants
+ * — while `set()` and `values()` want either a bindable value or a branded
+ * {@link SqlExpression}. This is the one conversion between the two.
+ *
+ * @param value The stored default.
+ * @returns A literal to bind, or a branded expression to render inline.
+ */
+export function defaultAsWriteValue(value: DefaultValue): unknown {
+  return value.kind === "literal" ? value.value : expression(value.expression);
+}
+
+/**
  * Runtime guard: is this value a branded {@link SqlExpression}?
  *
  * @param value Any value handed to `set()`, `values()` or `.default()`.
@@ -949,6 +964,15 @@ export {
   type JoinWhereInput,
   type Sources,
 } from "./join.js";
+
+export {
+  type ModelBase,
+  notDeleted,
+  onlyDeleted,
+  withAudit,
+  withSoftDelete,
+  withTimestamps,
+} from "./mixins.js";
 
 export {
   BaseRepository,

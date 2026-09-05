@@ -19,6 +19,16 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Model mixins** — `withTimestamps` (`createdAt`/`updatedAt`), `withSoftDelete`
+  (`deletedAt`, plus `notDeleted()`/`onlyDeleted()` for `where`) and `withAudit`
+  (`createdBy`/`updatedBy`, actor type configurable through a factory). They are
+  functions taking the base class and returning the subclass, so they compose
+  (`withAudit(withSoftDelete(withTimestamps(Model)))`) and contribute real columns: they
+  appear in `InferModel`, in `InferInsert`, in the migration IR and in the DDL (#26).
+- **`defaultAsWriteValue`** — converts a column's stored default (`DefaultValue`) into
+  what the write path renders. It was the missing piece between the IR's shape and
+  `set()`/`values()`.
+
 - **`EngineOptions.sqlite`** — per-connection pragmas applied at open time:
   `foreignKeys` (defaults to `true`), `journalMode`, `busyTimeoutMs`, `synchronous`.
   Each one is **read back after it is written**, because SQLite answers a pragma it
@@ -27,6 +37,15 @@ project adopts [Semantic Versioning](https://semver.org/).
   PostgreSQL/MySQL engine throws (#28).
 
 ### Fixed
+
+- **`Column.onUpdate()` is now applied.** The value was stored on the column and
+  **never consumed** — not by the DDL, not by the builder — so `.onUpdate(sql.now())`
+  did nothing, even though the `created_at / updated_at` recipe documented that "the
+  value is re-applied on every UPDATE". `UpdateBuilder` now injects the value of every
+  `onUpdate` column the `set()` does not mention. Applied on the write path, not in the
+  schema: only MySQL has a column-level `ON UPDATE`, and rendering it into the DDL would
+  make the same model diverge per database. An explicit value in `set()` still wins
+  (#26).
 
 - **A composite primary key is now honored in full** by `BaseRepository` and
   `activeRecord`. Both layers carried a copy of `primaryKeyOf` that returned the
