@@ -381,18 +381,84 @@ export type QueryLogger = (event: {
   readonly params: readonly unknown[];
 }) => void;
 
+/**
+ * What a statement did, reported **after** it ran.
+ *
+ * `onQuery` fires before execution, so it cannot time anything; this is the other
+ * half. It fires on the failure path too, with `error` set — a slow statement that
+ * then fails is exactly the one worth seeing.
+ */
+export interface QueryEndEvent {
+  /** The statement text. */
+  readonly sql: string;
+  /** The bound parameters, in placeholder order. */
+  readonly params: readonly unknown[];
+  /** Wall-clock time the driver took, in milliseconds. */
+  readonly durationMs: number;
+  /** Rows returned (a SELECT or `RETURNING`), or rows affected by a write. */
+  readonly rowCount: number;
+  /** The driver's error, when the statement failed. */
+  readonly error?: unknown;
+}
+
+/**
+ * Called after every statement, with its duration.
+ *
+ * Errors thrown by the hook are ignored, like {@link QueryLogger}.
+ */
+export type QueryEndLogger = (event: QueryEndEvent) => void;
+
+/** The per-statement hooks a session carries. */
+export interface QueryHooks {
+  /** Called before a statement runs. */
+  readonly onQuery?: QueryLogger | undefined;
+  /** Called after a statement runs, with its duration. */
+  readonly onQueryEnd?: QueryEndLogger | undefined;
+  /** When set, `onQueryEnd` fires only for statements at least this slow (ms). */
+  readonly slowQueryMs?: number | undefined;
+}
+
 /** Invoke a query logger, swallowing any error it throws. */
 function emitLog(
-  logger: QueryLogger | undefined,
+  hooks: QueryHooks | undefined,
   sql: string,
   params: readonly unknown[],
 ): void {
+  const logger = hooks?.onQuery;
   if (!logger) return;
   try {
     logger({ sql, params });
   } catch {
     // logging must never break execution
   }
+}
+
+/** Read a monotonic clock, in milliseconds. */
+function now(): number {
+  return performance.now();
+}
+
+/**
+ * Invoke the end-of-statement hook, swallowing any error it throws.
+ *
+ * @param hooks The session's hooks.
+ * @param event What the statement did.
+ */
+function emitQueryEnd(hooks: QueryHooks | undefined, event: QueryEndEvent): void {
+  const logger = hooks?.onQueryEnd;
+  if (!logger) return;
+  const threshold = hooks?.slowQueryMs;
+  if (threshold !== undefined && event.durationMs < threshold) return;
+  try {
+    logger(event);
+  } catch {
+    // logging must never break execution
+  }
+}
+
+/** Rows a driver result reports — returned rows, or rows affected by a write. */
+function resultRowCount(result: DriverResult): number {
+  return result.rows.length > 0 ? result.rows.length : result.changes;
 }
 
 function firstScalar(row: Record<string, unknown> | undefined): unknown {
@@ -508,16 +574,31 @@ export class SyncSession {
   constructor(
     private readonly driver: SyncDriver,
     private readonly dialect: BaseDialect,
-    /** Optional per-statement logger (query tracing). */
-    private readonly logger?: QueryLogger,
+    /** Optional per-statement hooks (query tracing and timing). */
+    private readonly hooks?: QueryHooks,
   ) {}
 
-  /** Log, run, and error-wrap one raw statement. */
+  /** Log, run, time, and error-wrap one raw statement. */
   private exec(sql: string, params: readonly unknown[]): DriverResult {
-    emitLog(this.logger, sql, params);
+    emitLog(this.hooks, sql, params);
+    const startedAt = now();
     try {
-      return this.driver.execute(sql, params);
+      const result = this.driver.execute(sql, params);
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount: resultRowCount(result),
+      });
+      return result;
     } catch (error) {
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount: 0,
+        error,
+      });
       throw new QueryExecutionError(error, sql, params);
     }
   }
@@ -613,15 +694,31 @@ export class SyncSession {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
-    emitLog(this.logger, sql, params);
+    emitLog(this.hooks, sql, params);
     if (this.driver.iterate) {
+      const startedAt = now();
+      let rowCount = 0;
       try {
         for (const raw of this.driver.iterate(sql, params)) {
+          rowCount++;
           yield coerceOne(builder, raw) as RowOf<B>;
         }
       } catch (error) {
+        emitQueryEnd(this.hooks, {
+          sql,
+          params,
+          durationMs: now() - startedAt,
+          rowCount,
+          error,
+        });
         throw new QueryExecutionError(error, sql, params);
       }
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount,
+      });
       return;
     }
     for (const raw of this.exec(sql, params).rows) {
@@ -644,16 +741,31 @@ export class AsyncSession {
   constructor(
     private readonly driver: AsyncDriver,
     private readonly dialect: BaseDialect,
-    /** Optional per-statement logger (query tracing). */
-    private readonly logger?: QueryLogger,
+    /** Optional per-statement hooks (query tracing and timing). */
+    private readonly hooks?: QueryHooks,
   ) {}
 
-  /** Log, run, and error-wrap one raw statement. */
+  /** Log, run, time, and error-wrap one raw statement. */
   private async exec(sql: string, params: readonly unknown[]): Promise<DriverResult> {
-    emitLog(this.logger, sql, params);
+    emitLog(this.hooks, sql, params);
+    const startedAt = now();
     try {
-      return await this.driver.execute(sql, params);
+      const result = await this.driver.execute(sql, params);
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount: resultRowCount(result),
+      });
+      return result;
     } catch (error) {
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount: 0,
+        error,
+      });
       throw new QueryExecutionError(error, sql, params);
     }
   }
@@ -761,7 +873,7 @@ export class AsyncSession {
         : { ...readBack.node, columns: node.returning },
     );
     const run = async (driver: AsyncDriver): Promise<SyncResult<Row>> => {
-      const scoped = new AsyncSession(driver, this.dialect, this.logger);
+      const scoped = new AsyncSession(driver, this.dialect, this.hooks);
       const written = await scoped.exec(insertSql.sql, insertSql.params);
       const read = await scoped.exec(selectSql.sql, selectSql.params);
       const rows = read.rows.map((row) => coerceRow(model, row)) as Row[];
@@ -781,15 +893,31 @@ export class AsyncSession {
     const node = (builder as unknown as { node: Parameters<BaseDialect["compile"]>[0] })
       .node;
     const { sql, params } = this.dialect.compile(node);
-    emitLog(this.logger, sql, params);
+    emitLog(this.hooks, sql, params);
     if (this.driver.iterate) {
+      const startedAt = now();
+      let rowCount = 0;
       try {
         for await (const raw of this.driver.iterate(sql, params)) {
+          rowCount++;
           yield coerceOne(builder, raw) as RowOf<B>;
         }
       } catch (error) {
+        emitQueryEnd(this.hooks, {
+          sql,
+          params,
+          durationMs: now() - startedAt,
+          rowCount,
+          error,
+        });
         throw new QueryExecutionError(error, sql, params);
       }
+      emitQueryEnd(this.hooks, {
+        sql,
+        params,
+        durationMs: now() - startedAt,
+        rowCount,
+      });
       return;
     }
     const result = await this.exec(sql, params);
@@ -804,7 +932,7 @@ export class AsyncSession {
     // rejects the raw transaction. Single-connection drivers (SQLite) skip this.
     if (this.driver.reserve) {
       const reserved = await this.driver.reserve();
-      const scoped = new AsyncSession(reserved, this.dialect, this.logger);
+      const scoped = new AsyncSession(reserved, this.dialect, this.hooks);
       try {
         await scoped.exec("BEGIN", []);
         const out = await fn(scoped);
@@ -967,6 +1095,38 @@ export interface EngineOptions {
    * how a durability choice gets lost.
    */
   readonly sqlite?: SqliteOptions;
+  /**
+   * Called **after** every statement, with how long the driver took.
+   *
+   * `onQuery` fires before execution, so it cannot time anything; this is the
+   * other half, and it fires on the failure path too (with `error` set). Use it
+   * for latency metrics, tracing spans, and finding the query dragging p99.
+   *
+   * Errors thrown by the hook are swallowed, like `onQuery`.
+   */
+  readonly onQueryEnd?: QueryEndLogger;
+  /**
+   * Only report statements at least this slow (milliseconds) to `onQueryEnd`.
+   *
+   * The cheapest slow-query log there is: set a threshold, log what crosses it.
+   * Without it every statement is reported.
+   */
+  readonly slowQueryMs?: number;
+}
+
+/**
+ * Collect the per-statement hooks out of the engine options.
+ *
+ * @param options The engine options, if any.
+ * @returns The hook bundle a session carries, or `undefined` when none is set.
+ */
+function queryHooks(options?: EngineOptions): QueryHooks | undefined {
+  if (!options?.onQuery && !options?.onQueryEnd) return undefined;
+  return {
+    onQuery: options.onQuery,
+    onQueryEnd: options.onQueryEnd,
+    slowQueryMs: options.slowQueryMs,
+  };
 }
 
 /** Invoke a notice logger, swallowing any error it throws. */
@@ -985,11 +1145,11 @@ export class SyncEngine {
 
   constructor(
     private readonly driver: SyncDriver,
-    private readonly logger?: QueryLogger,
+    private readonly hooks?: QueryHooks,
   ) {}
 
   session(): SyncSession {
-    return new SyncSession(this.driver, getDialect("sqlite"), this.logger);
+    return new SyncSession(this.driver, getDialect("sqlite"), this.hooks);
   }
 
   transaction<T>(fn: (tx: SyncSession) => T): T {
@@ -1011,11 +1171,11 @@ export class AsyncEngine {
   constructor(
     private readonly driver: AsyncDriver,
     readonly dialect: Dialect,
-    private readonly logger?: QueryLogger,
+    private readonly hooks?: QueryHooks,
   ) {}
 
   session(): AsyncSession {
-    return new AsyncSession(this.driver, getDialect(this.dialect), this.logger);
+    return new AsyncSession(this.driver, getDialect(this.dialect), this.hooks);
   }
 
   transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
@@ -1277,7 +1437,7 @@ export function createSyncEngine(url: string, options?: EngineOptions): SyncEngi
       `createSyncEngine supports only SQLite; ${parsed.dialect} is async-only — use createEngine.`,
     );
   }
-  return new SyncEngine(openSqliteDriver(parsed, options), options?.onQuery);
+  return new SyncEngine(openSqliteDriver(parsed, options), queryHooks(options));
 }
 
 /**
@@ -1296,7 +1456,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
     return new AsyncEngine(
       asAsync(openSqliteDriver(parsed, options)),
       "sqlite",
-      options?.onQuery,
+      queryHooks(options),
     );
   }
   if (parsed.dialect === "mysql") {
@@ -1306,7 +1466,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
     return new AsyncEngine(
       createMysqlDriver(parsed.raw, options),
       "mysql",
-      options?.onQuery,
+      queryHooks(options),
     );
   }
   checkServerDriver("postgresql", options?.driver);
@@ -1315,7 +1475,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
   return new AsyncEngine(
     createPostgresDriver(parsed.raw, options),
     "postgresql",
-    options?.onQuery,
+    queryHooks(options),
   );
 }
 

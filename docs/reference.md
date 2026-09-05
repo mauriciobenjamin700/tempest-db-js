@@ -388,6 +388,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (transação aninhada). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
+| `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook **depois** do statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filtra por limiar. |
 | `createEngine(url, { onNotice })` | Notices do servidor (PG `NOTICE`); **sem ele, nada é impresso**. |
 | `createEngine(url, { driverOptions })` | Repasse direto ao driver, aplicado por último (vence `pool`/`onNotice`). |
 | `createEngine(url, { driver })` | Escolhe o driver do SQLite: `"node:sqlite"` (padrão) ou `"better-sqlite3"`. Nome desconhecido lança. |

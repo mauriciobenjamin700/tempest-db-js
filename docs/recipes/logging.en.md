@@ -30,6 +30,53 @@ The hook fires for **every** session statement: `execute`, `stream`, and the
     `onQuery` is the place to measure latency (stamp time, correlate by SQL),
     count queries per request, or feed a tracer.
 
+## Duration: `onQueryEnd`
+
+`onQuery` fires **before** the statement runs, so it cannot time anything. Its other
+half is `onQueryEnd`, which fires afterwards with what the driver took:
+
+```ts
+const engine = createEngine("postgresql://app@localhost/app", {
+  onQueryEnd: ({ sql, durationMs, rowCount, error }) => {
+    metrics.histogram("db.query.ms", durationMs, { failed: error !== undefined });
+    if (durationMs > 200) logger.warn({ sql, durationMs, rowCount }, "slow query");
+  },
+});
+```
+
+| Field | What it carries |
+| --- | --- |
+| `sql` / `params` | the same ones `onQuery` announced |
+| `durationMs` | the driver's wall-clock time |
+| `rowCount` | rows returned (SELECT/`RETURNING`) or affected (writes) |
+| `error` | the driver's error, when the statement failed |
+
+### A slow-query log in one line
+
+```ts
+createEngine(url, {
+  slowQueryMs: 200,
+  onQueryEnd: ({ sql, durationMs }) => logger.warn({ sql, durationMs }, "slow query"),
+});
+```
+
+With `slowQueryMs` the hook is called only for statements crossing the threshold — the
+cheapest slow-query log there is, with no APM agent.
+
+!!! info "It fires on failure too"
+
+    A failing statement calls `onQueryEnd` with `error` set and `rowCount: 0`. The slow
+    statement that **also fails** is exactly the interesting one, and a hook that only
+    saw the happy path would miss it.
+
+!!! tip "`stream()` is measured until the iteration ends"
+
+    For a stream, the time spans from compilation to the last row consumed — which is
+    what answers "why is this page slow". `rowCount` carries how many rows came out.
+
+Like `onQuery`, an error thrown inside `onQueryEnd` is swallowed: logging never breaks
+the query.
+
 ## Errors carry the failing SQL
 
 When the driver rejects a statement, tempest-db-js throws `QueryExecutionError` —
