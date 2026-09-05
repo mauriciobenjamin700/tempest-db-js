@@ -5,6 +5,28 @@ Todas as mudanças notáveis deste projeto são documentadas aqui.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+> Ciclo de trabalho sobre as issues #24–#51. A publicação no npm sai **uma vez**, no
+> fim do ciclo — cada entrega entra aqui até lá.
+
+### ⚠️ Breaking
+
+- **SQLite passa a verificar `FOREIGN KEY`.** Antes a verificação ficava desligada (o
+  default do próprio SQLite, por conexão), então `INSERT` órfão passava e
+  `ON DELETE CASCADE` nunca disparava. Agora o engine liga na abertura de toda conexão
+  SQLite, nos dois drivers. Base que já tinha linha órfã passa a recusar a escrita que
+  a toca — o que é o ponto. Escape: `{ sqlite: { foreignKeys: false } }` (#24).
+
+### Adicionado
+
+- **`EngineOptions.sqlite`** — pragmas por conexão aplicados na abertura:
+  `foreignKeys` (default `true`), `journalMode`, `busyTimeoutMs`, `synchronous`. Cada
+  um é **relido depois de escrito**, porque o SQLite responde a um pragma que não pode
+  honrar mantendo o valor antigo e não dizendo nada: `journalMode: "wal"` num banco
+  `:memory:` agora lança em vez de fingir. `sqlite` num engine PostgreSQL/MySQL lança
+  (#28).
+
 ## [0.8.0] — 2026-09-05
 
 O `better-sqlite3` deixou de ser promessa: `EngineOptions.driver` e o sufixo

@@ -80,6 +80,60 @@ using reader = createSyncEngine("sqlite:///app.db", {
 1. A `better-sqlite3` option. On `node:sqlite` the same idea is spelled
    `{ readOnly: true }` — different names, because it is the driver's API, not ours.
 
+## Connection pragmas
+
+A SQLite pragma is **per connection**, not per file — so it belongs to the engine,
+not to a migration. Only one has a default that changes behavior:
+
+```ts
+using engine = createSyncEngine("sqlite:///app.db", {
+  sqlite: {
+    foreignKeys: true,      // (1)!
+    journalMode: "wal",     // (2)!
+    busyTimeoutMs: 5000,    // (3)!
+    synchronous: "normal",  // (4)!
+  },
+});
+```
+
+1. **Defaults to `true`.** Turned on by us, not by SQLite.
+2. Readers stop blocking the writer. Needs a real file.
+3. How long a writer waits on a lock before giving up.
+4. Durability vs write throughput.
+
+!!! danger "Without `foreign_keys = ON`, your FK is decorative"
+
+    SQLite ships with foreign-key enforcement **off**, per connection. Without turning
+    it on, an orphan `INSERT` is accepted and `ON DELETE CASCADE` never fires — the
+    constraint is in the schema and does nothing.
+
+    tempest-db-js turns it on by default, so the same model behaves the same on all
+    three databases. Set `foreignKeys: false` only for the case it exists for: loading
+    a dump whose insert order does not respect the graph.
+
+!!! info "A refused pragma is an error, not silence"
+
+    SQLite answers a pragma it cannot honor by keeping the old value and **saying
+    nothing**. Every pragma is read back after it is written, and a mismatch throws:
+
+    ```ts
+    createSyncEngine("sqlite://:memory:", { sqlite: { journalMode: "wal" } });
+    // Error: SQLite refused PRAGMA journal_mode = wal for ":memory:" and stayed on
+    //        "memory" — an in-memory database cannot use WAL.
+    ```
+
+    An in-memory database cannot do WAL. Better to learn that when the engine opens
+    than when the latency did not improve.
+
+!!! warning "A table-rebuilding migration turns FK enforcement back on"
+
+    SQLite cannot alter a constraint, so the migration engine rebuilds the table
+    (`CREATE new / copy / DROP old`), turning FK enforcement off around the copy and
+    **back on** at the end. With `foreignKeys: false`, such a migration leaves it on.
+
+Passing `sqlite` to a PostgreSQL or MySQL engine throws — pragmas do not exist there,
+and silently ignoring them is how a durability choice gets lost.
+
 ## A wrong name is an error, not silence
 
 A driver this package does not ship fails when the engine is created:

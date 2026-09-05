@@ -392,6 +392,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `createEngine(url, { driverOptions })` | Repasse direto ao driver, aplicado por último (vence `pool`/`onNotice`). |
 | `createEngine(url, { driver })` | Escolhe o driver do SQLite: `"node:sqlite"` (padrão) ou `"better-sqlite3"`. Nome desconhecido lança. |
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Os dois drivers SQLite; `.open(path, options?)` abre um handle direto. |
+| `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 
 Terminais do `Result` (async retornam `Promise`):
 

@@ -859,6 +859,53 @@ export interface PoolOptions {
  */
 export type NoticeLogger = (notice: Record<string, unknown>) => void;
 
+/**
+ * SQLite journal modes accepted by `PRAGMA journal_mode`.
+ *
+ * `"wal"` is the one worth reaching for on a server: readers stop blocking the
+ * writer. It needs a real file — an in-memory database refuses it and stays on
+ * `"memory"`, which this layer reports as an error rather than a silent no-op.
+ */
+export type SqliteJournalMode =
+  | "delete"
+  | "truncate"
+  | "persist"
+  | "memory"
+  | "wal"
+  | "off";
+
+/** Durability levels accepted by `PRAGMA synchronous`. */
+export type SqliteSynchronous = "off" | "normal" | "full" | "extra";
+
+/**
+ * Per-connection SQLite settings, applied right after the handle opens.
+ *
+ * Pragmas are **per connection**, not per database file, so they belong to the
+ * engine rather than to a migration. Only `foreignKeys` has a default that
+ * changes behavior; every other field is emitted only when given, so an existing
+ * database keeps whatever it was configured with.
+ */
+export interface SqliteOptions {
+  /**
+   * Enforce `FOREIGN KEY` constraints. **Defaults to `true`.**
+   *
+   * SQLite ships with enforcement `OFF`, per connection, so a declared foreign
+   * key is decorative until someone turns it on: an orphan `INSERT` is accepted
+   * and `ON DELETE CASCADE` never fires. tempest-db-js turns it on, which makes
+   * the same model behave the same on all three databases.
+   *
+   * Set it to `false` only for the case it exists for — loading a dump whose
+   * insert order does not respect the graph.
+   */
+  readonly foreignKeys?: boolean;
+  /** `PRAGMA journal_mode`. Omitted: the database keeps its current mode. */
+  readonly journalMode?: SqliteJournalMode;
+  /** `PRAGMA busy_timeout`, in milliseconds. How long a writer waits on a lock. */
+  readonly busyTimeoutMs?: number;
+  /** `PRAGMA synchronous`. Durability vs write throughput. */
+  readonly synchronous?: SqliteSynchronous;
+}
+
 /** Options shared by both engine flavors. */
 export interface EngineOptions {
   /**
@@ -913,6 +960,13 @@ export interface EngineOptions {
    * request.
    */
   readonly driverOptions?: Readonly<Record<string, unknown>>;
+  /**
+   * Per-connection SQLite pragmas (`foreign_keys`, `journal_mode`, …), applied
+   * as soon as the handle opens. Passing it to a PostgreSQL or MySQL engine
+   * throws — the settings have no meaning there, and silently ignoring them is
+   * how a durability choice gets lost.
+   */
+  readonly sqlite?: SqliteOptions;
 }
 
 /** Invoke a notice logger, swallowing any error it throws. */
@@ -1086,15 +1140,125 @@ function resolveSqliteDriver(
   return fromUrl ?? "node:sqlite";
 }
 
+/** `PRAGMA synchronous` names, in the numeric order SQLite reports them back. */
+const SQLITE_SYNCHRONOUS_LEVELS: readonly SqliteSynchronous[] = [
+  "off",
+  "normal",
+  "full",
+  "extra",
+];
+
+/**
+ * Read the single value a query-form pragma returns.
+ *
+ * @param driver The open SQLite driver.
+ * @param name The pragma to read.
+ * @returns Its value, or `null` when the pragma reported nothing.
+ */
+function readPragma(driver: SyncDriver, name: string): unknown {
+  const { rows } = driver.execute(`PRAGMA ${name}`, []);
+  const first = rows[0];
+  if (!first) return null;
+  return Object.values(first)[0] ?? null;
+}
+
+/**
+ * Apply the configured pragmas to a freshly opened SQLite connection.
+ *
+ * Every pragma is **verified by reading it back**. SQLite answers a setting it
+ * cannot honor by keeping the old value and saying nothing — `journal_mode=wal`
+ * on an in-memory database is the common case — so writing the pragma and moving
+ * on would report success for a setting that never took.
+ *
+ * @param driver The open driver.
+ * @param options The requested settings; `foreignKeys` defaults to `true`.
+ * @param path The database path, used only to explain a refused setting.
+ * @throws Error When a value is out of range, or when SQLite refused a setting.
+ */
+function applySqlitePragmas(
+  driver: SyncDriver,
+  options: SqliteOptions | undefined,
+  path: string,
+): void {
+  const foreignKeys = options?.foreignKeys ?? true;
+  driver.execute(`PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"}`, []);
+  if (Number(readPragma(driver, "foreign_keys")) !== (foreignKeys ? 1 : 0)) {
+    throw new Error(
+      `SQLite refused PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"} — the build may lack foreign-key support.`,
+    );
+  }
+
+  const journalMode = options?.journalMode;
+  if (journalMode) {
+    driver.execute(`PRAGMA journal_mode = ${journalMode}`, []);
+    const actual = String(readPragma(driver, "journal_mode") ?? "").toLowerCase();
+    if (actual !== journalMode) {
+      const hint =
+        journalMode === "wal" && actual === "memory"
+          ? " — an in-memory database cannot use WAL."
+          : ".";
+      throw new Error(
+        `SQLite refused PRAGMA journal_mode = ${journalMode} for ${JSON.stringify(path)} and stayed on ${JSON.stringify(actual)}${hint}`,
+      );
+    }
+  }
+
+  const busyTimeoutMs = options?.busyTimeoutMs;
+  if (busyTimeoutMs !== undefined) {
+    if (!Number.isInteger(busyTimeoutMs) || busyTimeoutMs < 0) {
+      throw new Error(
+        `busyTimeoutMs must be a non-negative integer, got ${JSON.stringify(busyTimeoutMs)}.`,
+      );
+    }
+    driver.execute(`PRAGMA busy_timeout = ${busyTimeoutMs}`, []);
+    if (Number(readPragma(driver, "busy_timeout")) !== busyTimeoutMs) {
+      throw new Error(`SQLite refused PRAGMA busy_timeout = ${busyTimeoutMs}.`);
+    }
+  }
+
+  const synchronous = options?.synchronous;
+  if (synchronous) {
+    driver.execute(`PRAGMA synchronous = ${synchronous}`, []);
+    const actual = SQLITE_SYNCHRONOUS_LEVELS[Number(readPragma(driver, "synchronous"))];
+    if (actual !== synchronous) {
+      throw new Error(
+        `SQLite refused PRAGMA synchronous = ${synchronous} and stayed on ${JSON.stringify(actual ?? "unknown")}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Reject SQLite-only settings on a dialect that has no such thing.
+ *
+ * @param dialect The dialect parsed from the URL.
+ * @param options The engine options.
+ * @throws Error When `sqlite` options are given for a server dialect.
+ */
+function checkSqliteOptions(dialect: Dialect, options?: EngineOptions): void {
+  if (!options?.sqlite) return;
+  throw new Error(
+    `The "sqlite" engine options are SQLite-only; ${dialect} has no per-connection pragmas.`,
+  );
+}
+
 /** Open a SQLite sync driver from a parsed URL, passing driver options through. */
 function openSqliteDriver(
   parsed: ParsedDatabaseUrl,
   options?: EngineOptions,
 ): SyncDriver {
   const path = parsed.database ?? ":memory:";
-  return resolveSqliteDriver(parsed, options) === "better-sqlite3"
-    ? BetterSqliteDriver.open(path, options?.driverOptions)
-    : NodeSqliteDriver.open(path, options?.driverOptions);
+  const driver =
+    resolveSqliteDriver(parsed, options) === "better-sqlite3"
+      ? BetterSqliteDriver.open(path, options?.driverOptions)
+      : NodeSqliteDriver.open(path, options?.driverOptions);
+  try {
+    applySqlitePragmas(driver, options?.sqlite, path);
+  } catch (error) {
+    driver.close();
+    throw error;
+  }
+  return driver;
 }
 
 /**
@@ -1137,6 +1301,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
   }
   if (parsed.dialect === "mysql") {
     checkServerDriver("mysql", options?.driver);
+    checkSqliteOptions("mysql", options);
     // MySQL: mysql2 is lazy-loaded the first time a query runs.
     return new AsyncEngine(
       createMysqlDriver(parsed.raw, options),
@@ -1145,6 +1310,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
     );
   }
   checkServerDriver("postgresql", options?.driver);
+  checkSqliteOptions("postgresql", options);
   // PostgreSQL: postgres.js is lazy-loaded the first time a query runs.
   return new AsyncEngine(
     createPostgresDriver(parsed.raw, options),
