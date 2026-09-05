@@ -3,6 +3,23 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.9.1] — 2026-09-05
+
+Correção de empacotamento encontrada ao validar o artefato publicado da 0.9.0.
+
+### Corrigido
+
+- **Cada entrada do pacote publicava uma cópia própria do core**, e a consequência era
+  silenciosa: `tempest-db-js/migrations` e o binário `tempest-db` traziam o **seu**
+  `Column`, então um model construído pela entrada principal reflete como se **não tivesse
+  coluna nenhuma** — `instanceof Column` comparava duas classes diferentes. Na prática,
+  `reflectTable` devolvia `{}`, o `CREATE TABLE` saía só com as constraints e o
+  `tempest-db check` não via nada. Agora o core é empacotado **uma vez**, na raiz, e as
+  outras entradas o carregam pelo próprio nome do pacote (self-reference via `exports`),
+  com teste de empacotamento sobre os arquivos **construídos** — o defeito é invisível na
+  árvore de origem, que é um grafo de módulos só (#48 expôs, mas atinge todo o fluxo de
+  migração desde que a subentrada existe).
+
 ## [0.9.0] — 2026-09-05
 
 O ciclo das issues #24–#51: 28 entregas em cima da análise que comparou este pacote com a
