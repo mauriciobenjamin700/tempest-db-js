@@ -397,9 +397,12 @@ export abstract class BaseDialect {
 
   /** Render one write value: a SQL expression inline, anything else as a parameter. */
   protected renderValue(value: unknown, params: Params): string {
-    return isSqlExpression(value)
-      ? this.renderExpression(value, params)
-      : params.bind(value);
+    if (isSqlExpression(value)) return this.renderExpression(value, params);
+    // A column reference written into a SET: `UPDATE ... SET tier = c.tier`.
+    if (isExpression(value)) {
+      return this.renderExpr(value.node, params, (k) => this.columnId(k, undefined));
+    }
+    return params.bind(value);
   }
 
   /**
@@ -538,6 +541,20 @@ export abstract class BaseDialect {
    * SQL order, so placeholder positions stay correct.
    */
   private compileInsert(node: InsertNode, params: Params): string {
+    if (node.fromSelect) {
+      const target = node.fromSelect.columns
+        .map((c) => this.columnId(c, node.names))
+        .join(", ");
+      const source = node.fromSelect.select as SelectNode | JoinNode | SetNode;
+      const query =
+        source.kind === "join_select"
+          ? this.compileJoin(source, params)
+          : source.kind === "set_op"
+            ? this.compileSetOp(source, params)
+            : this.compileSelect(source, params);
+      const returning = this.compileReturning(node.returning, node.names);
+      return `INSERT INTO ${this.quoteId(node.table)} (${target}) ${query}${returning}`;
+    }
     const columns = insertColumns(node.values);
     const conflict = node.onConflict;
     const cacheable =
@@ -698,6 +715,7 @@ export abstract class BaseDialect {
       )
       .join(", ");
     let sql = `UPDATE ${this.quoteId(node.table)} SET ${sets}`;
+    sql += this.compileExtraSources("FROM", node.from);
     const where = this.compileCondition(node.where, params, (k) =>
       this.columnId(k, names),
     );
@@ -709,6 +727,7 @@ export abstract class BaseDialect {
   private compileDelete(node: DeleteNode, params: Params): string {
     const names = node.names;
     let sql = `DELETE FROM ${this.quoteId(node.table)}`;
+    sql += this.compileExtraSources("USING", node.using);
     const where = this.compileCondition(node.where, params, (k) =>
       this.columnId(k, names),
     );
@@ -756,6 +775,28 @@ export abstract class BaseDialect {
   }
 
   // ---- clauses ----------------------------------------------------------
+
+  /**
+   * Render the extra sources of an `UPDATE ... FROM` / `DELETE ... USING`.
+   *
+   * The dialects that do not have the clause override this and throw: emitting it
+   * anyway would produce a statement the server rejects, and quietly dropping it
+   * would change which rows are written.
+   *
+   * @param keyword `FROM` or `USING`.
+   * @param sources The extra tables, if any.
+   * @returns The clause with a leading space, or an empty string.
+   */
+  protected compileExtraSources(
+    keyword: "FROM" | "USING",
+    sources: readonly { readonly table: string; readonly alias: string }[] | undefined,
+  ): string {
+    if (!sources || sources.length === 0) return "";
+    const list = sources
+      .map((s) => `${this.quoteId(s.table)} AS ${this.quoteId(s.alias)}`)
+      .join(", ");
+    return ` ${keyword} ${list}`;
+  }
 
   protected compileReturning(
     returning: readonly string[] | "*" | null,
@@ -1198,6 +1239,24 @@ export class SqliteDialect extends BaseDialect {
   }
 
   /**
+   * SQLite has `UPDATE ... FROM` (3.33+) but no `DELETE ... USING`.
+   *
+   * The portable shape there is a subquery — `where({ id: { in: … } })` — so this
+   * throws and says so, rather than emitting a clause SQLite does not parse.
+   */
+  protected override compileExtraSources(
+    keyword: "FROM" | "USING",
+    sources: readonly { readonly table: string; readonly alias: string }[] | undefined,
+  ): string {
+    if (keyword === "USING" && sources && sources.length > 0) {
+      throw new Error(
+        'SQLite has no DELETE ... USING; filter with a subquery instead: where({ id: { in: select(Other, ["id"]).asSubquery("id") } }).',
+      );
+    }
+    return super.compileExtraSources(keyword, sources);
+  }
+
+  /**
    * SQLite has no text-search engine, so the prebuilt substring fallback is
    * compiled instead. The rows are right; the ranking is what is missing.
    */
@@ -1335,6 +1394,23 @@ export class MysqlDialect extends BaseDialect {
       );
     }
     return super.setOperator(op);
+  }
+
+  /**
+   * MySQL writes multi-table updates as `UPDATE a JOIN b`, and has no
+   * `DELETE ... USING` in this shape. Both are out of the project's active scope,
+   * so they are refused rather than emitted against a server that rejects them.
+   */
+  protected override compileExtraSources(
+    keyword: "FROM" | "USING",
+    sources: readonly { readonly table: string; readonly alias: string }[] | undefined,
+  ): string {
+    if (sources && sources.length > 0) {
+      throw new Error(
+        `MySQL does not take ${keyword} on a write in this form; it spells multi-table writes as UPDATE a JOIN b, which is out of scope for tempest-db-js.`,
+      );
+    }
+    return "";
   }
 
   /**

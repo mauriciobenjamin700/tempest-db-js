@@ -414,6 +414,8 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `union` / `unionAll` / `intersect` / `except` | Combine SELECTs; branch shapes checked by the types. The builder's `ORDER BY`/`LIMIT` apply to the set. |
 | `exists(sub)` / `notExists(sub)` | Correlated `EXISTS (...)`; `col("table.column")` references the outer query. |
 | `scalar(sub)` | A **one**-column subquery as a value; requires `.asSubquery(col)`. |
+| `insert(M).fromSelect(cols, query)` | `INSERT ... SELECT` — the rows never pass through the process. |
+| `update(M).from(Other, alias)` / `del(M).using(Other, alias)` | Writes that read another table; explicit error where the dialect lacks it. |
 | `caseWhen(branches, else?)` / `cast(expr, type)` | `CASE WHEN ... END` and `CAST(x AS type)`; the type is portable and mapped per dialect. |
 | `sum/avg/min/max(column \| expression)` | Aggregation over an expression — what makes `SUM(CASE WHEN ...)` possible. |
 | `parseIntegrityError(error, Model?)` | Driver error → `{ violation, constraint, table, columns, detail }`, or `null`. |

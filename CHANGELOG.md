@@ -26,6 +26,16 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Escrita que lê outra tabela** — `insert(M).fromSelect(colunas, query)`
+  (`INSERT ... SELECT`, com as linhas **sem passar pelo processo Node**),
+  `update(M).from(Other, alias)` e `del(M).using(Other, alias)`. Onde o dialeto não tem a
+  cláusula, o compilador **lança** com a alternativa na mensagem (`UPDATE ... FROM` não
+  existe no MySQL; `DELETE ... USING` não existe no SQLite nem no MySQL): emitir mesmo
+  assim daria erro do servidor, e ignorar mudaria **quais linhas** são escritas (#47).
+- **`set()`/`values()` aceitam referência de coluna** (`col("c.tier")`), não só valor e
+  `sql.raw` — sem isso, `UPDATE ... FROM` não teria como escrever o valor vindo da outra
+  tabela (#47).
+
 - **CTE: `cte` e `cteRecursive`** — `WITH` e `WITH RECURSIVE`. O `.model` da CTE é um
   model de verdade com o nome dela como tabela, então `select`, `join` e `where` a aceitam
   sem caso especial. A forma recursiva percorre árvore numa query só; o `RECURSIVE` é

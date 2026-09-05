@@ -118,6 +118,55 @@ const removed = del(User).where({ id: 1 }).returning(["name"]);
 // inferred result: { name: string }
 ```
 
+## Writes that read another table
+
+### `INSERT ... SELECT`
+
+```ts
+await session
+  .execute(
+    insert(ArchivedOrder).fromSelect(
+      ["id", "total"],
+      select(Order, ["id", "total"]).where({ createdAt: { lt: cutoff } }),
+    ),
+  )
+  .rowsAffected();
+```
+
+The rows **never pass through the Node process**. Archiving a million orders is one
+statement, not a million round trips.
+
+### `UPDATE ... FROM`
+
+```ts
+update(Order)
+  .set({ tier: col("c.tier") })     // (1)!
+  .from(Customer, "c")
+  .where({ customerId: col("c.id") });   // (2)!
+```
+
+1. `set()` now takes a **column reference**, not only a value or `sql.raw`.
+2. The join condition goes in `where`, where SQL wants it.
+
+### `DELETE ... USING`
+
+```ts
+del(Order).using(Customer, "c").where({ customerId: col("c.id"), "c.banned": true });
+```
+
+!!! warning "Not every database has all three"
+
+    | | PostgreSQL | SQLite | MySQL |
+    | --- | --- | --- | --- |
+    | `INSERT ... SELECT` | ✅ | ✅ | ✅ |
+    | `UPDATE ... FROM` | ✅ | ✅ (3.33+) | **error** |
+    | `DELETE ... USING` | ✅ | **error** | **error** |
+
+    Where it does not exist the compiler **throws**, with the alternative in the message —
+    on SQLite, `where({ id: { in: select(Other, ["id"]).asSubquery("id") } })`. Emitting
+    the clause anyway would be a server error; dropping it would change **which rows** get
+    written.
+
 ## Recap
 
 - `insert(Model).values(...)` — typed by `InferInsert`; accepts 1 or N rows.

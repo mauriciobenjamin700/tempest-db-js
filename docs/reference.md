@@ -413,6 +413,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `union` / `unionAll` / `intersect` / `except` | Combinam SELECTs; forma dos ramos checada no tipo. `ORDER BY`/`LIMIT` do builder valem para o conjunto. |
 | `exists(sub)` / `notExists(sub)` | `EXISTS (...)` correlacionado; `col("tabela.coluna")` referencia a query externa. |
 | `scalar(sub)` | Subquery de **uma** coluna como valor; exige `.asSubquery(col)`. |
+| `insert(M).fromSelect(cols, query)` | `INSERT ... SELECT` — as linhas não passam pelo processo. |
+| `update(M).from(Other, alias)` / `del(M).using(Other, alias)` | Escrita que lê outra tabela; erro explícito onde o dialeto não tem. |
 | `caseWhen(branches, else?)` / `cast(expr, tipo)` | `CASE WHEN ... END` e `CAST(x AS tipo)`; o tipo é portátil e mapeado por dialeto. |
 | `sum/avg/min/max(coluna \| expressão)` | Agregação sobre expressão — é o que dá `SUM(CASE WHEN ...)`. |
 | `parseIntegrityError(error, Model?)` | Erro do driver → `{ violation, constraint, table, columns, detail }`, ou `null`. |
