@@ -25,6 +25,16 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`check()` and `index()` in `tableArgs`** — `CHECK` (with the expression in the **same
+  language as `where`**, not a raw string, so the diff compares a tree instead of text) and
+  indexes, including unique and **partial** ones. They flow into the IR, the diff, the DDL
+  and introspection: migrations create and drop them, and SQLite's table rebuild
+  **recreates the indexes** instead of letting them vanish with the old table.
+  `tempest-db check` now compares explicit indexes on both databases; `CHECK`s and partial
+  indexes are deliberately **left out of the comparison** — the database returns the
+  expression as text, and comparing text against the tree would report a difference for
+  every spelling. A partial index on MySQL throws (#48).
+
 - **Writes that read another table** — `insert(M).fromSelect(columns, query)`
   (`INSERT ... SELECT`, with the rows **never passing through the Node process**),
   `update(M).from(Other, alias)` and `del(M).using(Other, alias)`. Where a dialect lacks

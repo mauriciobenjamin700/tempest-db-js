@@ -6,7 +6,7 @@
  * hand-written `.sql` blob (the anti-Drizzle core).
  */
 
-import type { ColumnIR, NamedConstraint, TableIR } from "./ir.js";
+import type { ColumnIR, IndexIR, NamedConstraint, TableIR } from "./ir.js";
 
 /** A single, reversible schema operation. */
 export type Operation =
@@ -48,6 +48,8 @@ export type Operation =
       readonly table: string;
       readonly constraint: NamedConstraint;
     }
+  | { readonly kind: "create_index"; readonly table: string; readonly index: IndexIR }
+  | { readonly kind: "drop_index"; readonly table: string; readonly index: IndexIR }
   | { readonly kind: "execute"; readonly up: string; readonly down: string | null };
 
 /** Raised when an operation has no safe inverse (e.g. a one-way `execute`). */
@@ -91,6 +93,10 @@ export function invert(op: Operation): Operation {
       return { kind: "recreate_table", from: op.to, to: op.from };
     case "add_constraint":
       return { kind: "drop_constraint", table: op.table, constraint: op.constraint };
+    case "create_index":
+      return { kind: "drop_index", table: op.table, index: op.index };
+    case "drop_index":
+      return { kind: "create_index", table: op.table, index: op.index };
     case "drop_constraint":
       return { kind: "add_constraint", table: op.table, constraint: op.constraint };
     case "execute":

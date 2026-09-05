@@ -82,7 +82,24 @@ export function applyOperation(schema: SchemaIR, op: Operation): SchemaIR {
                 ...t,
                 uniqueConstraints: [...t.uniqueConstraints, op.constraint.constraint],
               }
-            : { ...t, foreignKeys: [...t.foreignKeys, op.constraint.constraint] };
+            : op.constraint.type === "check"
+              ? { ...t, checks: [...t.checks, op.constraint.constraint] }
+              : { ...t, foreignKeys: [...t.foreignKeys, op.constraint.constraint] };
+      }
+      break;
+    }
+    case "create_index": {
+      const t = tables[op.table];
+      if (t) tables[op.table] = { ...t, indexes: [...t.indexes, op.index] };
+      break;
+    }
+    case "drop_index": {
+      const t = tables[op.table];
+      if (t) {
+        tables[op.table] = {
+          ...t,
+          indexes: t.indexes.filter((i) => i.name !== op.index.name),
+        };
       }
       break;
     }
@@ -96,10 +113,12 @@ export function applyOperation(schema: SchemaIR, op: Operation): SchemaIR {
                 ...t,
                 uniqueConstraints: t.uniqueConstraints.filter((u) => u.name !== dropName),
               }
-            : {
-                ...t,
-                foreignKeys: t.foreignKeys.filter((f) => f.name !== dropName),
-              };
+            : op.constraint.type === "check"
+              ? { ...t, checks: t.checks.filter((c) => c.name !== dropName) }
+              : {
+                  ...t,
+                  foreignKeys: t.foreignKeys.filter((f) => f.name !== dropName),
+                };
       }
       break;
     }

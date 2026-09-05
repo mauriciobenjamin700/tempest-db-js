@@ -7,6 +7,7 @@
  * only ever emitted at the dialect edge (the anti-"SQL-stitching" core).
  */
 
+import type { CondNode, ExprNode } from "../conditions.js";
 import {
   type ColumnType,
   type DefaultValue,
@@ -39,6 +40,22 @@ export interface UniqueConstraintIR {
   readonly columns: readonly string[];
 }
 
+/** A `CHECK` constraint in the IR. */
+export interface CheckIR {
+  readonly name: string;
+  /** The invariant, in the condition language — comparable without parsing SQL. */
+  readonly expression: CondNode;
+}
+
+/** An index in the IR. */
+export interface IndexIR {
+  readonly name: string;
+  readonly columns: readonly string[];
+  readonly unique: boolean;
+  /** The predicate of a partial index, or `null` for a full one. */
+  readonly where: CondNode | null;
+}
+
 /** A (composite) foreign-key table constraint in the IR. */
 export interface ForeignKeyIR {
   readonly name: string;
@@ -55,7 +72,8 @@ export interface ForeignKeyIR {
  */
 export type NamedConstraint =
   | { readonly type: "unique"; readonly constraint: UniqueConstraintIR }
-  | { readonly type: "foreignKey"; readonly constraint: ForeignKeyIR };
+  | { readonly type: "foreignKey"; readonly constraint: ForeignKeyIR }
+  | { readonly type: "check"; readonly constraint: CheckIR };
 
 /** One table. */
 export interface TableIR {
@@ -67,6 +85,10 @@ export interface TableIR {
   readonly uniqueConstraints: readonly UniqueConstraintIR[];
   /** Table-level foreign-key constraints (from `tableArgs`). */
   readonly foreignKeys: readonly ForeignKeyIR[];
+  /** `CHECK` constraints (from `tableArgs`). */
+  readonly checks: readonly CheckIR[];
+  /** Indexes (from `tableArgs`). Not constraints: they live in their own DDL. */
+  readonly indexes: readonly IndexIR[];
 }
 
 /** A whole schema, keyed by table name. */
@@ -76,11 +98,62 @@ export interface SchemaIR {
 
 /** Deterministic constraint name when the user did not supply one. */
 function constraintName(
-  prefix: "uq" | "fk",
+  prefix: "uq" | "fk" | "ck" | "ix",
   table: string,
   columns: readonly string[],
 ): string {
   return `${prefix}_${table}_${columns.join("_")}`;
+}
+
+/**
+ * Rewrite a condition's column references from property names to column names.
+ *
+ * The IR lives in **database**-name space, so a `CHECK` written against
+ * `idempotencyKey` has to come out as `idempotency_key` — otherwise the drift
+ * check would compare a model-space expression against a database-space one and
+ * report a difference that is not there.
+ *
+ * @param node The condition as written.
+ * @param toColumn The property → column mapping.
+ * @returns The same condition in database-name space.
+ */
+export function renameConditionColumns(
+  node: CondNode,
+  toColumn: (prop: string) => string,
+): CondNode {
+  const expr = (current: ExprNode): ExprNode => {
+    switch (current.kind) {
+      case "column":
+        return { kind: "column", name: toColumn(current.name) };
+      case "fn":
+        return { ...current, args: current.args.map(expr) };
+      case "cast":
+        return { ...current, operand: expr(current.operand) };
+      default:
+        return current;
+    }
+  };
+  switch (node.kind) {
+    case "fields": {
+      const fields: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(node.fields)) {
+        fields[toColumn(key)] = value;
+      }
+      return { kind: "fields", fields };
+    }
+    case "and":
+    case "or":
+      return {
+        ...node,
+        parts: node.parts.map((part) => renameConditionColumns(part, toColumn)),
+      };
+    case "not":
+      return { kind: "not", part: renameConditionColumns(node.part, toColumn) };
+    case "compare":
+      return { ...node, left: expr(node.left), right: expr(node.right) };
+    default:
+      return node;
+  }
 }
 
 /**
@@ -116,12 +189,26 @@ export function reflectTable(model: ModelClass): TableIR {
 
   const uniqueConstraints: UniqueConstraintIR[] = [];
   const foreignKeys: ForeignKeyIR[] = [];
+  const checks: CheckIR[] = [];
+  const indexes: IndexIR[] = [];
   for (const c of model.tableArgs?.() ?? []) {
     const cols = c.columns.map(toColumn);
     if (c.kind === "unique") {
       uniqueConstraints.push({
         name: c.name ?? constraintName("uq", model.tablename, cols),
         columns: cols,
+      });
+    } else if (c.kind === "check") {
+      checks.push({
+        name: c.name ?? constraintName("ck", model.tablename, cols),
+        expression: renameConditionColumns(c.expression, toColumn),
+      });
+    } else if (c.kind === "index") {
+      indexes.push({
+        name: c.name ?? constraintName("ix", model.tablename, cols),
+        columns: cols,
+        unique: c.unique === true,
+        where: c.where ? renameConditionColumns(c.where, toColumn) : null,
       });
     } else {
       foreignKeys.push({
@@ -135,7 +222,15 @@ export function reflectTable(model: ModelClass): TableIR {
     }
   }
 
-  return { name: model.tablename, columns, primaryKey, uniqueConstraints, foreignKeys };
+  return {
+    name: model.tablename,
+    columns,
+    primaryKey,
+    uniqueConstraints,
+    foreignKeys,
+    checks,
+    indexes,
+  };
 }
 
 /**

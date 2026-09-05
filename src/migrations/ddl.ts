@@ -6,12 +6,16 @@
  * right DDL for SQLite, PostgreSQL or MySQL.
  */
 
+import type { CondNode } from "../conditions.js";
+import { LiteralParams, getDialect } from "../dialect.js";
 import { renderPortableToken } from "../expressions.js";
 import type { ColumnType, DefaultValue, FkAction } from "../index.js";
 import type { Dialect } from "../url.js";
 import type {
+  CheckIR,
   ColumnIR,
   ForeignKeyIR,
+  IndexIR,
   NamedConstraint,
   TableIR,
   UniqueConstraintIR,
@@ -243,7 +247,66 @@ function tableConstraintClauses(table: TableIR, dialect: Dialect): string[] {
   return [
     ...table.uniqueConstraints.map((uc) => renderUniqueConstraint(uc, dialect)),
     ...table.foreignKeys.map((fk) => renderForeignKeyConstraint(fk, dialect)),
+    ...table.checks.map((ck) => renderCheckConstraint(ck, dialect)),
   ];
+}
+
+/**
+ * Render a condition as **literal** SQL, with no placeholders.
+ *
+ * A `CHECK` clause and a partial index's predicate live in the schema, where
+ * there is nothing to bind a parameter to — so the values are inlined, quoted by
+ * the same rules a default literal uses.
+ *
+ * @param node The condition.
+ * @param dialect The target dialect.
+ * @returns The rendered predicate.
+ */
+export function renderPredicate(node: CondNode, dialect: Dialect): string {
+  const literals = new LiteralParams();
+  return getDialect(dialect).renderConditionLiteral(node, literals);
+}
+
+/** Render `CONSTRAINT "name" CHECK (...)`. */
+function renderCheckConstraint(ck: CheckIR, dialect: Dialect): string {
+  return `CONSTRAINT ${quoteId(ck.name, dialect)} CHECK (${renderPredicate(ck.expression, dialect)})`;
+}
+
+/**
+ * Render `CREATE [UNIQUE] INDEX ... [WHERE ...]`.
+ *
+ * @param table The table the index is on.
+ * @param ix The index.
+ * @param dialect The target dialect.
+ * @returns The statement.
+ * @throws Error For a partial index on MySQL, which has no such thing.
+ */
+export function renderCreateIndex(table: string, ix: IndexIR, dialect: Dialect): string {
+  if (ix.where && dialect === "mysql") {
+    throw new Error(
+      `MySQL has no partial index; ${ix.name} on ${table} declares a WHERE predicate.`,
+    );
+  }
+  const unique = ix.unique ? "UNIQUE " : "";
+  const cols = ix.columns.map((c) => quoteId(c, dialect)).join(", ");
+  const where = ix.where ? ` WHERE ${renderPredicate(ix.where, dialect)}` : "";
+  return `CREATE ${unique}INDEX ${quoteId(ix.name, dialect)} ON ${quoteId(table, dialect)} (${cols})${where}`;
+}
+
+/**
+ * Render `DROP INDEX`.
+ *
+ * MySQL needs the table (`DROP INDEX x ON t`); PostgreSQL and SQLite do not.
+ *
+ * @param table The table the index is on.
+ * @param ix The index.
+ * @param dialect The target dialect.
+ * @returns The statement.
+ */
+export function renderDropIndex(table: string, ix: IndexIR, dialect: Dialect): string {
+  return dialect === "mysql"
+    ? `DROP INDEX ${quoteId(ix.name, dialect)} ON ${quoteId(table, dialect)}`
+    : `DROP INDEX ${quoteId(ix.name, dialect)}`;
 }
 
 /**
@@ -324,6 +387,9 @@ function renderCreateTable(table: TableIR, dialect: Dialect): string[] {
   return [
     ...typeStmts,
     `CREATE TABLE ${quoteId(table.name, dialect)} (\n  ${cols.join(",\n  ")}\n)`,
+    // Indexes are separate statements, not table clauses — which is also why a
+    // SQLite table rebuild has to recreate them.
+    ...table.indexes.map((ix) => renderCreateIndex(table.name, ix, dialect)),
   ];
 }
 
@@ -370,6 +436,10 @@ export function renderOperation(op: Operation, dialect: Dialect): string[] {
       return renderAddConstraint(op.table, op.constraint, dialect);
     case "drop_constraint":
       return renderDropConstraint(op.table, op.constraint, dialect);
+    case "create_index":
+      return [renderCreateIndex(op.table, op.index, dialect)];
+    case "drop_index":
+      return [renderDropIndex(op.table, op.index, dialect)];
     case "execute":
       return [op.up];
   }
@@ -392,7 +462,9 @@ function renderAddConstraint(
   const clause =
     constraint.type === "unique"
       ? renderUniqueConstraint(constraint.constraint, dialect)
-      : renderForeignKeyConstraint(constraint.constraint, dialect);
+      : constraint.type === "check"
+        ? renderCheckConstraint(constraint.constraint, dialect)
+        : renderForeignKeyConstraint(constraint.constraint, dialect);
   return [`ALTER TABLE ${quoteId(table, dialect)} ADD ${clause}`];
 }
 
@@ -447,6 +519,10 @@ function renderSqliteRebuild(from: TableIR, to: TableIR): string[] {
       : `-- no common columns to copy from ${from.name}`,
     `DROP TABLE ${quoteId(from.name, "sqlite")}`,
     `ALTER TABLE ${quoteId(tmp, "sqlite")} RENAME TO ${quoteId(to.name, "sqlite")}`,
+    // The rebuild dropped the old table, and its indexes with it: SQLite ties an
+    // index to the table it was created on. Recreating them is part of the
+    // rebuild, not a follow-up somebody has to remember.
+    ...to.indexes.map((ix) => renderCreateIndex(to.name, ix, "sqlite")),
     "PRAGMA foreign_keys=on",
   ];
 }

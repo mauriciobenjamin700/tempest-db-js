@@ -6,8 +6,10 @@
  */
 
 import type {
+  CheckIR,
   ColumnIR,
   ForeignKeyIR,
+  IndexIR,
   NamedConstraint,
   SchemaIR,
   TableIR,
@@ -80,7 +82,60 @@ function diffConstraints(current: TableIR, target: TableIR): Operation[] {
     }
   }
 
+  const currentCk = new Map(current.checks.map((c) => [c.name, c]));
+  const targetCk = new Map(target.checks.map((c) => [c.name, c]));
+  for (const [name, cur] of currentCk) {
+    const tgt = targetCk.get(name);
+    if (!tgt || checkSignature(cur) !== checkSignature(tgt)) {
+      ops.push({ kind: "drop_constraint", table, constraint: checkNamed(cur) });
+    }
+  }
+  for (const [name, tgt] of targetCk) {
+    const cur = currentCk.get(name);
+    if (!cur || checkSignature(cur) !== checkSignature(tgt)) {
+      ops.push({ kind: "add_constraint", table, constraint: checkNamed(tgt) });
+    }
+  }
+
+  const currentIx = new Map(current.indexes.map((i) => [i.name, i]));
+  const targetIx = new Map(target.indexes.map((i) => [i.name, i]));
+  for (const [name, cur] of currentIx) {
+    const tgt = targetIx.get(name);
+    if (!tgt || indexSignature(cur) !== indexSignature(tgt)) {
+      ops.push({ kind: "drop_index", table, index: cur });
+    }
+  }
+  for (const [name, tgt] of targetIx) {
+    const cur = currentIx.get(name);
+    if (!cur || indexSignature(cur) !== indexSignature(tgt)) {
+      ops.push({ kind: "create_index", table, index: tgt });
+    }
+  }
+
   return ops;
+}
+
+/**
+ * The structural identity of a `CHECK`.
+ *
+ * The expression is compared as the condition **tree**, not as SQL text: two
+ * spellings of the same rule would otherwise read as a change on every diff.
+ */
+function checkSignature(ck: CheckIR): string {
+  return JSON.stringify(ck.expression);
+}
+
+/** The structural identity of an index (name excluded — it is the key). */
+function indexSignature(ix: IndexIR): string {
+  return JSON.stringify({
+    columns: ix.columns,
+    unique: ix.unique,
+    where: ix.where,
+  });
+}
+
+function checkNamed(ck: CheckIR): NamedConstraint {
+  return { type: "check", constraint: ck };
 }
 
 function uniqueNamed(uc: UniqueConstraintIR): NamedConstraint {

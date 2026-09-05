@@ -24,6 +24,15 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`check()` e `index()` em `tableArgs`** — `CHECK` (com a expressão na **mesma
+  linguagem do `where`**, não string crua, para o diff comparar árvore em vez de texto) e
+  índices, incluindo único e **parcial**. Entram no IR, no diff, no DDL e na introspecção:
+  a migração cria e derruba, e o rebuild de tabela do SQLite **recria os índices** em vez
+  de deixá-los sumir junto com a tabela antiga. `tempest-db check` passou a comparar
+  índice explícito nos dois bancos; `CHECK` e índice parcial ficam **de fora da
+  comparação** de propósito — o banco devolve a expressão como texto, e comparar texto com
+  a árvore acusaria diferença a cada grafia. Índice parcial no MySQL lança (#48).
+
 - **Escrita que lê outra tabela** — `insert(M).fromSelect(colunas, query)`
   (`INSERT ... SELECT`, com as linhas **sem passar pelo processo Node**),
   `update(M).from(Other, alias)` e `del(M).using(Other, alias)`. Onde o dialeto não tem a

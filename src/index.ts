@@ -8,6 +8,13 @@
  * This is a SPIKE, not the final API. It validates the type machinery only.
  */
 
+import {
+  type CondNode,
+  type Condition,
+  type ExprNode,
+  toCondNode,
+} from "./conditions.js";
+
 /** Phantom marker carrying the static TS type a column maps to. */
 declare const TYPE: unique symbol;
 
@@ -541,6 +548,23 @@ export type TableConstraint =
       readonly columns: readonly string[];
     }
   | {
+      readonly kind: "check";
+      readonly name?: string | undefined;
+      /** The invariant, in the same condition language `where` uses. */
+      readonly expression: CondNode;
+      /** Columns the expression mentions, for the generated name. */
+      readonly columns: readonly string[];
+    }
+  | {
+      readonly kind: "index";
+      readonly name?: string | undefined;
+      readonly columns: readonly string[];
+      /** A unique index rather than a plain one. */
+      readonly unique?: boolean | undefined;
+      /** The predicate of a **partial** index, or `undefined` for a full one. */
+      readonly where?: CondNode | undefined;
+    }
+  | {
       readonly kind: "foreignKey";
       readonly name?: string | undefined;
       readonly columns: readonly string[];
@@ -576,6 +600,123 @@ export function unique(...columns: string[]): TableConstraint {
  * @returns A foreign-key {@link TableConstraint}.
  * @throws Error When the column arrays are empty or mismatched in length.
  */
+/**
+ * Declare a `CHECK` constraint — an invariant the **database** enforces.
+ *
+ * The expression uses the same condition language as `where`, not a raw string:
+ * a string would have to be compared textually to decide whether the schema
+ * drifted, and two spellings of the same rule would read as a change.
+ *
+ * @param expression The invariant, e.g. `col("total").gte(0)`.
+ * @param options `name` to pin the constraint's name; `columns` to name the
+ *   generated one after something other than the expression's own columns.
+ * @returns A check {@link TableConstraint}.
+ *
+ * @example
+ * ```ts
+ * class Order extends Model {
+ *   static override tableArgs = () => [check(col("total").gte(0))];
+ * }
+ * ```
+ */
+export function check(
+  expression: Condition | Record<string, unknown>,
+  options?: { name?: string; columns?: readonly string[] },
+): TableConstraint {
+  const node = toCondNode(expression);
+  return {
+    kind: "check",
+    name: options?.name,
+    expression: node,
+    columns: options?.columns ?? conditionColumns(node),
+  };
+}
+
+/**
+ * Declare an index.
+ *
+ * An index the model does not declare is invisible to migrations: it never gets
+ * created, and a table rebuild on SQLite drops it. Declaring it puts it in the
+ * same place as the columns it covers.
+ *
+ * @param columns The indexed columns, in order.
+ * @param options `unique` for a unique index, `where` for a **partial** one, and
+ *   `name` to pin the name.
+ * @returns An index {@link TableConstraint}.
+ * @throws Error When no column is given.
+ *
+ * @example
+ * ```ts
+ * static override tableArgs = () => [
+ *   index(["customerId", "createdAt"]),
+ *   index(["email"], { unique: true, where: { deletedAt: { isNull: true } } }),
+ * ];
+ * ```
+ */
+export function index(
+  columns: readonly string[],
+  options?: {
+    name?: string;
+    unique?: boolean;
+    where?: Condition | Record<string, unknown>;
+  },
+): TableConstraint {
+  if (columns.length === 0) {
+    throw new Error("index() requires at least one column.");
+  }
+  return {
+    kind: "index",
+    name: options?.name,
+    columns: [...columns],
+    unique: options?.unique,
+    where: options?.where === undefined ? undefined : toCondNode(options.where),
+  };
+}
+
+/**
+ * The columns a condition mentions, in first-seen order.
+ *
+ * Used to name a generated `CHECK` after what it constrains.
+ *
+ * @param node The condition.
+ * @returns The column names.
+ */
+function conditionColumns(node: CondNode): string[] {
+  const found: string[] = [];
+  const visitExpr = (expr: ExprNode): void => {
+    if (expr.kind === "column") {
+      if (!found.includes(expr.name)) found.push(expr.name);
+      return;
+    }
+    if (expr.kind === "fn") for (const arg of expr.args) visitExpr(arg);
+    if (expr.kind === "cast") visitExpr(expr.operand);
+  };
+  const visit = (current: CondNode): void => {
+    switch (current.kind) {
+      case "fields":
+        for (const key of Object.keys(current.fields)) {
+          if (!found.includes(key)) found.push(key);
+        }
+        return;
+      case "and":
+      case "or":
+        for (const part of current.parts) visit(part);
+        return;
+      case "not":
+        visit(current.part);
+        return;
+      case "compare":
+        visitExpr(current.left);
+        visitExpr(current.right);
+        return;
+      default:
+        return;
+    }
+  };
+  visit(node);
+  return found;
+}
+
 export function foreignKey(
   columns: string[],
   refTable: string,
