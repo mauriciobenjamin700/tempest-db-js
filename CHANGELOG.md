@@ -26,6 +26,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`customType({ base, toDb, fromDb })`** — tipo de coluna próprio (Money em centavos,
+  `Temporal`, id com brand, value object). A conversão roda nos **três** lugares onde
+  importa: escrita (`values`/`set`), leitura (coerção de linha, `RETURNING`, `stream`,
+  join) e **operando de `where`** — inclusive cada elemento de um `in` e os dois extremos
+  de um `between`. O DDL e o IR continuam usando o tipo `base`, então um tipo próprio é
+  invisível ao schema e não pode gerar drift. `null` passa direto, e uma expressão SQL não
+  é convertida — é renderizada (#49).
+
 - **`check()` e `index()` em `tableArgs`** — `CHECK` (com a expressão na **mesma
   linguagem do `where`**, não string crua, para o diff comparar árvore em vez de texto) e
   índices, incluindo único e **parcial**. Entram no IR, no diff, no DDL e na introspecção:

@@ -28,6 +28,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Choosing the SQLite driver](sqlite-drivers.en.md) | `node:sqlite` (default) or `better-sqlite3`, via the engine option or the URL suffix. |
 | [Transactions and savepoints](transactions.en.md) | Atomic operations with automatic commit/rollback and savepoints. |
 | [JSON and enum columns](json-enum.en.md) | Store typed objects and literal unions with type safety. |
+| [Custom column types](custom-types.en.md) | `customType` — Money, Temporal, branded ids: the conversion lives on the column. |
 | [Serialization (row ↔ JSON)](serialization.en.md) | Convert rows to JSON and validate JSON back into a row. |
 | [Connecting to PostgreSQL](postgres.en.md) | Swap SQLite for Postgres via the URL and tune the pool. |
 | [A durable queue on PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, atomic counters and idempotency via a partial index. |

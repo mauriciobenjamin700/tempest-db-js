@@ -15,7 +15,7 @@
  */
 
 import {
-  type Column,
+  Column,
   type ColumnType,
   type InferModel,
   type ModelClass,
@@ -52,9 +52,28 @@ function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * The same column without its codec, so the base conversion can run underneath.
+ *
+ * @param column A column carrying a codec.
+ * @returns The column as its stored type sees it.
+ */
+function baseOf(column: Column<unknown>): Column<unknown> {
+  return new Column(
+    column.type,
+    column.flags,
+    column.defaultValue,
+    column.onUpdateValue,
+    column.reference,
+    column.dbName,
+    null,
+  );
+}
+
 /** Encode one native row value to its JSON-safe form, by column kind. */
 export function encodeValue(column: Column<unknown>, value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  if (column.codec) return encodeValue(baseOf(column), column.codec.toDb(value));
   switch (column.type.kind) {
     case "bigint":
       return typeof value === "bigint" ? value.toString() : value;
@@ -72,6 +91,7 @@ export function encodeValue(column: Column<unknown>, value: unknown): unknown {
 /** Decode one dict value to its native row form, by column kind. */
 export function decodeValue(column: Column<unknown>, value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  if (column.codec) return column.codec.fromDb(decodeValue(baseOf(column), value));
   switch (column.type.kind) {
     case "bigint":
       return typeof value === "bigint" ? value : BigInt(value as string | number);
@@ -271,6 +291,18 @@ function mapperFor(model: ModelClass): RowMapper {
   const decoders = new Map<string, Decoder>();
   for (const [prop, col] of Object.entries(columnsOf(model))) {
     const decoder = decoderFor(col.type);
+    const codec = col.codec;
+    if (codec) {
+      // The codec runs **after** the base decoding, so a custom type over
+      // `bigInteger` receives a bigint, not the driver's string.
+      const decode: Decoder = decoder
+        ? (value) =>
+            value === null || value === undefined ? value : codec.fromDb(decoder(value))
+        : (value) =>
+            value === null || value === undefined ? value : codec.fromDb(value);
+      decoders.set(names?.[prop] ?? prop, decode);
+      continue;
+    }
     if (decoder) decoders.set(names?.[prop] ?? prop, decoder);
   }
   const mapper: RowMapper = { props, decoders };

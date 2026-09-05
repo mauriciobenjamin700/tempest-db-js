@@ -24,6 +24,7 @@ import {
   type InferModel,
   type ModelClass,
   type NameMap,
+  codecsOf,
   columnNamesOf,
 } from "./index.js";
 
@@ -100,6 +101,10 @@ export interface SelectNode {
   /** `HAVING` condition, keyed by aggregate alias or grouped column. */
   readonly having?: CondNode | undefined;
   readonly orderBy: readonly OrderTerm[];
+  /** Per-column codecs for custom types, by property name, when the model has any. */
+  readonly codecs?:
+    | Readonly<Record<string, import("./index.js").ColumnCodec>>
+    | undefined;
   /** `WITH` entries this statement carries, in order. */
   readonly with?: readonly import("./cte.js").CteNode[] | undefined;
   /** Extra projected expressions, by result alias (window functions, CASE, …). */
@@ -681,6 +686,7 @@ export function select(
       limit: undefined,
       offset: undefined,
       names: columnNamesOf(model) ?? undefined,
+      codecs: codecsOf(model) ?? undefined,
     },
     model,
   );

@@ -18,7 +18,12 @@ import {
 import type { CteNode } from "./cte.js";
 import type { TransactionOptions } from "./engine.js";
 import { renderExcluded, renderPortableToken } from "./expressions.js";
-import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
+import {
+  type ColumnCodec,
+  type NameMap,
+  type SqlExpression,
+  isSqlExpression,
+} from "./index.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
 import {
@@ -48,6 +53,49 @@ export type QueryNode =
   | SetNode;
 
 const OPERATOR_SET: ReadonlySet<string> = new Set(OPERATORS);
+
+/** Operators whose operand is a list or a tuple rather than a single value. */
+const MULTI_VALUE_OPERATORS: ReadonlySet<string> = new Set(["in", "notIn", "between"]);
+
+/**
+ * Convert an operator's operand into the stored representation.
+ *
+ * `isNull` takes a boolean that is not a column value, and `in`/`notIn`/`between`
+ * take collections whose **elements** are the values — converting the collection
+ * itself would corrupt them.
+ *
+ * @param op The operator.
+ * @param operand The operand as written.
+ * @param encode The column's conversion.
+ * @returns The operand in stored representation.
+ */
+function encodeOperand(
+  op: string,
+  operand: unknown,
+  encode: (value: unknown) => unknown,
+): unknown {
+  if (op === "isNull") return operand;
+  if (MULTI_VALUE_OPERATORS.has(op)) {
+    return Array.isArray(operand) ? operand.map(encode) : operand;
+  }
+  return encode(operand);
+}
+
+/**
+ * Build the operand converter for a node's custom-typed columns.
+ *
+ * @param codecs The node's codecs, if any.
+ * @returns A function converting a value for a column, identity when there are none.
+ */
+function codecEncoder(
+  codecs: Readonly<Record<string, ColumnCodec>> | undefined,
+): (key: string, value: unknown) => unknown {
+  if (!codecs) return (_key, value) => value;
+  return (key, value) => {
+    const codec = codecs[key];
+    return codec ? codec.toDb(value) : value;
+  };
+}
 
 /** True when a where-value is an operator object rather than a bare value. */
 function isOperatorObject(value: unknown): value is Record<string, unknown> {
@@ -519,8 +567,11 @@ export abstract class BaseDialect {
     if (computed.length > 0) cols = [cols, ...computed].join(", ");
     let sql = `${this.compileWith(node.with, params)}SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
 
-    const where = this.compileCondition(node.where, params, (k) =>
-      this.columnId(k, names),
+    const where = this.compileCondition(
+      node.where,
+      params,
+      (k) => this.columnId(k, names),
+      codecEncoder(node.codecs),
     );
     if (where) sql += ` WHERE ${where}`;
 
@@ -751,8 +802,11 @@ export abstract class BaseDialect {
       .join(", ");
     let sql = `UPDATE ${this.quoteId(node.table)} SET ${sets}`;
     sql += this.compileExtraSources("FROM", node.from);
-    const where = this.compileCondition(node.where, params, (k) =>
-      this.columnId(k, names),
+    const where = this.compileCondition(
+      node.where,
+      params,
+      (k) => this.columnId(k, names),
+      codecEncoder(node.codecs),
     );
     if (where) sql += ` WHERE ${where}`;
     sql += this.compileReturning(node.returning, names);
@@ -763,8 +817,11 @@ export abstract class BaseDialect {
     const names = node.names;
     let sql = `DELETE FROM ${this.quoteId(node.table)}`;
     sql += this.compileExtraSources("USING", node.using);
-    const where = this.compileCondition(node.where, params, (k) =>
-      this.columnId(k, names),
+    const where = this.compileCondition(
+      node.where,
+      params,
+      (k) => this.columnId(k, names),
+      codecEncoder(node.codecs),
     );
     if (where) sql += ` WHERE ${where}`;
     sql += this.compileReturning(node.returning, names);
@@ -851,6 +908,7 @@ export abstract class BaseDialect {
     node: CondNode | undefined,
     params: Params,
     idFor: (key: string) => string,
+    encode: (key: string, value: unknown) => unknown = (_key, value) => value,
   ): string {
     if (!node) return "";
     switch (node.kind) {
@@ -878,13 +936,19 @@ export abstract class BaseDialect {
                       op,
                       this.renderExpr(operand.node, params, idFor),
                     )
-                  : this.compileOperator(id, op, operand, params),
+                  : this.compileOperator(
+                      id,
+                      op,
+                      encodeOperand(op, operand, (v) => encode(key, v)),
+                      params,
+                    ),
               );
             }
           } else {
             // bare value → equality (null → IS NULL)
+            const operand = encode(key, value);
             conditions.push(
-              value === null ? `${id} IS NULL` : `${id} = ${params.bind(value)}`,
+              operand === null ? `${id} IS NULL` : `${id} = ${params.bind(operand)}`,
             );
           }
         }
@@ -893,14 +957,14 @@ export abstract class BaseDialect {
       case "and":
       case "or": {
         const parts = node.parts
-          .map((p) => this.compileCondition(p, params, idFor))
+          .map((p) => this.compileCondition(p, params, idFor, encode))
           .filter((s) => s.length > 0);
         if (parts.length === 0) return "";
         const sep = node.kind === "and" ? " AND " : " OR ";
         return parts.map((p) => `(${p})`).join(sep);
       }
       case "not": {
-        const inner = this.compileCondition(node.part, params, idFor);
+        const inner = this.compileCondition(node.part, params, idFor, encode);
         return inner ? `NOT (${inner})` : "";
       }
       case "exists": {

@@ -28,6 +28,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Escolhendo o driver do SQLite](sqlite-drivers.md) | `node:sqlite` (padrão) ou `better-sqlite3`, pela opção do engine ou pelo sufixo da URL. |
 | [Transações e savepoints](transactions.md) | Operações atômicas com commit/rollback automático e pontos de salvamento. |
 | [Colunas JSON e enum](json-enum.md) | Guardar objetos tipados e uniões literais com segurança de tipos. |
+| [Tipos de coluna próprios](custom-types.md) | `customType` — Money, Temporal, id com brand: a conversão mora na coluna. |
 | [Serialização (linha ↔ JSON)](serialization.md) | Converter linhas pra JSON e validar JSON de volta pra linha. |
 | [Conectando ao PostgreSQL](postgres.md) | Trocar SQLite por Postgres pela URL e ajustar o pool. |
 | [Fila durável com PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, contador atômico e idempotência por índice parcial. |
