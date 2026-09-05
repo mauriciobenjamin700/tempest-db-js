@@ -25,6 +25,17 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Re-entrant `transaction()`** — a nested block on the same session joins the outer
+  one: one `BEGIN`, one `COMMIT`, and an inner failure rolls the whole thing back. It is
+  what makes a service orchestrating several repositories work, since they all hold the
+  same session. `session.transactionDepth` and `session.inTransaction` expose the state
+  (#30).
+- **`AsyncSession.beginNested`** — savepoints on the **async** path, which only existed
+  on `SyncSession` even though the API reference documented `session.beginNested(fn)`
+  unqualified. The async path is PostgreSQL's default, which is exactly where savepoints
+  matter: recovering from a partial failure without dropping the whole transaction was
+  impossible (#30).
+
 - **`onQueryEnd` and `slowQueryMs` in `EngineOptions`** — the other half of `onQuery`,
   which fires **before** the statement and therefore cannot time anything. The new hook
   fires afterwards with `durationMs`, `rowCount` and — on the failure path — the

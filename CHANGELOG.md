@@ -26,6 +26,15 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`transaction()` re-entrante** — bloco aninhado na mesma sessão adere ao de fora:
+  um `BEGIN`, um `COMMIT`, e a falha interna faz rollback do conjunto. É o que faz um
+  service que orquestra vários repositories funcionar, já que todos seguram a mesma
+  sessão. `session.transactionDepth` e `session.inTransaction` expõem o estado (#30).
+- **`AsyncSession.beginNested`** — savepoint no caminho **async**, que só existia no
+  `SyncSession` apesar de a referência da API documentar `session.beginNested(fn)` sem
+  qualificar. O caminho async é o default do PostgreSQL, justamente onde savepoint mais
+  importa: era impossível recuperar falha parcial sem derrubar a transação inteira (#30).
+
 - **`onQueryEnd` e `slowQueryMs` em `EngineOptions`** — o par do `onQuery`, que dispara
   **antes** do statement e por isso não mede nada. O novo hook dispara depois, com
   `durationMs`, `rowCount` e — no caminho de erro — o `error` do driver: statement lento

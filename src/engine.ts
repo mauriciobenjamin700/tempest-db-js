@@ -578,6 +578,9 @@ export class SyncSession {
     private readonly hooks?: QueryHooks,
   ) {}
 
+  /** Open `transaction()` blocks on this session; only the outermost commits. */
+  private depth = 0;
+
   /** Log, run, time, and error-wrap one raw statement. */
   private exec(sql: string, params: readonly unknown[]): DriverResult {
     emitLog(this.hooks, sql, params);
@@ -659,8 +662,45 @@ export class SyncSession {
   }
 
   /** Run `fn` inside a transaction: commit on success, rollback on throw. */
+  /**
+   * How many `transaction()` blocks are open on this session.
+   *
+   * The counter is what makes a service that orchestrates two repositories work:
+   * both hold the same session, so an inner block **joins** the outer one instead
+   * of emitting a second `BEGIN`, and only the outermost exit commits.
+   */
+  get transactionDepth(): number {
+    return this.depth;
+  }
+
+  /** Whether a `transaction()` block is currently open on this session. */
+  get inTransaction(): boolean {
+    return this.depth > 0;
+  }
+
+  /**
+   * Run `fn` inside a transaction, committing on a clean exit and rolling back on
+   * a throw.
+   *
+   * **Re-entrant:** a nested call joins the block already open on this session —
+   * one `BEGIN`, one `COMMIT`, and an inner failure rolls the whole thing back.
+   * To recover from an inner failure without discarding the outer work, use
+   * {@link beginNested}, which is a real savepoint.
+   *
+   * @param fn The body; receives the session to work through.
+   * @returns Whatever `fn` returned.
+   */
   transaction<T>(fn: (tx: SyncSession) => T): T {
+    if (this.depth > 0) {
+      this.depth += 1;
+      try {
+        return fn(this);
+      } finally {
+        this.depth -= 1;
+      }
+    }
     this.exec("BEGIN", []);
+    this.depth = 1;
     try {
       const out = fn(this);
       this.exec("COMMIT", []);
@@ -668,6 +708,8 @@ export class SyncSession {
     } catch (error) {
       this.exec("ROLLBACK", []);
       throw error;
+    } finally {
+      this.depth = 0;
     }
   }
 
@@ -744,6 +786,9 @@ export class AsyncSession {
     /** Optional per-statement hooks (query tracing and timing). */
     private readonly hooks?: QueryHooks,
   ) {}
+
+  /** Open `transaction()` blocks on this session; only the outermost commits. */
+  private depth = 0;
 
   /** Log, run, time, and error-wrap one raw statement. */
   private async exec(sql: string, params: readonly unknown[]): Promise<DriverResult> {
@@ -926,15 +971,56 @@ export class AsyncSession {
     }
   }
 
+  /**
+   * How many `transaction()` blocks are open on this session.
+   *
+   * The counter is what makes a service that orchestrates two repositories work:
+   * both hold the same session, so an inner block **joins** the outer one instead
+   * of emitting a second `BEGIN`, and only the outermost exit commits.
+   */
+  get transactionDepth(): number {
+    return this.depth;
+  }
+
+  /** Whether a `transaction()` block is currently open on this session. */
+  get inTransaction(): boolean {
+    return this.depth > 0;
+  }
+
+  /**
+   * Run `fn` inside a transaction, committing on a clean exit and rolling back on
+   * a throw.
+   *
+   * **Re-entrant:** a nested call joins the block already open on this session,
+   * so a service orchestrating several repositories bound to the same session
+   * gets one `BEGIN` and one `COMMIT`, not two of each. An inner failure rolls the
+   * whole block back; use {@link beginNested} for a savepoint that can be
+   * recovered from.
+   *
+   * Pooled drivers (PostgreSQL) pin one connection for the block: `BEGIN`/`COMMIT`
+   * and every statement between them have to run on the same connection, or
+   * postgres.js rejects the raw transaction. Single-connection drivers (SQLite)
+   * skip the reservation.
+   *
+   * @param fn The body; receives the session to work through (the pinned one, on a
+   *   pooled driver).
+   * @returns Whatever `fn` returned.
+   */
   async transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
-    // Pooled drivers (PostgreSQL) must pin one connection: BEGIN/COMMIT and every
-    // statement between them have to run on the same connection, or postgres.js
-    // rejects the raw transaction. Single-connection drivers (SQLite) skip this.
+    if (this.depth > 0) {
+      this.depth += 1;
+      try {
+        return await fn(this);
+      } finally {
+        this.depth -= 1;
+      }
+    }
     if (this.driver.reserve) {
       const reserved = await this.driver.reserve();
       const scoped = new AsyncSession(reserved, this.dialect, this.hooks);
       try {
         await scoped.exec("BEGIN", []);
+        scoped.depth = 1;
         const out = await fn(scoped);
         await scoped.exec("COMMIT", []);
         return out;
@@ -942,16 +1028,49 @@ export class AsyncSession {
         await scoped.exec("ROLLBACK", []);
         throw error;
       } finally {
+        scoped.depth = 0;
         await reserved.release();
       }
     }
     await this.exec("BEGIN", []);
+    this.depth = 1;
     try {
       const out = await fn(this);
       await this.exec("COMMIT", []);
       return out;
     } catch (error) {
       await this.exec("ROLLBACK", []);
+      throw error;
+    } finally {
+      this.depth = 0;
+    }
+  }
+
+  /**
+   * Run `fn` inside a `SAVEPOINT` (a nested transaction that can be rolled back on
+   * its own).
+   *
+   * This is the difference from a nested {@link transaction}: a savepoint that
+   * fails discards **only** its own work, so the enclosing block can catch the
+   * error and carry on. A nested `transaction()` joins the outer block, and its
+   * failure takes the whole block down.
+   *
+   * Must run inside an open transaction — PostgreSQL rejects a savepoint outside a
+   * transaction block.
+   *
+   * @param fn The body; receives the same session.
+   * @returns Whatever `fn` returned.
+   */
+  async beginNested<T>(fn: (sp: AsyncSession) => Promise<T>): Promise<T> {
+    savepointCounter += 1;
+    const name = `qsp_${savepointCounter}`;
+    await this.exec(`SAVEPOINT ${name}`, []);
+    try {
+      const out = await fn(this);
+      await this.exec(`RELEASE ${name}`, []);
+      return out;
+    } catch (error) {
+      await this.exec(`ROLLBACK TO ${name}`, []);
       throw error;
     }
   }

@@ -73,6 +73,51 @@ await engine.transaction(async (tx) => {
     });
     ```
 
+## Nested blocks: a single COMMIT
+
+`transaction()` is **re-entrant**. A block opened inside another one, on the same
+session, joins the outer one: one `BEGIN`, one `COMMIT`, and an inner failure takes the
+whole thing down.
+
+```ts
+const session = engine.session();
+const orders = new BaseRepository(Order, session);
+const items = new BaseRepository(Item, session);
+
+await session.transaction(async () => {
+  await orders.create({ id: 1, total: 10 });   // no COMMIT here
+  await items.createMany(lines);               // nor here
+});                                            // one COMMIT at the end
+```
+
+That is what makes a service orchestrating several repositories work: they all hold the
+**same session**, so they all see the same open block. Without re-entrancy, the second
+`transaction()` would issue a `BEGIN` inside another one.
+
+```ts
+session.transactionDepth;   // 0 outside, 1 in the block, 2 when nested
+session.inTransaction;      // boolean
+```
+
+!!! danger "Nested is not recoverable — a savepoint is"
+
+    A failure in a nested block **takes the whole block down**, including the outer
+    work. To recover from an inner failure without discarding the rest, use
+    `beginNested`, which is a real `SAVEPOINT`:
+
+    ```ts
+    await session.transaction(async (tx) => {
+      await orders.create(order);                       // survives
+      await tx.beginNested(async (sp) => {
+        await risky(sp);                                // only this rolls back
+      }).catch(logAndContinue);
+      await audit.create(entry);                        // keeps running
+    });
+    ```
+
+    `beginNested` needs an open block — PostgreSQL rejects a savepoint outside a
+    transaction.
+
 ## Recap
 
 - `engine.transaction(fn)` → `COMMIT` on success, `ROLLBACK` if `fn` throws.
