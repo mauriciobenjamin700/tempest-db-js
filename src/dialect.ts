@@ -565,7 +565,10 @@ export abstract class BaseDialect {
         `${this.renderExpr(expr, params, (k) => this.columnId(k, names))} AS ${this.quoteId(alias)}`,
     );
     if (computed.length > 0) cols = [cols, ...computed].join(", ");
-    let sql = `${this.compileWith(node.with, params)}SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
+    const from = node.alias
+      ? `${this.quoteId(node.table)} AS ${this.quoteId(node.alias)}`
+      : this.quoteId(node.table);
+    let sql = `${this.compileWith(node.with, params)}SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${from}`;
 
     const where = this.compileCondition(
       node.where,

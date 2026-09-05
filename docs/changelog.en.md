@@ -25,6 +25,15 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`aliased(Model, alias)`** — reads the same model under another name
+  (`FROM "employees" AS "sub"`). The join builder already required an alias, but
+  `select()` had no way to name its table, and without that a correlated subquery over the
+  **same** table was not expressible: both sides would carry the same name. The result is
+  a real model — same columns, naming and codecs — so `select`, `join`,
+  `col("alias.column")` and row coercion take it with no special casing. Table args are
+  **not** carried over: an alias is a way to read the table, not a second declaration of
+  it (#50).
+
 - **`customType({ base, toDb, fromDb })`** — a column type of your own (money in cents,
   `Temporal`, a branded id, a value object). The conversion runs in all **three** places
   that matter: writes (`values`/`set`), reads (row coercion, `RETURNING`, `stream`, joins)

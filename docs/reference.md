@@ -411,6 +411,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `cte(nome, Model, corpo)` / `cteRecursive(nome, Model, self => corpo)` | `WITH` / `WITH RECURSIVE`; `.model` é usável onde um model é. |
 | `join(...).pick(alias)` | Projeta **um** source do join, flat — o que um ramo de UNION/CTE exige. |
 | `union` / `unionAll` / `intersect` / `except` | Combinam SELECTs; forma dos ramos checada no tipo. `ORDER BY`/`LIMIT` do builder valem para o conjunto. |
+| `aliased(Model, alias)` | Lê o mesmo model sob outro nome (`FROM t AS a`) — self-join e subquery correlacionada na mesma tabela. |
 | `exists(sub)` / `notExists(sub)` | `EXISTS (...)` correlacionado; `col("tabela.coluna")` referencia a query externa. |
 | `scalar(sub)` | Subquery de **uma** coluna como valor; exige `.asSubquery(col)`. |
 | `insert(M).fromSelect(cols, query)` | `INSERT ... SELECT` — as linhas não passam pelo processo. |

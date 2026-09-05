@@ -412,6 +412,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `cte(name, Model, body)` / `cteRecursive(name, Model, self => body)` | `WITH` / `WITH RECURSIVE`; `.model` works wherever a model does. |
 | `join(...).pick(alias)` | Projects **one** join source, flat — what a UNION/CTE branch requires. |
 | `union` / `unionAll` / `intersect` / `except` | Combine SELECTs; branch shapes checked by the types. The builder's `ORDER BY`/`LIMIT` apply to the set. |
+| `aliased(Model, alias)` | Reads the same model under another name (`FROM t AS a`) — self-joins and same-table correlated subqueries. |
 | `exists(sub)` / `notExists(sub)` | Correlated `EXISTS (...)`; `col("table.column")` references the outer query. |
 | `scalar(sub)` | A **one**-column subquery as a value; requires `.asSubquery(col)`. |
 | `insert(M).fromSelect(cols, query)` | `INSERT ... SELECT` — the rows never pass through the process. |
