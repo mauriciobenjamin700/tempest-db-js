@@ -10,7 +10,13 @@
  * builders, making an accidental full-table write a compile error.
  */
 
-import { type CondNode, type Condition, toCondNode } from "./conditions.js";
+import {
+  type CondNode,
+  type Condition,
+  type Expression,
+  isExpression,
+  toCondNode,
+} from "./conditions.js";
 import {
   type InferInsert,
   type InferModel,
@@ -38,10 +44,14 @@ export type Returning = readonly string[] | "*" | null;
  * Optionality is preserved from `Row`, so an insert shape keeps its defaults
  * optional.
  */
-export type WriteValues<Row> = { [K in keyof Row]: Row[K] | SqlExpression };
+export type WriteValues<Row> = {
+  [K in keyof Row]: Row[K] | SqlExpression | Expression;
+};
 
 /** A partial write shape — the `SET` clause of an UPDATE or a `DO UPDATE`. */
-export type WritePatch<Row> = { [K in keyof Row]?: Row[K] | SqlExpression };
+export type WritePatch<Row> = {
+  [K in keyof Row]?: Row[K] | SqlExpression | Expression;
+};
 
 /**
  * Column kinds whose stored value is legitimately an object or an array. Every
@@ -88,7 +98,11 @@ function assertWritableValues(
       issues.push(`${clause}: "${key}" is not a column of ${model.tablename}`);
       continue;
     }
-    if (isSqlExpression(value) || isBindableScalar(value)) continue;
+    // A column reference (`col("c.tier")`) is a legitimate write value once
+    // the statement has a second source — `UPDATE ... FROM other`.
+    if (isExpression(value) || isSqlExpression(value) || isBindableScalar(value)) {
+      continue;
+    }
     if (typeof value === "object" && STRUCTURED_KINDS.has(col.type.kind)) continue;
     issues.push(
       `${clause}: "${key}" got ${describeValue(value)}, which cannot be bound to a ` +
@@ -183,6 +197,14 @@ export interface InsertNode {
   readonly kind: "insert";
   readonly table: string;
   readonly values: readonly Record<string, unknown>[];
+  /**
+   * A `SELECT` feeding the insert, with the target columns it fills.
+   *
+   * Set by {@link InsertBuilder.fromSelect}; mutually exclusive with `values`.
+   */
+  readonly fromSelect?:
+    | { readonly columns: readonly string[]; readonly select: unknown }
+    | undefined;
   readonly returning: Returning;
   /** Conflict handling (`ON CONFLICT ...`), or `undefined` for none. */
   readonly onConflict?: OnConflict;
@@ -293,6 +315,38 @@ export class InsertBuilder<Full, Ins, Ret = number> {
     });
   }
 
+  /**
+   * Fill the table from another query — `INSERT INTO t (a, b) SELECT …`.
+   *
+   * The rows never leave the database, which is the point: archiving or copying a
+   * million rows should not become a million round trips through this process.
+   *
+   * @param columns The target columns, in the order the query projects them.
+   * @param query The query producing the rows.
+   * @returns A builder ready to execute.
+   * @throws Error When no target column is given.
+   *
+   * @example
+   * ```ts
+   * insert(ArchivedOrder).fromSelect(
+   *   ["id", "total"],
+   *   select(Order, ["id", "total"]).where({ createdAt: { lt: cutoff } }),
+   * );
+   * ```
+   */
+  fromSelect<K extends keyof Ins & string>(
+    columns: readonly K[],
+    query: { readonly node: unknown; readonly __row: { [P in K]: unknown } },
+  ): InsertBuilder<Full, Ins, Ret> {
+    if (columns.length === 0) {
+      throw new Error("fromSelect() needs at least one target column.");
+    }
+    return this.with<Ret>({
+      values: [],
+      fromSelect: { columns: [...columns], select: query.node },
+    });
+  }
+
   /** Return the full inserted row(s). */
   returning(): InsertBuilder<Full, Ins, Full>;
   /** Return only the given columns of the inserted row(s). */
@@ -328,6 +382,8 @@ export function insert<C extends ModelClass>(
 export interface UpdateNode {
   readonly kind: "update";
   readonly table: string;
+  /** Extra source tables (`UPDATE ... FROM other`), by alias. */
+  readonly from?: readonly { readonly table: string; readonly alias: string }[];
   readonly set: Record<string, unknown>;
   readonly where: CondNode | undefined;
   /** True once a where-clause or explicit opt-in makes the write safe. */
@@ -411,6 +467,26 @@ export class UpdateBuilder<Full, Guarded extends boolean, Ret = number> {
     });
   }
 
+  /**
+   * Read from another table while updating — `UPDATE t SET … FROM other WHERE …`.
+   *
+   * The join condition goes in `where`, where SQL wants it:
+   * `.where({ customerId: col("c.id") })`.
+   *
+   * PostgreSQL and SQLite (3.33+) only. MySQL spells this as a multi-table
+   * `UPDATE a JOIN b`, which is out of this project's active scope, so it throws
+   * there rather than emitting something the server rejects.
+   *
+   * @param model The extra source.
+   * @param alias The name to reference it by.
+   * @returns A builder carrying the extra source.
+   */
+  from<C extends ModelClass>(model: C, alias: string): UpdateBuilder<Full, Guarded, Ret> {
+    return this.with<Guarded, Ret>({
+      from: [...(this.node.from ?? []), { table: model.tablename, alias }],
+    });
+  }
+
   /** Restrict the rows to update. Marks the builder safe to execute. */
   where(input: WhereInput<Full> | Condition): UpdateBuilder<Full, true, Ret> {
     return this.with<true, Ret>({
@@ -461,6 +537,8 @@ export function update<C extends ModelClass>(
 export interface DeleteNode {
   readonly kind: "delete";
   readonly table: string;
+  /** Extra source tables (`DELETE ... USING other`), by alias. */
+  readonly using?: readonly { readonly table: string; readonly alias: string }[];
   readonly where: CondNode | undefined;
   readonly guarded: boolean;
   readonly returning: Returning;
@@ -489,6 +567,26 @@ export class DeleteBuilder<Full, Guarded extends boolean, Ret = number> {
     patch: Partial<DeleteNode>,
   ): DeleteBuilder<Full, G, R> {
     return new DeleteBuilder<Full, G, R>({ ...this.node, ...patch }, this.source);
+  }
+
+  /**
+   * Delete by matching another table — `DELETE FROM t USING other WHERE …`.
+   *
+   * PostgreSQL only. SQLite and MySQL have no `USING` here; there the portable
+   * form is `where({ id: { in: select(Other, ["id"]).where(...).asSubquery("id") } })`,
+   * and this throws rather than pretending.
+   *
+   * @param model The extra source.
+   * @param alias The name to reference it by.
+   * @returns A builder carrying the extra source.
+   */
+  using<C extends ModelClass>(
+    model: C,
+    alias: string,
+  ): DeleteBuilder<Full, Guarded, Ret> {
+    return this.with<Guarded, Ret>({
+      using: [...(this.node.using ?? []), { table: model.tablename, alias }],
+    });
   }
 
   /** Restrict the rows to delete. Marks the builder safe to execute. */

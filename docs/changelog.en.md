@@ -25,6 +25,17 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Writes that read another table** — `insert(M).fromSelect(columns, query)`
+  (`INSERT ... SELECT`, with the rows **never passing through the Node process**),
+  `update(M).from(Other, alias)` and `del(M).using(Other, alias)`. Where a dialect lacks
+  the clause the compiler **throws**, with the alternative in the message
+  (`UPDATE ... FROM` does not exist on MySQL; `DELETE ... USING` exists on neither SQLite
+  nor MySQL): emitting it anyway would be a server error, and dropping it would change
+  **which rows** are written (#47).
+- **`set()`/`values()` accept a column reference** (`col("c.tier")`), not just a value or
+  `sql.raw` — without it `UPDATE ... FROM` would have no way to write the value coming
+  from the other table (#47).
+
 - **CTEs: `cte` and `cteRecursive`** — `WITH` and `WITH RECURSIVE`. A CTE's `.model` is a
   real model whose table is the CTE's name, so `select`, `join` and `where` take it with
   no special casing. The recursive form walks a tree in a single query, and `RECURSIVE` is

@@ -117,6 +117,54 @@ const removed = del(User).where({ id: 1 }).returning(["name"]);
 // resultado inferido: { name: string }
 ```
 
+## Escrita que lê outra tabela
+
+### `INSERT ... SELECT`
+
+```ts
+await session
+  .execute(
+    insert(ArchivedOrder).fromSelect(
+      ["id", "total"],
+      select(Order, ["id", "total"]).where({ createdAt: { lt: corte } }),
+    ),
+  )
+  .rowsAffected();
+```
+
+As linhas **não passam pelo processo Node**. Arquivar um milhão de pedidos vira um
+statement, não um milhão de idas e voltas.
+
+### `UPDATE ... FROM`
+
+```ts
+update(Order)
+  .set({ tier: col("c.tier") })     // (1)!
+  .from(Customer, "c")
+  .where({ customerId: col("c.id") });   // (2)!
+```
+
+1. O `set()` passou a aceitar **referência de coluna**, não só valor e `sql.raw`.
+2. A condição de junção vai no `where`, que é onde o SQL a quer.
+
+### `DELETE ... USING`
+
+```ts
+del(Order).using(Customer, "c").where({ customerId: col("c.id"), "c.banned": true });
+```
+
+!!! warning "Nem todo banco tem as três"
+
+    | | PostgreSQL | SQLite | MySQL |
+    | --- | --- | --- | --- |
+    | `INSERT ... SELECT` | ✅ | ✅ | ✅ |
+    | `UPDATE ... FROM` | ✅ | ✅ (3.33+) | **erro** |
+    | `DELETE ... USING` | ✅ | **erro** | **erro** |
+
+    Onde não existe, o compilador **lança** com a alternativa na mensagem — no SQLite,
+    `where({ id: { in: select(Other, ["id"]).asSubquery("id") } })`. Emitir a cláusula
+    assim mesmo daria erro do servidor; ignorá-la mudaria **quais linhas** são escritas.
+
 ## Recap
 
 - `insert(Model).values(...)` — tipado por `InferInsert`; aceita 1 ou N linhas.
