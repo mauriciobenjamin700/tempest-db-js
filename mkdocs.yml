@@ -92,6 +92,7 @@ plugins:
             Serialização (linha ↔ JSON): Serialization (row ↔ JSON)
             Conectando ao PostgreSQL: Connecting to PostgreSQL
             Fila durável com PostgreSQL: A durable queue on PostgreSQL
+            Outbox transacional: Transactional outbox
             Nomes de coluna: Column names
             Colunas array do PostgreSQL: PostgreSQL array columns
             Comparação case-insensitive: Case-insensitive comparison
@@ -175,6 +176,7 @@ nav:
       - Serialização (linha ↔ JSON): recipes/serialization.md
       - Conectando ao PostgreSQL: recipes/postgres.md
       - Fila durável com PostgreSQL: recipes/queue.md
+      - Outbox transacional: recipes/outbox.md
       - Nomes de coluna: recipes/naming.md
       - Colunas array do PostgreSQL: recipes/arrays.md
       - Comparação case-insensitive: recipes/case-insensitive.md

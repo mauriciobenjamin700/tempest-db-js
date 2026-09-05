@@ -30,6 +30,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Serialization (row ↔ JSON)](serialization.en.md) | Convert rows to JSON and validate JSON back into a row. |
 | [Connecting to PostgreSQL](postgres.en.md) | Swap SQLite for Postgres via the URL and tune the pool. |
 | [A durable queue on PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, atomic counters and idempotency via a partial index. |
+| [Transactional outbox](outbox.en.md) | Business row and event in one commit; a relay taking disjoint batches. |
 | [Column names](naming.md) | A `snake_case` schema behind a `camelCase` model, with no false drift. |
 | [PostgreSQL array columns](arrays.md) | Typed `text[]`/`integer[]`, with `@>`, `<@` and `&&`. |
 | [Case-insensitive comparison](case-insensitive.md) | `ieq` for case-insensitive login — and the `ilike` trap. |

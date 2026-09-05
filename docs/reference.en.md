@@ -398,6 +398,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Both SQLite drivers; `.open(path, options?)` opens a handle directly. |
 | `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Model mixins: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
 | `notDeleted()` / `onlyDeleted()` | `where` fragments for the soft-delete mixin. |
+| `outboxModel(table)` / `OutboxRepository` | The outbox schema and the relay: `publish`, `pending`, `claim`, `markSent`, `markFailed`. |
 | `repo.existsExcluding(filters, key)` | Uniqueness on an update, ignoring the row itself. |
 | `repo.bulkUpsert(rows, opts)` | Batch `ON CONFLICT`, with `sql.excluded()` in the `SET`. |
 | `repo.softDelete(key)` / `repo.restore(key)` | Require `deletedAt` (mixin); throw without it. |

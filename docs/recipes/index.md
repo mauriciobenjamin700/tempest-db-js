@@ -30,6 +30,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Serialização (linha ↔ JSON)](serialization.md) | Converter linhas pra JSON e validar JSON de volta pra linha. |
 | [Conectando ao PostgreSQL](postgres.md) | Trocar SQLite por Postgres pela URL e ajustar o pool. |
 | [Fila durável com PostgreSQL](queue.md) | `FOR UPDATE SKIP LOCKED`, contador atômico e idempotência por índice parcial. |
+| [Outbox transacional](outbox.md) | Linha de negócio e evento no mesmo commit; relay com lotes disjuntos. |
 | [Nomes de coluna](naming.md) | Schema em `snake_case` com modelo em `camelCase`, sem drift falso. |
 | [Colunas array do PostgreSQL](arrays.md) | `text[]`/`integer[]` tipados, com `@>`, `<@` e `&&`. |
 | [Comparação case-insensitive](case-insensitive.md) | `ieq` para login sem diferenciar caixa — e a armadilha do `ilike`. |
