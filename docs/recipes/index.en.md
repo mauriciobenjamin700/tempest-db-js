@@ -21,6 +21,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Aggregations & DISTINCT](aggregations.en.md) | `count`/`sum`/`avg`/`min`/`max` + typed `GROUP BY` and `DISTINCT`. |
 | [Upsert (ON CONFLICT)](upsert.en.md) | Insert resolving a key conflict: `DO NOTHING` or `DO UPDATE`. |
 | [Active-record (opt-in)](active-record.en.md) | `save`/`update`/`delete`/`reload` methods on a row, when you prefer it. |
+| [Unit of work (opt-in)](unit-of-work.en.md) | An identity map plus a batched flush, in one transaction. The default stays plain objects. |
 | [Logging & errors](logging.en.md) | See the SQL that runs (`onQuery`) and errors carrying the failing SQL/params. |
 | [Integrity errors (409)](integrity-errors.en.md) | Read the driver's error back into the constraint that refused the write. |
 | [Repository signals](signals.en.md) | `preSave`/`postSave`/`preDelete`/`postDelete` — react to writes without wrapping every call site. |

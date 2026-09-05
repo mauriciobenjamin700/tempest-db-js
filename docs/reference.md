@@ -388,6 +388,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (transação aninhada), nas duas sessions. Recuperável: falha só descarta o savepoint. |
 | `transaction(fn, { isolation, readOnly })` | Características do bloco. SQLite só aceita `serializable`; nível/`readOnly` em bloco aninhado lança. |
+| `session.unitOfWork()` | Identity map + change log; `get`/`track`/`add`/`remove` e `flush()` numa transação. |
 | `session.transactionDepth` / `session.inTransaction` | Profundidade dos blocos abertos; `transaction()` aninhado adere ao de fora. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`/`prePing`/`recycleMs`) — PostgreSQL. |
 | `engine.explain(fn, opts?)` | Plano de todo statement do bloco. `analyze` executa e é recusado em escrita. |

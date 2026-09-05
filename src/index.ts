@@ -1339,6 +1339,8 @@ export {
 
 export { aliasOf, aliased } from "./aliased.js";
 
+export { type FlushResult, type Tracked, UnitOfWork } from "./unit-of-work.js";
+
 export {
   BaseRepository,
   type BulkUpsertOptions,

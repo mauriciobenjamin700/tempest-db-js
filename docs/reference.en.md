@@ -389,6 +389,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `session.stream(builder)` | Lazy iteration (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (nested transaction), on both sessions. Recoverable: a failure discards only the savepoint. |
 | `transaction(fn, { isolation, readOnly })` | Block characteristics. SQLite only accepts `serializable`; a level or `readOnly` on a nested block throws. |
+| `session.unitOfWork()` | Identity map plus change log; `get`/`track`/`add`/`remove` and `flush()` in one transaction. |
 | `session.transactionDepth` / `session.inTransaction` | Depth of open blocks; a nested `transaction()` joins the outer one. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`/`prePing`/`recycleMs`) — PostgreSQL. |
 | `engine.explain(fn, opts?)` | The plan of every statement in the block. `analyze` executes, and is refused for writes. |
