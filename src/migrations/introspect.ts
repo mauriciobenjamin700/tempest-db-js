@@ -16,6 +16,7 @@ import { renderColumnType } from "./ddl.js";
 import {
   type ColumnIR,
   type ForeignKeyIR,
+  type IndexIR,
   type SchemaIR,
   type TableIR,
   type UniqueConstraintIR,
@@ -73,6 +74,8 @@ interface PragmaIndex {
   name: string;
   unique: number;
   origin: string;
+  /** 1 when the index has a `WHERE` predicate. */
+  partial?: number;
 }
 
 interface PragmaIndexColumn {
@@ -123,6 +126,8 @@ export function introspectSqlite(driver: SyncDriver): SchemaIR {
       columns,
       primaryKey,
       uniqueConstraints: sqliteUniques(driver, tableName),
+      checks: [],
+      indexes: sqliteIndexes(driver, tableName),
       foreignKeys: sqliteForeignKeys(driver, tableName),
     };
   }
@@ -241,6 +246,8 @@ export function compareSqliteSchemas(actual: SchemaIR, expected: SchemaIR): stri
         );
       }
     }
+
+    issues.push(...indexDrift(tableName, actualTable, expectedTable));
   }
 
   for (const tableName of Object.keys(actual.tables)) {
@@ -309,9 +316,97 @@ function sqliteUniqueFromPragma(
   return { name: `uq_${table}_${cols.join("_")}`, columns: cols };
 }
 
+/**
+ * The indexes a `CREATE INDEX` made — origin `"c"` — with their columns.
+ *
+ * `origin` is what separates the three kinds `index_list` mixes: `"pk"` backs the
+ * primary key, `"u"` backs a `UNIQUE` constraint (reported as a constraint, not
+ * an index), and `"c"` is an index somebody created. Only the last one belongs
+ * here, or every unique constraint would also read as a missing index.
+ */
+function indexesFromPragma(
+  rows: readonly PragmaIndex[],
+  columnsOfIndex: (name: string) => readonly PragmaIndexColumn[],
+): IndexIR[] {
+  const indexes: IndexIR[] = [];
+  for (const idx of rows) {
+    if (idx.origin !== "c") continue;
+    if (idx.partial === 1) continue;
+    const cols = [...columnsOfIndex(idx.name)]
+      .sort((a, b) => a.seqno - b.seqno)
+      .map((c) => c.name);
+    if (cols.length === 0) continue;
+    indexes.push({
+      name: idx.name,
+      columns: cols,
+      unique: Number(idx.unique) === 1,
+      where: null,
+    });
+  }
+  return indexes;
+}
+
+/** Read a table's explicit indexes (sync driver). */
+function sqliteIndexes(driver: SyncDriver, table: string): IndexIR[] {
+  const rows = driver.execute(`PRAGMA index_list(${JSON.stringify(table)})`, [])
+    .rows as unknown as PragmaIndex[];
+  return indexesFromPragma(
+    rows,
+    (name) =>
+      driver.execute(`PRAGMA index_info(${JSON.stringify(name)})`, [])
+        .rows as unknown as PragmaIndexColumn[],
+  );
+}
+
 /** True when a `PRAGMA index_list` row describes a real UNIQUE constraint. */
 function isUniqueIndex(idx: PragmaIndex): boolean {
   return Number(idx.unique) === 1 && idx.origin !== "pk";
+}
+
+/**
+ * Compare the indexes of one table.
+ *
+ * Only **explicit** indexes are compared — the ones a `CREATE INDEX` made. The
+ * ones backing a primary key or a unique constraint are reported as constraints,
+ * and counting them here as well would flag every unique constraint as a missing
+ * index.
+ *
+ * `CHECK` constraints are deliberately **not** compared: a database reports them
+ * as SQL text, and comparing text against the condition tree would report a
+ * difference for every difference in spelling. They are still created and dropped
+ * by migrations; they are just invisible to drift.
+ *
+ * @param tableName The table.
+ * @param actual The introspected table.
+ * @param expected The reflected table.
+ * @returns Drift messages, empty when the indexes agree.
+ */
+function indexDrift(tableName: string, actual: TableIR, expected: TableIR): string[] {
+  const issues: string[] = [];
+  const signature = (ix: { columns: readonly string[]; unique: boolean }): string =>
+    `${ix.columns.join(",")}${ix.unique ? " unique" : ""}`;
+  const actualByName = new Map(actual.indexes.map((ix) => [ix.name, ix]));
+  const expectedByName = new Map(expected.indexes.map((ix) => [ix.name, ix]));
+  for (const [name, exp] of expectedByName) {
+    const act = actualByName.get(name);
+    if (!act) {
+      issues.push(`index "${tableName}.${name}" is missing from the database`);
+      continue;
+    }
+    if (signature(act) !== signature(exp)) {
+      issues.push(
+        `index "${tableName}.${name}" differs: model (${signature(exp)}), db (${signature(act)})`,
+      );
+    }
+  }
+  for (const name of actualByName.keys()) {
+    if (!expectedByName.has(name)) {
+      issues.push(
+        `index "${tableName}.${name}" exists in the database but not in the model`,
+      );
+    }
+  }
+  return issues;
 }
 
 /** The `sqlite_master` query listing user tables (excluding the version table). */
@@ -354,6 +449,21 @@ export async function introspectSqliteAsync(driver: AsyncDriver): Promise<Schema
       const unique = sqliteUniqueFromPragma(tableName, cols);
       if (unique) uniqueConstraints.push(unique);
     }
+    const explicitIndexes: IndexIR[] = [];
+    for (const idx of indexes) {
+      if (idx.origin !== "c" || idx.partial === 1) continue;
+      const cols = (
+        await driver.execute(`PRAGMA index_info(${JSON.stringify(idx.name)})`, [])
+      ).rows as unknown as PragmaIndexColumn[];
+      const sorted = [...cols].sort((a, b) => a.seqno - b.seqno).map((c) => c.name);
+      if (sorted.length === 0) continue;
+      explicitIndexes.push({
+        name: idx.name,
+        columns: sorted,
+        unique: Number(idx.unique) === 1,
+        where: null,
+      });
+    }
 
     tables[tableName] = {
       name: tableName,
@@ -361,6 +471,8 @@ export async function introspectSqliteAsync(driver: AsyncDriver): Promise<Schema
       primaryKey,
       uniqueConstraints,
       foreignKeys: sqliteForeignKeysFromPragma(tableName, fkRows),
+      checks: [],
+      indexes: explicitIndexes,
     };
   }
   return { tables };
@@ -528,6 +640,8 @@ export async function introspectPostgres(driver: AsyncDriver): Promise<SchemaIR>
       columns,
       primaryKey,
       uniqueConstraints: await postgresUniques(driver, tableName),
+      checks: [],
+      indexes: await postgresIndexes(driver, tableName),
       foreignKeys: await postgresForeignKeys(driver, tableName),
     };
   }
@@ -582,6 +696,49 @@ async function postgresUniques(
 }
 
 /** The comparable name of a column type — `text[]` for arrays, the kind otherwise. */
+/**
+ * Read a table's explicit indexes from `pg_indexes`.
+ *
+ * Indexes backing a constraint (primary key, unique) are excluded through
+ * `pg_constraint`: they are reported as constraints, and counting them twice
+ * would make every unique constraint read as a missing index.
+ *
+ * Partial indexes are skipped for now — their predicate comes back as SQL text,
+ * and comparing text against the IR's condition tree would report a difference
+ * for every difference in spelling.
+ *
+ * @param driver The async driver.
+ * @param table The table.
+ * @returns The indexes.
+ */
+async function postgresIndexes(driver: AsyncDriver, table: string): Promise<IndexIR[]> {
+  const { rows } = await driver.execute(
+    `SELECT i.relname AS name,
+            ix.indisunique AS is_unique,
+            ix.indpred IS NOT NULL AS is_partial,
+            array_to_string(array_agg(a.attname ORDER BY k.ord), ',') AS columns
+       FROM pg_index ix
+       JOIN pg_class i ON i.oid = ix.indexrelid
+       JOIN pg_class t ON t.oid = ix.indrelid
+       JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+      WHERE t.relname = $1
+        AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = ix.indexrelid)
+      GROUP BY i.relname, ix.indisunique, ix.indpred`,
+    [table],
+  );
+  return (
+    rows as { name: string; is_unique: boolean; is_partial: boolean; columns: string }[]
+  )
+    .filter((row) => !row.is_partial)
+    .map((row) => ({
+      name: row.name,
+      columns: row.columns.split(","),
+      unique: row.is_unique === true,
+      where: null,
+    }));
+}
+
 function describeKind(type: ColumnType): string {
   if (type.kind !== "array") return type.kind;
   return `${type.meta.element ? describeKind(type.meta.element) : "unknown"}[]`;
@@ -646,6 +803,8 @@ export async function checkDriftPostgres(
         );
       }
     }
+
+    issues.push(...indexDrift(tableName, actualTable, expectedTable));
   }
   for (const tableName of Object.keys(actual.tables)) {
     if (!expected.tables[tableName]) {

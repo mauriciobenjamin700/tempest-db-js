@@ -145,6 +145,60 @@ const issues = checkDrift(driver, [User, Post, Membership]);
 // 'foreign key "posts: authorId=>users(id)" is missing from the database'
 ```
 
+## `CHECK` and indexes
+
+`tableArgs` knows four things: `unique`, `foreignKey`, **`check`** and **`index`**.
+
+```ts
+import { check, col, index, unique } from "tempest-db-js";
+
+class Order extends Model {
+  static override tablename = "orders";
+  static override tableArgs = () => [
+    check(col("total").gte(0)),                                   // (1)!
+    index(["customerId", "createdAt"]),                           // (2)!
+    index(["email"], { unique: true, where: { deletedAt: { isNull: true } } }),  // (3)!
+  ];
+  // ...
+}
+```
+
+1. An invariant the **database** enforces — not the application, which is not the only
+   thing writing to the table.
+2. A plain index, created and dropped by migrations like everything else.
+3. A **partial** index: the same predicate `ON CONFLICT` has to repeat in order to match
+   it.
+
+!!! info "A `CHECK`'s expression is a condition, not a string"
+
+    `check(col("total").gte(0))` uses the **same** language as `where`. A raw string would
+    have to be compared textually to decide whether the schema drifted — and two spellings
+    of one rule would show up as a change on every diff.
+
+!!! danger "An undeclared index is invisible — and disappears in a rebuild"
+
+    An index created by hand outside the models is not in the IR, so migrations never
+    create it; worse, on SQLite a column change **rebuilds the table**, and an index tied
+    to the old table goes with it. Declaring it in `tableArgs` puts the index next to the
+    columns it covers — and the rebuild recreates it.
+
+!!! warning "Drift sees indexes, not `CHECK`s"
+
+    `tempest-db check` compares explicit indexes (name, columns, uniqueness) on both
+    databases. **`CHECK`s are left out**: the database returns the expression as SQL text,
+    and comparing text against the condition tree would report a difference for every
+    difference in spelling. `CHECK`s are still created and dropped by migrations — they
+    are simply not compared.
+
+    **Partial** indexes are left out of the comparison for the same reason (the predicate
+    comes back as text).
+
+| | PostgreSQL | SQLite | MySQL |
+| --- | --- | --- | --- |
+| `CHECK` | ✅ | ✅ (rebuild to alter) | ✅ |
+| Index | ✅ | ✅ | ✅ |
+| Partial index | ✅ | ✅ | **error** |
+
 ## Recap
 
 - `.unique()` and `.references("table.column", { onDelete })` cover the per-column case.

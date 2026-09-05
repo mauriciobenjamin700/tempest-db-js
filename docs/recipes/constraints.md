@@ -145,6 +145,59 @@ const issues = checkDrift(driver, [User, Post, Membership]);
 // 'foreign key "posts: authorId=>users(id)" is missing from the database'
 ```
 
+## `CHECK` e índices
+
+`tableArgs` conhece quatro coisas: `unique`, `foreignKey`, **`check`** e **`index`**.
+
+```ts
+import { check, col, index, unique } from "tempest-db-js";
+
+class Order extends Model {
+  static override tablename = "orders";
+  static override tableArgs = () => [
+    check(col("total").gte(0)),                                   // (1)!
+    index(["customerId", "createdAt"]),                           // (2)!
+    index(["email"], { unique: true, where: { deletedAt: { isNull: true } } }),  // (3)!
+  ];
+  // ...
+}
+```
+
+1. Invariante que o **banco** garante — não a aplicação, que não é a única coisa que
+   escreve na tabela.
+2. Índice comum, criado e derrubado pelas migrações como qualquer outra coisa.
+3. Índice **parcial**: é o mesmo predicado que o `ON CONFLICT` precisa repetir para casar
+   com ele.
+
+!!! info "A expressão do `CHECK` é condição, não string"
+
+    `check(col("total").gte(0))` usa a **mesma** linguagem do `where`. Uma string crua
+    teria de ser comparada textualmente para decidir se o schema mudou — e duas grafias da
+    mesma regra apareceriam como mudança a cada diff.
+
+!!! danger "Índice não declarado é invisível — e some no rebuild"
+
+    Índice criado à mão por fora não entra no IR, então a migração nunca o cria; pior, no
+    SQLite uma mudança de coluna **reconstrói a tabela**, e o índice ligado à tabela
+    antiga vai junto. Declarar no `tableArgs` põe o índice no mesmo lugar das colunas que
+    ele cobre — e o rebuild o recria.
+
+!!! warning "Drift enxerga índice, não `CHECK`"
+
+    `tempest-db check` compara os índices explícitos (nome, colunas, unicidade) nos dois
+    bancos. **`CHECK` fica de fora**: o banco devolve a expressão como texto SQL, e
+    comparar texto com a árvore de condição acusaria diferença a cada diferença de grafia.
+    O `CHECK` continua sendo criado e derrubado pelas migrações — ele só não é comparado.
+
+    Índice **parcial** também fica fora da comparação, pelo mesmo motivo (o predicado
+    volta como texto).
+
+| | PostgreSQL | SQLite | MySQL |
+| --- | --- | --- | --- |
+| `CHECK` | ✅ | ✅ (rebuild p/ alterar) | ✅ |
+| Índice | ✅ | ✅ | ✅ |
+| Índice parcial | ✅ | ✅ | **erro** |
+
 ## Recap
 
 - `.unique()` e `.references("tabela.coluna", { onDelete })` cobrem o caso por coluna.

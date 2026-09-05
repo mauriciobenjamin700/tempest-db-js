@@ -80,6 +80,27 @@ export class Params {
 }
 
 /**
+ * A {@link Params} that inlines values instead of binding them.
+ *
+ * Schema SQL — a `CHECK` clause, a partial index's predicate — has nowhere to
+ * bind a parameter, so the value has to be written into the statement. Quoting
+ * follows the same rules a literal `DEFAULT` uses.
+ */
+export class LiteralParams extends Params {
+  constructor() {
+    super(() => "");
+  }
+
+  override bind(value: unknown): string {
+    if (value === null || value === undefined) return "NULL";
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (typeof value === "number" || typeof value === "bigint") return String(value);
+    if (value instanceof Date) return `'${value.toISOString()}'`;
+    return `'${String(value).replace(/'/g, "''")}'`;
+  }
+}
+
+/**
  * The column list of an INSERT: the union of every row's keys, in first-seen
  * order.
  *
@@ -224,6 +245,20 @@ export abstract class BaseDialect {
         break;
     }
     return { sql, params: params.values };
+  }
+
+  /**
+   * Render a condition as schema SQL, with values inlined.
+   *
+   * Same compiler as a `WHERE`, different parameter strategy — so a `CHECK` and
+   * the query language cannot drift apart in what they mean.
+   *
+   * @param node The condition.
+   * @param params A {@link LiteralParams}.
+   * @returns The rendered predicate.
+   */
+  renderConditionLiteral(node: CondNode, params: Params): string {
+    return this.compileCondition(node, params, (key) => this.columnId(key, undefined));
   }
 
   /**

@@ -425,6 +425,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` no caminho do repository; `pre*` que lança veta. |
 | `hasHandlers` / `clearSignals` | Se há handler (o repository evita o SELECT extra sem eles); limpeza em teste. |
 | `backupDatabase(url, file)` / `restoreDatabase(url, file)` | `pg_dump`/`pg_restore`/`psql`, ou `VACUUM INTO` no SQLite. Também `tempest-db backup\|restore`. |
+| `check(condição, opts?)` / `index(colunas, opts?)` | `tableArgs` com `CHECK` e índice (incl. parcial e único). Drift compara índice, não `CHECK`. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 

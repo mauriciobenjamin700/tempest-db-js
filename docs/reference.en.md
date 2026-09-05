@@ -426,6 +426,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` on the repository path; a throwing `pre*` vetoes. |
 | `hasHandlers` / `clearSignals` | Whether anything listens (the repository skips the extra SELECT otherwise); test cleanup. |
 | `backupDatabase(url, file)` / `restoreDatabase(url, file)` | `pg_dump`/`pg_restore`/`psql`, or `VACUUM INTO` on SQLite. Also `tempest-db backup\|restore`. |
+| `check(condition, opts?)` / `index(columns, opts?)` | `tableArgs` with `CHECK` and indexes (partial and unique too). Drift compares indexes, not `CHECK`s. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 
