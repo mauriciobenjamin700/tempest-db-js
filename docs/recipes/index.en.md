@@ -39,6 +39,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Raw SQL at runtime](raw-sql.md) | `session.raw` for the query the builder cannot yet express. |
 | [Expressions in `where`](expressions.md) | Column vs column and SQL functions, to match a functional index. |
 | [Set operations](set-operations.en.md) | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` with branch shapes checked by the types. |
+| [Window functions](window-functions.en.md) | `rowNumber`, `rank`, `lag`/`lead` and windowed aggregates, through `compute()`. |
 | [MySQL: what changes](mysql.md) | `RETURNING` via read-back, and what MySQL cannot do. |
 
 ## Looking for something bigger?

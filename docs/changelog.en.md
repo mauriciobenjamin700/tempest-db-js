@@ -25,6 +25,15 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Window functions and `select().compute()`** — `over(fn, { partitionBy, orderBy,
+  frame })` with `rowNumber`, `rank`, `denseRank`, `percentRank`, `lag`, `lead`,
+  `firstValue`, `lastValue` and any aggregate. `compute({ alias: expression })` projects
+  by alias **without grouping**, so the row stays and the value comes with it — and the
+  alias lands in the row type, because `Expression` now carries the value's type. A
+  function that only exists inside a window returns a `WindowFn`, which **only** `over()`
+  accepts: using `lag()` without `OVER` stops being a database runtime error and becomes
+  a compile error (#45).
+
 - **Backup and restore, from the CLI and programmatically** — `tempest-db backup <file>
   --url` and `tempest-db restore`, plus `backupDatabase`/`restoreDatabase`. PostgreSQL
   uses `pg_dump`/`pg_restore`/`psql` with the format picked **by the extension** (`.sql`

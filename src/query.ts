@@ -31,6 +31,12 @@ import {
 // AST
 // --------------------------------------------------------------------------
 
+/** The value type an expression produces, for `compute`'s row type. */
+export type ExpressionValue<E> = E extends Expression<infer T> ? T : unknown;
+
+/** Flatten an intersection into one object literal, for readable inference. */
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
 /** Sort direction for ORDER BY. */
 export type SortDirection = "asc" | "desc";
 
@@ -94,6 +100,8 @@ export interface SelectNode {
   /** `HAVING` condition, keyed by aggregate alias or grouped column. */
   readonly having?: CondNode | undefined;
   readonly orderBy: readonly OrderTerm[];
+  /** Extra projected expressions, by result alias (window functions, CASE, …). */
+  readonly computed?: Readonly<Record<string, ExprNode>> | undefined;
   readonly limit: number | undefined;
   readonly offset: number | undefined;
   /** Row-level locking clause, or `undefined` for none. */
@@ -490,6 +498,40 @@ export class SelectBuilder<Full, Proj = Full, Grouped extends boolean = false> {
    * @param direction `"asc"` (default) or `"desc"`.
    * @returns A builder carrying the ordering term.
    */
+  /**
+   * Project extra expressions alongside the columns, by alias.
+   *
+   * This is where a window function lands: unlike `aggregate()`, it does **not**
+   * group — every row stays, with the computed value attached.
+   *
+   * @param map Alias → expression.
+   * @returns A builder whose row type carries the aliases.
+   *
+   * @example
+   * ```ts
+   * select(Sale).compute({
+   *   rank: over(rowNumber(), { partitionBy: ["region"], orderBy: [["total", "desc"]] }),
+   * });
+   * ```
+   */
+  compute<M extends Record<string, Expression<unknown>>>(
+    map: M,
+  ): SelectBuilder<
+    Full,
+    Simplify<Proj & { [K in keyof M]: ExpressionValue<M[K]> }>,
+    Grouped
+  > {
+    const computed: Record<string, ExprNode> = { ...(this.node.computed ?? {}) };
+    for (const [alias, expression] of Object.entries(map)) {
+      computed[alias] = expression.node;
+    }
+    return this.with({ computed }) as unknown as SelectBuilder<
+      Full,
+      Simplify<Proj & { [K in keyof M]: ExpressionValue<M[K]> }>,
+      Grouped
+    >;
+  }
+
   orderBy(
     column: (keyof Full & string) | (keyof Proj & string) | Expression,
     direction: SortDirection = "asc",

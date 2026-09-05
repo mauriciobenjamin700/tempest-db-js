@@ -39,6 +39,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [SQL cru em runtime](raw-sql.md) | `session.raw` para a query que o builder ainda não expressa. |
 | [Expressões no `where`](expressions.md) | Coluna vs coluna e funções SQL, para casar índice funcional. |
 | [Operações de conjunto](set-operations.md) | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` com a forma dos ramos checada no tipo. |
+| [Funções de janela](window-functions.md) | `rowNumber`, `rank`, `lag`/`lead` e agregação em janela, via `compute()`. |
 | [MySQL: o que muda](mysql.md) | `RETURNING` por read-back e o que o MySQL não faz. |
 
 ## Procurando algo maior?

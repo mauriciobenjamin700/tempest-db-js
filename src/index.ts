@@ -902,6 +902,20 @@ export {
 } from "./conditions.js";
 
 export {
+  denseRank,
+  firstValue,
+  lag,
+  lastValue,
+  lead,
+  over,
+  percentRank,
+  rank,
+  rowNumber,
+  type WindowFn,
+  type WindowSpec,
+} from "./window.js";
+
+export {
   Agg,
   type AggregateTerm,
   avg,

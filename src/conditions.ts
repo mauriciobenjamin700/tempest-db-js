@@ -37,6 +37,21 @@ export type ExprNode =
     }
   | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType }
   | { readonly kind: "scalar"; readonly select: unknown }
+  | { readonly kind: "star" }
+  | {
+      readonly kind: "window";
+      /** The function being windowed (`row_number()`, `sum(total)`, …). */
+      readonly fn: ExprNode;
+      /** `PARTITION BY` columns, by property name. */
+      readonly partitionBy: readonly string[];
+      /** `ORDER BY` inside the window. */
+      readonly orderBy: readonly {
+        readonly column: string;
+        readonly direction: "asc" | "desc";
+      }[];
+      /** An explicit frame clause (`ROWS BETWEEN …`), or `null` for the default. */
+      readonly frame: string | null;
+    }
   | {
       readonly kind: "rank";
       readonly columns: readonly string[];
@@ -170,7 +185,10 @@ export function isExpression(value: unknown): value is Expression {
  * expressible at all. An operand that is not an `Expression` is bound as a
  * parameter, so `.eq(probe)` stays safe by default.
  */
-export class Expression {
+export class Expression<T = unknown> {
+  /** Phantom: the value type this expression produces, read only by the types. */
+  declare readonly __t?: T;
+
   constructor(
     /** The expression AST the dialect renders. */
     readonly node: ExprNode,
@@ -278,8 +296,8 @@ export function conditionFromNode(node: CondNode): Condition {
  * @param node The node to wrap.
  * @returns The expression.
  */
-export function expressionFromNode(node: ExprNode): Expression {
-  return new Expression(node);
+export function expressionFromNode<T = unknown>(node: ExprNode): Expression<T> {
+  return new Expression<T>(node);
 }
 
 /**
