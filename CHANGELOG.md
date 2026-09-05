@@ -26,6 +26,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`TenantScopedRepository`** — repository preso a um tenant: o predicado entra em
+  **toda** leitura e a coluna é carimbada em **toda** escrita, porque os métodos do
+  `BaseRepository` passam a atravessar um ponto único de escopo (`scopeFilters` /
+  `scopeWrite`, protegidos e sobrescrevíveis) em vez de cada um lembrar do `WHERE`. Linha
+  de outro tenant é "não encontrada", não "proibida" — distinguir já seria vazamento —, e
+  escrever nomeando outro tenant **lança** em vez de ser sobrescrito em silêncio. Modelo
+  sem a coluna faz o construtor lançar (#42).
+
 - **`engine.explain(fn)`** — captura o plano de **todo** statement que um bloco roda,
   com os parâmetros que o código realmente usou (o bloco recebe uma session gravadora).
   `EXPLAIN (FORMAT JSON)` no PostgreSQL, `EXPLAIN QUERY PLAN` no SQLite, mais um

@@ -25,6 +25,14 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`TenantScopedRepository`** — a repository bound to one tenant: the predicate joins
+  **every** read and the column is stamped on **every** write, because `BaseRepository`'s
+  methods now pass through a single scoping point (`scopeFilters` / `scopeWrite`,
+  protected and overridable) instead of each one remembering the `WHERE`. Another
+  tenant's row is "not found", not "forbidden" — telling them apart would already leak —
+  and writing while naming another tenant **throws** rather than being silently
+  overwritten. A model without the column makes the constructor throw (#42).
+
 - **`engine.explain(fn)`** — captures the plan of **every** statement a block runs, with
   the parameters the code actually used (the block gets a recording session).
   `EXPLAIN (FORMAT JSON)` on PostgreSQL, `EXPLAIN QUERY PLAN` on SQLite, plus a readable

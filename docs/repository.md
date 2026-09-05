@@ -202,6 +202,50 @@ do {
     A query filtra e ordena por `updatedAt`. Sem índice nessa coluna, cada pull é um
     full scan.
 
+## Multi-tenant: escopo que não dá para esquecer
+
+Em base de schema compartilhado, todas as linhas moram na mesma tabela e um
+`WHERE tenantId = ?` esquecido vaza dado de um cliente para outro. O problema não é o
+predicado — é que **todo** ponto de query precisa lembrar dele.
+
+```ts
+const docs = new TenantScopedRepository(Doc, session, {
+  column: "tenantId",
+  id: currentTenant,
+});
+
+await docs.list({ status: "open" });   // ... AND "tenantId" = ?
+await docs.create({ title: "novo" });  // tenantId preenchido
+```
+
+O predicado entra em **toda** leitura — `list`, `first`, `exists`, `count`, `getById`,
+`paginate`, `cursorPaginate`, `update`, `delete` — porque os métodos passam por um único
+ponto de escopo (`scopeFilters`), não porque cada um lembra.
+
+!!! danger "Linha de outro tenant é "não encontrada", não "proibida""
+
+    `getById` de uma linha de outro cliente devolve `RecordNotFound` — o mesmo que uma
+    linha inexistente. Diferenciar os dois casos já seria vazamento: contaria que aquele
+    id existe em outro lugar.
+
+!!! warning "Escrever com outro tenant **lança**"
+
+    ```ts
+    await docs.create({ id: 5, tenantId: 2, title: "x" });
+    // Error: Refusing to write docs.tenantId = 2 from a repository scoped to 1
+    ```
+
+    Sobrescrever em silêncio transformaria um bug do chamador em dado que parece
+    deliberado.
+
+!!! info "O filtro é somado, nunca substituído"
+
+    Passar `{ tenantId: outro }` num filtro gera uma contradição que não casa nada — não
+    uma janela para o outro tenant.
+
+Modelo sem a coluna de tenant faz o construtor lançar: um escopo que casa nada em
+silêncio é pior que escopo nenhum.
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — CRUD + paginação tipados.

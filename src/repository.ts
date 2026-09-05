@@ -236,14 +236,45 @@ export class BaseRepository<C extends ModelClass> {
     this.pks = primaryKeysOf(model);
   }
 
+  /**
+   * Narrow every read this repository performs.
+   *
+   * The extension point a scoped repository overrides: returning a filter that
+   * always carries the scope's predicate is what makes it impossible for one
+   * query site to forget it. The base implementation adds nothing.
+   *
+   * @param filters The caller's filters.
+   * @returns The filters actually sent to the database.
+   */
+  protected scopeFilters(
+    filters?: WhereInput<InferModel<C>>,
+  ): WhereInput<InferModel<C>> | undefined {
+    return filters;
+  }
+
+  /**
+   * Stamp every row this repository writes.
+   *
+   * The write-side counterpart of {@link scopeFilters}. The base implementation
+   * writes the row unchanged.
+   *
+   * @param data The row being written.
+   * @returns The row actually written.
+   */
+  protected scopeWrite<T extends Record<string, unknown>>(data: T): T {
+    return data;
+  }
+
   /** All rows matching `filters` (or everything). Empty list when none match. */
-  async list(filters?: WhereInput<InferModel<C>>): Promise<InferModel<C>[]> {
+  async list(input?: WhereInput<InferModel<C>>): Promise<InferModel<C>[]> {
+    const filters = this.scopeFilters(input);
     const query = filters ? select(this.model).where(filters) : select(this.model);
     return this.session.execute(query).all();
   }
 
   /** The first row matching `filters`, or `null`. */
-  async first(filters?: WhereInput<InferModel<C>>): Promise<InferModel<C> | null> {
+  async first(input?: WhereInput<InferModel<C>>): Promise<InferModel<C> | null> {
+    const filters = this.scopeFilters(input);
     const query = filters ? select(this.model).where(filters) : select(this.model);
     return this.session.execute(query).first();
   }
@@ -258,7 +289,9 @@ export class BaseRepository<C extends ModelClass> {
    *   incomplete.
    */
   async getByIdOrNull(id: unknown): Promise<InferModel<C> | null> {
-    const filter = primaryKeyFilter(this.model, id) as WhereInput<InferModel<C>>;
+    const filter = this.scopeFilters(
+      primaryKeyFilter(this.model, id) as WhereInput<InferModel<C>>,
+    ) as WhereInput<InferModel<C>>;
     return this.session.execute(select(this.model).where(filter)).first();
   }
 
@@ -270,10 +303,10 @@ export class BaseRepository<C extends ModelClass> {
    * @throws RecordNotFound When no row carries that key.
    */
   async getById(id: unknown): Promise<InferModel<C>> {
-    const filter = primaryKeyFilter(this.model, id);
-    const row = await this.session
-      .execute(select(this.model).where(filter as WhereInput<InferModel<C>>))
-      .first();
+    const filter = this.scopeFilters(
+      primaryKeyFilter(this.model, id) as WhereInput<InferModel<C>>,
+    ) as WhereInput<InferModel<C>>;
+    const row = await this.session.execute(select(this.model).where(filter)).first();
     if (row === null) throw new RecordNotFound(this.model.tablename, filter);
     return row;
   }
@@ -284,7 +317,8 @@ export class BaseRepository<C extends ModelClass> {
   }
 
   /** How many rows match `filters` (or the whole table). */
-  async count(filters?: WhereInput<InferModel<C>>): Promise<number> {
+  async count(input?: WhereInput<InferModel<C>>): Promise<number> {
+    const filters = this.scopeFilters(input);
     const query = filters
       ? select(this.model, [this.pks[0] as keyof InferModel<C> & string]).where(filters)
       : select(this.model, [this.pks[0] as keyof InferModel<C> & string]);
@@ -300,9 +334,14 @@ export class BaseRepository<C extends ModelClass> {
    * @returns The stored row.
    */
   async create(data: InferInsert<C>): Promise<InferModel<C>> {
-    await this.fire("preSave", data as unknown as InferModel<C>, true);
+    const scoped = this.scopeWrite(data as unknown as Record<string, unknown>);
+    await this.fire("preSave", scoped as unknown as InferModel<C>, true);
     const row = await this.session
-      .execute(insert(this.model).values(data).returning())
+      .execute(
+        insert(this.model)
+          .values(scoped as InferInsert<C>)
+          .returning(),
+      )
       .one();
     await this.fire("postSave", row, true);
     return row;
@@ -319,11 +358,18 @@ export class BaseRepository<C extends ModelClass> {
    */
   async createMany(data: readonly InferInsert<C>[]): Promise<InferModel<C>[]> {
     if (data.length === 0) return [];
-    for (const row of data) {
+    const scoped = data.map((row) =>
+      this.scopeWrite(row as unknown as Record<string, unknown>),
+    );
+    for (const row of scoped) {
       await this.fire("preSave", row as unknown as InferModel<C>, true);
     }
     const rows = await this.session
-      .execute(insert(this.model).values(data).returning())
+      .execute(
+        insert(this.model)
+          .values(scoped as unknown as InferInsert<C>[])
+          .returning(),
+      )
       .all();
     for (const row of rows) await this.fire("postSave", row, true);
     return rows;
@@ -341,9 +387,10 @@ export class BaseRepository<C extends ModelClass> {
    * @returns The number of rows affected.
    */
   async update(
-    filters: WhereInput<InferModel<C>>,
+    input: WhereInput<InferModel<C>>,
     set: Partial<InferModel<C>>,
   ): Promise<number> {
+    const filters = this.scopeFilters(input) as WhereInput<InferModel<C>>;
     const listening =
       hasHandlers(this.model, "preSave") || hasHandlers(this.model, "postSave");
     const before = listening ? await this.list(filters) : [];
@@ -367,7 +414,8 @@ export class BaseRepository<C extends ModelClass> {
    * @param filters Which rows to delete.
    * @returns The number of rows affected.
    */
-  async delete(filters: WhereInput<InferModel<C>>): Promise<number> {
+  async delete(input: WhereInput<InferModel<C>>): Promise<number> {
+    const filters = this.scopeFilters(input) as WhereInput<InferModel<C>>;
     const listening =
       hasHandlers(this.model, "preDelete") || hasHandlers(this.model, "postDelete");
     const doomed = listening ? await this.list(filters) : [];
@@ -410,7 +458,7 @@ export class BaseRepository<C extends ModelClass> {
   ): Promise<PaginationResult<InferModel<C>>> {
     const page = Math.max(1, filter.page ?? 1);
     const pageSize = Math.max(1, filter.pageSize ?? 20);
-    const where = filter.filters;
+    const where = this.scopeFilters(filter.filters);
 
     let query = where ? select(this.model).where(where) : select(this.model);
     if (filter.orderBy) {
@@ -455,7 +503,8 @@ export class BaseRepository<C extends ModelClass> {
     const keys = [primary as string, ...this.pks.filter((k) => k !== primary)];
 
     const parts: WhereInput<InferModel<C>>[] = [];
-    if (filter.filters) parts.push(filter.filters);
+    const scoped = this.scopeFilters(filter.filters);
+    if (scoped) parts.push(scoped);
     if (filter.cursor) {
       parts.push(
         afterCursor<InferModel<C>>(

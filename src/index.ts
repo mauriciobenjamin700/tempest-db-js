@@ -1051,6 +1051,8 @@ export {
   summarizePlan,
 } from "./explain.js";
 
+export { type TenantScope, TenantScopedRepository } from "./tenant.js";
+
 export {
   BaseRepository,
   type BulkUpsertOptions,
