@@ -70,6 +70,50 @@ await engine.transaction(async (tx) => {
     });
     ```
 
+## Blocos aninhados: um COMMIT só
+
+`transaction()` é **re-entrante**. Um bloco aberto dentro de outro, na mesma sessão,
+adere ao de fora: um `BEGIN`, um `COMMIT`, e a falha interna derruba tudo.
+
+```ts
+const session = engine.session();
+const orders = new BaseRepository(Order, session);
+const items = new BaseRepository(Item, session);
+
+await session.transaction(async () => {
+  await orders.create({ id: 1, total: 10 });   // sem COMMIT aqui
+  await items.createMany(lines);               // nem aqui
+});                                            // um COMMIT no fim
+```
+
+Isso é o que faz um service que orquestra vários repositories funcionar: todos seguram
+a **mesma sessão**, então todos enxergam o mesmo bloco aberto. Sem re-entrância, o
+segundo `transaction()` emitiria um `BEGIN` dentro de outro.
+
+```ts
+session.transactionDepth;   // 0 fora, 1 no bloco, 2 no aninhado
+session.inTransaction;      // boolean
+```
+
+!!! danger "Aninhado não é recuperável — savepoint é"
+
+    Falha em bloco aninhado **derruba o bloco inteiro**, inclusive o trabalho de fora.
+    Para recuperar de uma falha interna sem descartar o resto, use `beginNested`, que é
+    `SAVEPOINT` de verdade:
+
+    ```ts
+    await session.transaction(async (tx) => {
+      await orders.create(order);                       // fica
+      await tx.beginNested(async (sp) => {
+        await risky(sp);                                // se falhar, só isto volta
+      }).catch(logAndContinue);
+      await audit.create(entry);                        // continua rodando
+    });
+    ```
+
+    `beginNested` precisa de um bloco aberto — o PostgreSQL recusa savepoint fora de
+    transação.
+
 ## Recap
 
 - `engine.transaction(fn)` → `COMMIT` no sucesso, `ROLLBACK` se `fn` lançar.

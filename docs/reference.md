@@ -386,7 +386,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `session.raw(sql, params?, opts?)` | Statement cru **parametrizado**; mesmo `Result`. `{ as: Model }` coage as linhas. |
 | `toAsyncDriver(driver)` | Adapta driver sync **ou** async à interface async (usado pelo CLI). |
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
-| `session.beginNested(fn)` | Savepoint (transação aninhada). |
+| `session.beginNested(fn)` | Savepoint (transação aninhada), nas duas sessions. Recuperável: falha só descarta o savepoint. |
+| `session.transactionDepth` / `session.inTransaction` | Profundidade dos blocos abertos; `transaction()` aninhado adere ao de fora. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
 | `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook **depois** do statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filtra por limiar. |
 | `createEngine(url, { onNotice })` | Notices do servidor (PG `NOTICE`); **sem ele, nada é impresso**. |
