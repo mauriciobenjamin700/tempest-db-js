@@ -397,6 +397,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Mixins de modelo: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
 | `notDeleted()` / `onlyDeleted()` | Fragmentos de `where` para o mixin de soft delete. |
 | `repo.cursorPaginate(filter)` | Página por cursor: `{ items, nextCursor }`, sem `COUNT(*)`, PK como desempate. `InvalidCursor` em cursor inválido. |
+| `caseWhen(branches, else?)` / `cast(expr, tipo)` | `CASE WHEN ... END` e `CAST(x AS tipo)`; o tipo é portátil e mapeado por dialeto. |
+| `sum/avg/min/max(coluna \| expressão)` | Agregação sobre expressão — é o que dá `SUM(CASE WHEN ...)`. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 

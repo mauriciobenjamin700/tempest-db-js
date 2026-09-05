@@ -869,6 +869,9 @@ export { Column, type ColType, type ColumnFlags, type ModelClass };
 
 export {
   and,
+  caseWhen,
+  cast,
+  type CastType,
   col,
   type CondNode,
   type Condition,

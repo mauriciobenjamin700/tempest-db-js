@@ -9,12 +9,18 @@
  * It does NOT touch a database — execution is Phase 4b (`session.execute`).
  */
 
-import type { CondNode, ExprNode } from "./conditions.js";
+import type { CastType, CondNode, ExprNode } from "./conditions.js";
 import { renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
-import { type LockClause, OPERATORS, type SelectNode, isSubquery } from "./query.js";
+import {
+  type AggregateTerm,
+  type LockClause,
+  OPERATORS,
+  type SelectNode,
+  isSubquery,
+} from "./query.js";
 import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
@@ -294,7 +300,7 @@ export abstract class BaseDialect {
       // Grouped/aggregate query: SELECT group cols + `FN(col) AS "alias"`.
       const groupSel = node.groupBy.map((c) => this.columnId(c, names));
       const aggSel = node.aggregates.map((a) => {
-        const inner = a.column === "*" ? "*" : this.columnId(a.column, names);
+        const inner = this.aggregateOperand(a, params, names);
         return `${a.fn.toUpperCase()}(${inner}) AS ${this.quoteId(a.alias)}`;
       });
       cols = [...groupSel, ...aggSel].join(", ");
@@ -321,7 +327,7 @@ export abstract class BaseDialect {
       const having = this.compileCondition(node.having, params, (key) => {
         const agg = aggByAlias.get(key);
         if (!agg) return this.columnId(key, names);
-        const inner = agg.column === "*" ? "*" : this.columnId(agg.column, names);
+        const inner = this.aggregateOperand(agg, params, names);
         return `${agg.fn.toUpperCase()}(${inner})`;
       });
       if (having) sql += ` HAVING ${having}`;
@@ -652,6 +658,28 @@ export abstract class BaseDialect {
    * @param idFor The identifier resolver for the enclosing statement.
    * @returns The SQL text of the expression.
    */
+  /**
+   * Render what an aggregate is applied to: `*`, a column, or an expression.
+   *
+   * An expression operand is what makes a conditional aggregate
+   * (`SUM(CASE WHEN ... END)`) expressible — one pass over the table instead of a
+   * query per bucket.
+   *
+   * @param agg The aggregate term.
+   * @param params The parameter collector.
+   * @param names The node's column-name map.
+   * @returns The rendered operand.
+   */
+  private aggregateOperand(
+    agg: AggregateTerm,
+    params: Params,
+    names: NameMap | undefined,
+  ): string {
+    if (agg.column === "*") return "*";
+    if (typeof agg.column === "string") return this.columnId(agg.column, names);
+    return this.renderExpr(agg.column, params, (k) => this.columnId(k, names));
+  }
+
   private renderExpr(
     node: ExprNode,
     params: Params,
@@ -666,6 +694,61 @@ export abstract class BaseDialect {
         const args = node.args.map((a) => this.renderExpr(a, params, idFor)).join(", ");
         return `${node.name}(${args})`;
       }
+      case "case": {
+        const branches = node.branches
+          .map(
+            (b) =>
+              `WHEN ${this.compileCondition(b.when, params, idFor)} THEN ${this.renderExpr(b.result, params, idFor)}`,
+          )
+          .join(" ");
+        const fallback =
+          node.fallback === null
+            ? ""
+            : ` ELSE ${this.renderExpr(node.fallback, params, idFor)}`;
+        return `CASE ${branches}${fallback} END`;
+      }
+      case "cast":
+        return `CAST(${this.renderExpr(node.operand, params, idFor)} AS ${this.castTypeName(node.to)})`;
+    }
+  }
+
+  /**
+   * The SQL type name this dialect accepts in a `CAST`.
+   *
+   * The base mapping is the standard one PostgreSQL takes; SQLite and MySQL
+   * override it, because the names genuinely differ (MySQL's `CAST(x AS SIGNED)`
+   * is not `INTEGER`, and SQLite only has five storage classes to aim at).
+   *
+   * @param to The portable cast target.
+   * @returns The dialect's own type name.
+   */
+  protected castTypeName(to: CastType): string {
+    switch (to) {
+      case "integer":
+        return "INTEGER";
+      case "bigint":
+        return "BIGINT";
+      case "real":
+        return "DOUBLE PRECISION";
+      case "numeric":
+        return "NUMERIC";
+      case "text":
+        return "TEXT";
+      case "boolean":
+        return "BOOLEAN";
+      case "date":
+        return "DATE";
+      case "datetime":
+      case "timestamp":
+        return "TIMESTAMP";
+      case "uuid":
+        return "UUID";
+      case "json":
+        return "JSON";
+      case "jsonb":
+        return "JSONB";
+      case "blob":
+        return "BYTEA";
     }
   }
 
@@ -802,6 +885,29 @@ export abstract class BaseDialect {
 export class SqliteDialect extends BaseDialect {
   readonly name = "sqlite" as const;
 
+  /**
+   * SQLite has five storage classes, so most targets collapse onto `TEXT` or
+   * `INTEGER`. Naming a type it does not know would not fail — SQLite applies the
+   * closest affinity — but it would make the cast mean something different here
+   * than on the other databases, which is what this mapping avoids.
+   */
+  protected override castTypeName(to: CastType): string {
+    switch (to) {
+      case "integer":
+      case "bigint":
+      case "boolean":
+        return "INTEGER";
+      case "real":
+        return "REAL";
+      case "numeric":
+        return "NUMERIC";
+      case "blob":
+        return "BLOB";
+      default:
+        return "TEXT";
+    }
+  }
+
   protected placeholder(): string {
     return "?";
   }
@@ -858,6 +964,35 @@ export class MysqlDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  /**
+   * MySQL's `CAST` takes its own vocabulary — `SIGNED`, not `INTEGER`; `CHAR`,
+   * not `TEXT` — and rejects the standard names outright.
+   */
+  protected override castTypeName(to: CastType): string {
+    switch (to) {
+      case "integer":
+      case "bigint":
+      case "boolean":
+        return "SIGNED";
+      case "real":
+      case "numeric":
+        return "DECIMAL";
+      case "text":
+      case "uuid":
+        return "CHAR";
+      case "date":
+        return "DATE";
+      case "datetime":
+      case "timestamp":
+        return "DATETIME";
+      case "json":
+      case "jsonb":
+        return "JSON";
+      case "blob":
+        return "BINARY";
+    }
   }
 
   protected override quoteId(name: string): string {

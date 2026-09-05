@@ -128,6 +128,55 @@ join(Order, "o")
 // WHERE "o"."email" = "c"."email"
 ```
 
+## `CASE` — conditional aggregation
+
+`caseWhen` uses the **same** `where` language in its branches, so no second grammar
+appears just for `CASE`:
+
+```ts
+import { caseWhen, col, select, sum, val } from "tempest-db-js";
+
+const rows = await session
+  .execute(
+    select(Order).aggregate(["customer"], {
+      paid: sum(caseWhen([[{ status: "paid" }, col("total")]], val(0))),
+      all: sum("total"),
+    }),
+  )
+  .all();
+// SUM(CASE WHEN "status" = $1 THEN "total" ELSE $2 END) AS "paid"
+```
+
+One pass over the table instead of one query per bucket. Aggregates started accepting
+expressions for exactly this — `sum`, `avg`, `min` and `max` take a column **or** an
+expression.
+
+Branches are evaluated in order; with no `ELSE`, a row matching none is `NULL`. A bare
+value in a branch is **bound as a parameter**, not interpolated.
+
+## `CAST` — converting in the database
+
+```ts
+select(Event).where(cast("externalId", "integer").gt(9));
+// WHERE CAST("externalId" AS INTEGER) > $1
+```
+
+The target comes from a portable vocabulary, and each dialect renders the name it
+accepts:
+
+| Target | PostgreSQL | SQLite | MySQL |
+| --- | --- | --- | --- |
+| `integer` | `INTEGER` | `INTEGER` | `SIGNED` |
+| `text` | `TEXT` | `TEXT` | `CHAR` |
+| `numeric` | `NUMERIC` | `NUMERIC` | `DECIMAL` |
+| `timestamp` | `TIMESTAMP` | `TEXT` | `DATETIME` |
+
+!!! warning "A `CAST` on a column hides that column's index"
+
+    `CAST(col AS ...)` in a `where` stops the plain index on `col` from being used —
+    the database has to convert row by row. If the comparison is frequent, the fix is a
+    **functional index** over the same expression, or fixing the column's type.
+
 ## Recap
 
 - `col<Row>("column")` references a column; comparing two gives `WHERE a > b`.

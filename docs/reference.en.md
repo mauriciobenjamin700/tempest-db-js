@@ -398,6 +398,8 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Model mixins: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
 | `notDeleted()` / `onlyDeleted()` | `where` fragments for the soft-delete mixin. |
 | `repo.cursorPaginate(filter)` | A cursor page: `{ items, nextCursor }`, no `COUNT(*)`, primary key as tie-break. `InvalidCursor` on a bad cursor. |
+| `caseWhen(branches, else?)` / `cast(expr, type)` | `CASE WHEN ... END` and `CAST(x AS type)`; the type is portable and mapped per dialect. |
+| `sum/avg/min/max(column \| expression)` | Aggregation over an expression — what makes `SUM(CASE WHEN ...)` possible. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 

@@ -11,7 +11,13 @@
  * This is a SPIKE, not the final API.
  */
 
-import { type CondNode, type Condition, toCondNode } from "./conditions.js";
+import {
+  type CondNode,
+  type Condition,
+  type ExprNode,
+  type Expression,
+  toCondNode,
+} from "./conditions.js";
 import {
   type InferModel,
   type ModelClass,
@@ -35,8 +41,12 @@ export interface OrderTerm {
 /** One aggregate expression in a grouped SELECT (`COUNT(*) AS "n"`). */
 export interface AggregateTerm {
   readonly fn: "count" | "sum" | "avg" | "min" | "max";
-  /** The column to aggregate, or `"*"` (only valid for `count`). */
-  readonly column: string | "*";
+  /**
+   * What is aggregated: a column name, `"*"` (only valid for `count`), or an
+   * expression — which is how a conditional aggregate
+   * (`SUM(CASE WHEN ... END)`) is expressed.
+   */
+  readonly column: string | "*" | ExprNode;
   /** The result alias. */
   readonly alias: string;
 }
@@ -241,7 +251,7 @@ export class Agg<T> {
   declare readonly __t: T;
   constructor(
     readonly fn: AggregateTerm["fn"],
-    readonly column: string | "*",
+    readonly column: string | "*" | ExprNode,
   ) {}
 }
 
@@ -250,20 +260,20 @@ export function count(): Agg<number> {
   return new Agg<number>("count", "*");
 }
 /** `SUM(column)` — null when the group has no non-null values. */
-export function sum(column: string): Agg<number | null> {
-  return new Agg<number | null>("sum", column);
+export function sum(column: string | Expression): Agg<number | null> {
+  return new Agg<number | null>("sum", typeof column === "string" ? column : column.node);
 }
 /** `AVG(column)` — null when the group has no non-null values. */
-export function avg(column: string): Agg<number | null> {
-  return new Agg<number | null>("avg", column);
+export function avg(column: string | Expression): Agg<number | null> {
+  return new Agg<number | null>("avg", typeof column === "string" ? column : column.node);
 }
 /** `MIN(column)` — numeric columns; null on an empty group. */
-export function min(column: string): Agg<number | null> {
-  return new Agg<number | null>("min", column);
+export function min(column: string | Expression): Agg<number | null> {
+  return new Agg<number | null>("min", typeof column === "string" ? column : column.node);
 }
 /** `MAX(column)` — numeric columns; null on an empty group. */
-export function max(column: string): Agg<number | null> {
-  return new Agg<number | null>("max", column);
+export function max(column: string | Expression): Agg<number | null> {
+  return new Agg<number | null>("max", typeof column === "string" ? column : column.node);
 }
 
 /** Extract the phantom result type of an aggregate expression. */
