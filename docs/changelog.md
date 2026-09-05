@@ -24,6 +24,17 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Backup e restore, no CLI e programáticos** — `tempest-db backup <arquivo> --url` e
+  `tempest-db restore`, mais `backupDatabase`/`restoreDatabase`. PostgreSQL usa
+  `pg_dump`/`pg_restore`/`psql` com o formato escolhido **pela extensão** (`.sql` plano,
+  o resto custom), e a senha vai por `PGPASSWORD` — nunca em `argv`, que qualquer
+  processo da máquina lê. SQLite usa **`VACUUM INTO`**, não cópia de arquivo: com WAL
+  ligado o `.db` sozinho não é o banco inteiro, e o `VACUUM INTO` é consistente mesmo com
+  outra conexão escrevendo. Sufixo de driver (`postgresql+asyncpg`) é removido antes de
+  chamar a ferramenta, e ferramenta ausente vira `BackupToolMissing`. Os dois comandos são
+  despachados **antes** de carregar o config de migração — banco que ainda não migra é
+  justamente o que precisa de dump (#44).
+
 - **Trilha de auditoria append-only** — `auditLogModel(tabela)` para o schema e
   `enableAudit(Model, { log, actor, exclude })` para ligar. Uma entrada por
   create/update/delete, com `rowKey` (chave composta inteira), ação, ator resolvido **na

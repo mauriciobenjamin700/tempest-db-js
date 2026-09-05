@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
+import { backupDatabase, restoreDatabase } from "./backup.js";
 import type { CliConfig } from "./migrations/cli.js";
 import { runMigrationCli } from "./migrations/cli.js";
 import { diffSchema } from "./migrations/diff.js";
@@ -157,6 +158,50 @@ async function promptRenames(
 }
 
 /**
+ * Handle `backup` / `restore`, which need only a URL — not the migration config.
+ *
+ * Kept ahead of the config lookup on purpose: a database that cannot be migrated
+ * (no config yet, or a config that fails to load) is exactly the one somebody
+ * needs a dump of.
+ *
+ * @param argv The command and its arguments.
+ * @returns True when the command was handled here.
+ */
+async function runBackupCommand(argv: readonly string[]): Promise<boolean> {
+  const [command, file, ...rest] = argv;
+  if (command !== "backup" && command !== "restore") return false;
+
+  const urlFlag = rest.indexOf("--url");
+  const url =
+    (urlFlag >= 0 ? rest[urlFlag + 1] : undefined) ??
+    rest.find((arg) => arg.startsWith("--url="))?.slice("--url=".length) ??
+    process.env.DATABASE_URL;
+
+  if (!file || !url) {
+    process.stderr.write(
+      `tempest-db: usage: tempest-db ${command} <file> --url <database-url>\n  (or set DATABASE_URL)\n`,
+    );
+    process.exitCode = 1;
+    return true;
+  }
+
+  const force = rest.includes("--force");
+  try {
+    const result =
+      command === "backup"
+        ? await backupDatabase(url, file, { force })
+        : await restoreDatabase(url, file, { force });
+    process.stdout.write(
+      `${command === "backup" ? "backed up" : "restored"} ${result.dialect} via ${result.via}: ${result.file}\n`,
+    );
+  } catch (error) {
+    process.stderr.write(`tempest-db: ${(error as Error).message}\n`);
+    process.exitCode = 1;
+  }
+  return true;
+}
+
+/**
  * Run the `tempest-db` CLI end to end: discover + load the config, dispatch the
  * command, print output, and exit with the CLI's status code.
  *
@@ -165,6 +210,7 @@ async function promptRenames(
  */
 export async function main(argv: readonly string[]): Promise<void> {
   const { configPath, rest } = extractConfigFlag(argv);
+  if (await runBackupCommand(rest)) return;
   const resolved = resolveConfigPath(configPath);
   if (!resolved) {
     process.stderr.write(
