@@ -408,6 +408,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `repo.cursorPaginate(filter)` | Página por cursor: `{ items, nextCursor }`, sem `COUNT(*)`, PK como desempate. `InvalidCursor` em cursor inválido. |
 | `select(...).compute({ alias: expr })` | Projeta expressão por alias, **sem agrupar** — é onde a janela entra. |
 | `over(fn, { partitionBy, orderBy, frame })` | `rowNumber`/`rank`/`denseRank`/`lag`/`lead`/`firstValue`/`lastValue` e agregações. |
+| `cte(nome, Model, corpo)` / `cteRecursive(nome, Model, self => corpo)` | `WITH` / `WITH RECURSIVE`; `.model` é usável onde um model é. |
+| `join(...).pick(alias)` | Projeta **um** source do join, flat — o que um ramo de UNION/CTE exige. |
 | `union` / `unionAll` / `intersect` / `except` | Combinam SELECTs; forma dos ramos checada no tipo. `ORDER BY`/`LIMIT` do builder valem para o conjunto. |
 | `exists(sub)` / `notExists(sub)` | `EXISTS (...)` correlacionado; `col("tabela.coluna")` referencia a query externa. |
 | `scalar(sub)` | Subquery de **uma** coluna como valor; exige `.asSubquery(col)`. |

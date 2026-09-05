@@ -8,7 +8,8 @@
  */
 
 import type { ModelClass } from "./index.js";
-import type { OrderTerm, SelectBuilder, SelectNode, SortDirection } from "./query.js";
+import type { JoinNode } from "./join.js";
+import type { OrderTerm, SelectNode, SortDirection } from "./query.js";
 
 /** Which set operation combines the branches. */
 export type SetOperator = "union" | "unionAll" | "intersect" | "except";
@@ -17,8 +18,8 @@ export type SetOperator = "union" | "unionAll" | "intersect" | "except";
 export interface SetNode {
   readonly kind: "set_op";
   readonly op: SetOperator;
-  /** The combined SELECTs, in order. */
-  readonly branches: readonly SelectNode[];
+  /** The combined SELECTs, in order. A branch may be a join projecting one source. */
+  readonly branches: readonly (SelectNode | JoinNode)[];
   /** Ordering applied to the **result**, not to a branch. */
   readonly orderBy: readonly OrderTerm[];
   readonly limit: number | undefined;
@@ -70,8 +71,32 @@ export class SetBuilder<Row> {
   }
 }
 
-/* biome-ignore lint/suspicious/noExplicitAny: a branch's Full type is irrelevant here. */
-type Branch<Row> = SelectBuilder<any, Row, any>;
+/**
+ * What a set operation combines: anything that compiles to a SELECT and yields
+ * `Row` — a `select()`, or a join narrowed to one source with `.pick()`.
+ */
+export interface Branch<Row> {
+  /** The branch's AST. */
+  readonly node: SelectNode | JoinNode;
+  /** Phantom: the row type this branch yields. */
+  readonly __row: Row;
+  /** The model rows are coerced through, when the branch has a single source. */
+  readonly source?: ModelClass;
+  /** Source models by alias, for a join branch. */
+  readonly sources?: Readonly<Record<string, ModelClass>>;
+}
+
+/**
+ * The model a branch's rows should be coerced through.
+ *
+ * @param branch The branch.
+ * @returns Its model, or `undefined` when it has none to offer.
+ */
+function branchSource(branch: Branch<unknown>): ModelClass | undefined {
+  if (branch.source) return branch.source;
+  const pick = (branch.node as JoinNode).pick;
+  return pick ? branch.sources?.[pick] : undefined;
+}
 
 /**
  * Build a set operation over two or more branches.
@@ -89,6 +114,12 @@ function combine<Row>(
     throw new Error(`${op}() combines at least two queries.`);
   }
   const first = branches[0] as Branch<Row>;
+  const source = branchSource(first as Branch<unknown>);
+  if (!source) {
+    throw new Error(
+      `${op}(): the first branch must project a single source — narrow a join with .pick(alias).`,
+    );
+  }
   return new SetBuilder<Row>(
     {
       kind: "set_op",
@@ -98,7 +129,7 @@ function combine<Row>(
       limit: undefined,
       offset: undefined,
     },
-    first.source,
+    source,
   );
 }
 

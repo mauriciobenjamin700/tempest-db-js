@@ -1090,6 +1090,16 @@ export {
 } from "./backup.js";
 
 export {
+  attach as attachCte,
+  Cte,
+  type CteBody,
+  type CteNode,
+  type CteOptions,
+  cte,
+  cteRecursive,
+} from "./cte.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,

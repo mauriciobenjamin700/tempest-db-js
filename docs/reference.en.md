@@ -409,6 +409,8 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `repo.cursorPaginate(filter)` | A cursor page: `{ items, nextCursor }`, no `COUNT(*)`, primary key as tie-break. `InvalidCursor` on a bad cursor. |
 | `select(...).compute({ alias: expr })` | Projects an expression by alias, **without grouping** — where windows live. |
 | `over(fn, { partitionBy, orderBy, frame })` | `rowNumber`/`rank`/`denseRank`/`lag`/`lead`/`firstValue`/`lastValue` and aggregates. |
+| `cte(name, Model, body)` / `cteRecursive(name, Model, self => body)` | `WITH` / `WITH RECURSIVE`; `.model` works wherever a model does. |
+| `join(...).pick(alias)` | Projects **one** join source, flat — what a UNION/CTE branch requires. |
 | `union` / `unionAll` / `intersect` / `except` | Combine SELECTs; branch shapes checked by the types. The builder's `ORDER BY`/`LIMIT` apply to the set. |
 | `exists(sub)` / `notExists(sub)` | Correlated `EXISTS (...)`; `col("table.column")` references the outer query. |
 | `scalar(sub)` | A **one**-column subquery as a value; requires `.asSubquery(col)`. |

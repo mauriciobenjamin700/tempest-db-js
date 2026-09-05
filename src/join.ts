@@ -79,6 +79,17 @@ export interface JoinNode {
   readonly offset: number | undefined;
   /** Per-alias property → column maps, for the sources that rename columns. */
   readonly names?: Readonly<Record<string, NameMap>> | undefined;
+  /**
+   * Project only this source, with **bare** column names instead of the
+   * `alias.column` labels a composite row needs.
+   *
+   * Set by {@link JoinBuilder.pick}. It is what lets a join stand where a plain
+   * `SELECT` of one table would — the recursive branch of a `WITH RECURSIVE`, for
+   * instance, whose columns have to line up with the CTE's.
+   */
+  readonly pick?: string | undefined;
+  /** `WITH` entries this statement carries, in order. */
+  readonly with?: readonly import("./cte.js").CteNode[] | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +209,41 @@ export class JoinBuilder<S extends Sources> {
       this.clause("left", model, alias, on as Record<string, string>),
       model,
     );
+  }
+
+  /**
+   * Project **one** source, flat, instead of the composite row.
+   *
+   * The join still happens — it just stops being what comes back. Needed wherever
+   * the result has to match a single table's shape: the recursive branch of a
+   * CTE, an `INSERT ... SELECT`, a `UNION` branch.
+   *
+   * @param alias The source to project.
+   * @returns A builder whose rows are that source's rows.
+   *
+   * @example
+   * ```ts
+   * join(Category, "c").innerJoin(subtree, "s", { "c.parentId": "s.id" }).pick("c");
+   * // SELECT "c"."id" AS "id", "c"."name" AS "name" ... — not "c.id"
+   * ```
+   */
+  pick<A extends keyof S & string>(
+    alias: A,
+  ): JoinBuilder<S> & { readonly __row: NonNullable<S[A]> } {
+    const model = this.sources[alias];
+    if (!model) {
+      throw new Error(
+        `pick(${JSON.stringify(alias)}): no source is joined under that alias.`,
+      );
+    }
+    return new JoinBuilder<S>(
+      {
+        ...this.node,
+        selections: selectionsFor(alias, model),
+        pick: alias,
+      },
+      this.sources,
+    ) as JoinBuilder<S> & { readonly __row: NonNullable<S[A]> };
   }
 
   /** Filter by `alias.column` references (object form) or an `and`/`or`/`not`. */

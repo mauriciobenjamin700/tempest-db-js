@@ -102,6 +102,7 @@ plugins:
             Expressões no where: Expressions in where
             Operações de conjunto: Set operations
             Funções de janela: Window functions
+            CTE (WITH e WITH RECURSIVE): CTEs (WITH and WITH RECURSIVE)
             "MySQL: o que muda": "MySQL: what changes"
             Exemplos: Examples
             Galeria: Gallery
@@ -188,6 +189,7 @@ nav:
       - Expressões no where: recipes/expressions.md
       - Operações de conjunto: recipes/set-operations.md
       - Funções de janela: recipes/window-functions.md
+      - CTE (WITH e WITH RECURSIVE): recipes/cte.md
       - "MySQL: o que muda": recipes/mysql.md
   - Exemplos:
       - examples/index.md
