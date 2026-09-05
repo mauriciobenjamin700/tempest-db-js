@@ -53,7 +53,7 @@ function fromBase64(value: string): Uint8Array {
 }
 
 /** Encode one native row value to its JSON-safe form, by column kind. */
-function encodeValue(column: Column<unknown>, value: unknown): unknown {
+export function encodeValue(column: Column<unknown>, value: unknown): unknown {
   if (value === null || value === undefined) return null;
   switch (column.type.kind) {
     case "bigint":
@@ -70,7 +70,7 @@ function encodeValue(column: Column<unknown>, value: unknown): unknown {
 }
 
 /** Decode one dict value to its native row form, by column kind. */
-function decodeValue(column: Column<unknown>, value: unknown): unknown {
+export function decodeValue(column: Column<unknown>, value: unknown): unknown {
   if (value === null || value === undefined) return null;
   switch (column.type.kind) {
     case "bigint":

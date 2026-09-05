@@ -85,9 +85,60 @@ async function listProducts(query: { page?: number; size?: number }) {
     Um cliente que já consome um backend Python paginado **não precisa mudar nada** pra
     consumir um backend TS feito com tempest-db-js.
 
+## Paginação por cursor
+
+`paginate` usa `LIMIT/OFFSET` e um `COUNT(*)`. Em tabela grande isso cobra caro (o
+banco varre e descarta o offset) e **desloca a fronteira**: uma linha inserida enquanto
+o usuário lê empurra um registro da página 2 para a 3, e ele aparece duas vezes.
+
+`cursorPaginate` troca acesso aleatório por estabilidade:
+
+```ts
+let cursor: string | null = null;
+do {
+  const page = await orders.cursorPaginate({
+    cursor,
+    limit: 50,
+    orderBy: "createdAt",
+    ascending: false,
+    filters: { status: "open" },
+  });
+  handle(page.items);
+  cursor = page.nextCursor;   // null na última página
+} while (cursor !== null);
+```
+
+| | `paginate` | `cursorPaginate` |
+| --- | --- | --- |
+| Navegação | qualquer página (`page: 7`) | só a próxima |
+| `COUNT(*)` | sim, por página | não |
+| Sob insert concorrente | pode repetir/pular | estável |
+| Metadados | `total`, `pages` | `nextCursor` |
+
+!!! info "A chave primária entra sempre como desempate"
+
+    Ordenar só por `createdAt` com linhas empatadas no mesmo instante faz a fronteira
+    da página cair no meio do empate — e aí uma linha sai da paginação sem nunca ter
+    sido lida. A PK é anexada como segunda chave de ordenação, então o par
+    (`orderBy`, chave) é único e a comparação é total. Chave composta entra inteira.
+
+!!! tip "O cursor é opaco — e validado"
+
+    É base64 do último par de ordenação da página, não um offset disfarçado. Cursor
+    corrompido, de outra versão, ou gerado com **outro `orderBy`**, lança
+    `InvalidCursor` em vez de gerar um `WHERE` silenciosamente errado:
+
+    ```ts
+    await orders.cursorPaginate({ cursor: byCreatedAt.nextCursor, orderBy: "total" });
+    // InvalidCursor: it does not carry "total" — the ordering changed between pages
+    ```
+
+    Não guarde cursor entre deploys que mudem a ordenação padrão da rota.
+
 ## Recap
 
 - `repository.paginate({ page, pageSize, orderBy, ascending, filters })`.
 - `orderBy` é uma coluna tipada do modelo — typo = erro de compilação.
 - Resultado: `{ items, total, page, pageSize, pages }`.
 - Estrutura idêntica ao `BasePaginationSchema<T>` do `tempest-fastapi-sdk`.
+- `cursorPaginate` para tabela grande: sem `COUNT(*)`, fronteira estável, cursor opaco.

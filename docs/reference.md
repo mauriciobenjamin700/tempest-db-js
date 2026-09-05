@@ -394,6 +394,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Os dois drivers SQLite; `.open(path, options?)` abre um handle direto. |
 | `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Mixins de modelo: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
 | `notDeleted()` / `onlyDeleted()` | Fragmentos de `where` para o mixin de soft delete. |
+| `repo.cursorPaginate(filter)` | Página por cursor: `{ items, nextCursor }`, sem `COUNT(*)`, PK como desempate. `InvalidCursor` em cursor inválido. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 

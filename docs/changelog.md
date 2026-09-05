@@ -18,6 +18,18 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`BaseRepository.cursorPaginate`** — paginação por cursor: `{ items, nextCursor }`,
+  sem `COUNT(*)` e com fronteira estável sob insert concorrente, que é o que a
+  paginação por offset não dá em tabela grande. A **chave primária é sempre anexada
+  como desempate** (composta entra inteira), então empate no `orderBy` não faz linha
+  sumir entre páginas. O cursor é opaco e validado: corrompido, de outra versão ou
+  gerado com outro `orderBy` lança `InvalidCursor` em vez de montar um `WHERE` errado.
+  A comparação é escrita na forma expandida (`a > v OR (a = v AND b > w)`), não como
+  row value, porque o suporte a tupla varia entre os bancos (#27).
+- **`encodeColumnValue` / `decodeColumnValue`** — os codecs por coluna que a
+  serialização já usava, agora exportados: é o que permite guardar um valor de coluna
+  fora do banco (num cursor, num cache) e trazê-lo de volta com o tipo certo.
+
 - **Mixins de modelo** — `withTimestamps` (`createdAt`/`updatedAt`), `withSoftDelete`
   (`deletedAt`, mais `notDeleted()`/`onlyDeleted()` para o `where`) e `withAudit`
   (`createdBy`/`updatedBy`, com o tipo do autor configurável por fábrica). São funções

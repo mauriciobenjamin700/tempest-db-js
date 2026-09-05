@@ -19,6 +19,19 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`BaseRepository.cursorPaginate`** — cursor pagination: `{ items, nextCursor }`,
+  with no `COUNT(*)` and a boundary that stays stable under concurrent inserts, which
+  is what offset paging cannot give on a large table. The **primary key is always
+  appended as a tie-break** (a composite key in full), so a tie on `orderBy` cannot
+  make a row fall between pages. The cursor is opaque and validated: corrupted, from
+  another version, or produced under a different `orderBy` throws `InvalidCursor`
+  instead of building the wrong `WHERE`. The comparison is written in expanded form
+  (`a > v OR (a = v AND b > w)`) rather than as a row value, because tuple-comparison
+  support varies across the databases (#27).
+- **`encodeColumnValue` / `decodeColumnValue`** — the per-column codecs serialization
+  already used, now exported: they are what lets a column value be stored outside the
+  database (in a cursor, in a cache) and read back with the right type.
+
 - **Model mixins** — `withTimestamps` (`createdAt`/`updatedAt`), `withSoftDelete`
   (`deletedAt`, plus `notDeleted()`/`onlyDeleted()` for `where`) and `withAudit`
   (`createdBy`/`updatedBy`, actor type configurable through a factory). They are
