@@ -25,6 +25,13 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`engine.explain(fn)`** — captures the plan of **every** statement a block runs, with
+  the parameters the code actually used (the block gets a recording session).
+  `EXPLAIN (FORMAT JSON)` on PostgreSQL, `EXPLAIN QUERY PLAN` on SQLite, plus a readable
+  `summary()` per plan. `analyze: true` **executes** the statement to measure it, so it is
+  refused for writes — analyzing an `UPDATE` would apply it twice — and SQLite throws,
+  since `EXPLAIN ANALYZE` does not exist there (#41).
+
 - **Transactional outbox** — `outboxModel(table)` for the schema and `OutboxRepository`
   for the relay: `publish`, `pending`, `claim`, `markSent`, `markFailed` with backoff and
   permanent give-up. `claim` uses `FOR UPDATE SKIP LOCKED` over a subquery, so two
@@ -170,6 +177,12 @@ project adopts [Semantic Versioning](https://semver.org/).
   PostgreSQL/MySQL engine throws (#28).
 
 ### Fixed
+
+- **Whether a statement returns rows was decided by an incomplete regex.** The
+  `node:sqlite` path picks `all()` or `run()` before executing, and the test only covered
+  `SELECT`/`PRAGMA` — so `EXPLAIN`, `WITH ... SELECT`, `VALUES` and `TABLE` were run as
+  non-returning and reported **zero rows**, silently, instead of failing. better-sqlite3
+  was unaffected (it asks the statement), which left the two drivers disagreeing (#41).
 
 - **`sql.now()` wrote a format on SQLite that this package could not read back.**
   `CURRENT_TIMESTAMP` produces `"YYYY-MM-DD HH:MM:SS"` — no `T`, no milliseconds, no zone

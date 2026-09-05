@@ -1044,6 +1044,14 @@ export {
 } from "./outbox.js";
 
 export {
+  type ExplainOptions,
+  type ExplainReport,
+  isReadOnlyStatement,
+  type QueryPlan,
+  summarizePlan,
+} from "./explain.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,
