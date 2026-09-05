@@ -22,6 +22,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Upsert (ON CONFLICT)](upsert.md) | Inserir resolvendo conflito de chave: `DO NOTHING` ou `DO UPDATE`. |
 | [Active-record (opt-in)](active-record.md) | Métodos `save`/`update`/`delete`/`reload` numa linha, quando você prefere. |
 | [Logging e erros](logging.md) | Ver o SQL que roda (`onQuery`) e erros com o SQL/params que falharam. |
+| [Erros de integridade (409)](integrity-errors.md) | Ler o erro do driver de volta para a constraint que recusou a escrita. |
 | [Escolhendo o driver do SQLite](sqlite-drivers.md) | `node:sqlite` (padrão) ou `better-sqlite3`, pela opção do engine ou pelo sufixo da URL. |
 | [Transações e savepoints](transactions.md) | Operações atômicas com commit/rollback automático e pontos de salvamento. |
 | [Colunas JSON e enum](json-enum.md) | Guardar objetos tipados e uniões literais com segurança de tipos. |

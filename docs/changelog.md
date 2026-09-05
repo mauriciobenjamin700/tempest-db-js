@@ -24,6 +24,16 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`parseIntegrityError`** — lê o erro do driver de volta para a constraint que
+  recusou a escrita: `{ violation, constraint, table, columns, detail }`, ou `null`
+  quando não é violação de integridade. É o que separa `409 EMAIL_TAKEN` de um conflito
+  genérico sem cada serviço escrever a própria regex. Segue a cadeia de `cause` (então o
+  `QueryExecutionError` não atrapalha), entende as **duas** formas de reportar código do
+  SQLite (`node:sqlite` numérico, `better-sqlite3` nomeado) e o SQLSTATE + `DETAIL:` do
+  PostgreSQL — de onde saem **todas** as colunas de uma constraint composta. Passando o
+  modelo, os nomes voltam como propriedade em vez de coluna. MySQL devolve `null`, por
+  escopo (#34).
+
 - **`pool.prePing` e `pool.recycleMs`** — o que faltava para conexão que morre sem
   avisar (failover, restart de pgbouncer, firewall cortando socket ocioso).
   `prePing` valida a conexão com `SELECT 1` **antes de pinar para a transação**, que é
