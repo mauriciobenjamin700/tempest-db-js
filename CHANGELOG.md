@@ -26,6 +26,13 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Operações de conjunto: `union`, `unionAll`, `intersect` e `except`** — combinam dois
+  ou mais SELECTs num builder executável como qualquer outro, com a **forma dos ramos
+  verificada em tempo de compilação** (é o erro que o banco só reporta em runtime).
+  `orderBy`/`limit`/`offset` valem para o conjunto; ramo com ordenação ou limite próprios
+  é **parentetizado**, senão aquelas cláusulas passariam a valer para o combinado — outra
+  query. `INTERSECT`/`EXCEPT` no MySQL lançam, por escopo (#39).
+
 - **`exists` / `notExists` e `scalar`** — `EXISTS (...)` correlacionado, que é a forma
   certa quando só importa a existência (o banco para na primeira linha que casa, o que um
   `IN` sobre conjunto materializado não faz), e subquery escalar como valor. `scalar()`

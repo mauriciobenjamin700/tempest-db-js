@@ -28,6 +28,7 @@ import {
   isSubquery,
 } from "./query.js";
 import { escapeLike } from "./search.js";
+import type { SetNode, SetOperator } from "./setops.js";
 import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
@@ -37,7 +38,13 @@ export interface CompiledQuery {
 }
 
 /** Any compilable AST node. */
-export type QueryNode = SelectNode | InsertNode | UpdateNode | DeleteNode | JoinNode;
+export type QueryNode =
+  | SelectNode
+  | InsertNode
+  | UpdateNode
+  | DeleteNode
+  | JoinNode
+  | SetNode;
 
 const OPERATOR_SET: ReadonlySet<string> = new Set(OPERATORS);
 
@@ -211,8 +218,67 @@ export abstract class BaseDialect {
       case "join_select":
         sql = this.compileJoin(node, params);
         break;
+      case "set_op":
+        sql = this.compileSetOp(node, params);
+        break;
     }
     return { sql, params: params.values };
+  }
+
+  /**
+   * The SQL keyword for a set operation.
+   *
+   * @param op The operator.
+   * @returns The keyword.
+   * @throws Error On a dialect that does not implement it.
+   */
+  protected setOperator(op: SetOperator): string {
+    switch (op) {
+      case "union":
+        return "UNION";
+      case "unionAll":
+        return "UNION ALL";
+      case "intersect":
+        return "INTERSECT";
+      case "except":
+        return "EXCEPT";
+    }
+  }
+
+  /**
+   * Compile a set operation.
+   *
+   * A branch carrying its own `ORDER BY`/`LIMIT` is parenthesized: without the
+   * parentheses those clauses bind to the **combined** result, which is a
+   * different query and a classic source of silently wrong output.
+   *
+   * @param node The set-operation node.
+   * @param params The parameter collector.
+   * @returns The rendered statement.
+   */
+  protected compileSetOp(node: SetNode, params: Params): string {
+    const keyword = ` ${this.setOperator(node.op)} `;
+    const branches = node.branches.map((branch) => {
+      const sql = this.compileSelect(branch, params);
+      const scoped = branch.orderBy.length > 0 || branch.limit !== undefined;
+      return scoped ? `(${sql})` : sql;
+    });
+    let sql = branches.join(keyword);
+    if (node.orderBy.length > 0) {
+      const terms = node.orderBy
+        .map((t) => {
+          const id =
+            typeof t.column === "string"
+              ? this.quoteId(t.column)
+              : this.renderExpr(t.column, params, (k) => this.quoteId(k));
+          return `${id} ${t.direction === "desc" ? "DESC" : "ASC"}`;
+        })
+        .join(", ");
+      sql += ` ORDER BY ${terms}`;
+    }
+    if (node.limit !== undefined) sql += ` LIMIT ${params.bind(node.limit)}`;
+    if (node.offset !== undefined) sql += ` OFFSET ${params.bind(node.offset)}`;
+    return sql;
   }
 
   /**
@@ -1166,6 +1232,20 @@ export class MysqlDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  /**
+   * MySQL only gained `INTERSECT`/`EXCEPT` in 8.0.31, and this project does not
+   * invest in MySQL beyond what already works — so they are refused here rather
+   * than emitted against a server that may reject them.
+   */
+  protected override setOperator(op: SetOperator): string {
+    if (op === "intersect" || op === "except") {
+      throw new Error(
+        `MySQL support for ${op.toUpperCase()} is out of scope for tempest-db-js; express it with a join or NOT EXISTS.`,
+      );
+    }
+    return super.setOperator(op);
   }
 
   /**
