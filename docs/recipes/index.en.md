@@ -32,6 +32,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Column names](naming.md) | A `snake_case` schema behind a `camelCase` model, with no false drift. |
 | [PostgreSQL array columns](arrays.md) | Typed `text[]`/`integer[]`, with `@>`, `<@` and `&&`. |
 | [Case-insensitive comparison](case-insensitive.md) | `ieq` for case-insensitive login — and the `ilike` trap. |
+| [Text search](text-search.md) | Escaped, portable `contains`; `fullText`/`fullTextRank` with stemming on PostgreSQL. |
 | [Raw SQL at runtime](raw-sql.md) | `session.raw` for the query the builder cannot yet express. |
 | [Expressions in `where`](expressions.md) | Column vs column and SQL functions, to match a functional index. |
 | [MySQL: what changes](mysql.md) | `RETURNING` via read-back, and what MySQL cannot do. |

@@ -25,6 +25,17 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Text search: `contains`, the `iContains` operator, `escapeLike`, `fullText` and
+  `fullTextRank`** — the portable layer tokenizes the term and **escapes** every token,
+  always emitting the `ESCAPE` clause (PostgreSQL assumes `\\` by default, **SQLite has
+  no escape character at all** until one is declared). Before this, the `like`/`ilike`
+  operand went through raw: searching for `100%` matched the whole table. The PostgreSQL
+  layer uses `to_tsvector`/`websearch_to_tsquery`/`ts_rank` and, elsewhere, **compiles as
+  `contains`** — the right rows without stemming, a documented degradation rather than
+  an error. `escapeLike` existed only in `ilike`'s docstring; now it exists (#35).
+- **`orderBy` accepts an expression** as well as a column name — without it there is no
+  way to order by relevance (#35).
+
 - **`parseIntegrityError`** — reads the driver's error back into the constraint that
   refused the write: `{ violation, constraint, table, columns, detail }`, or `null` when
   it is not an integrity violation. It is what separates `409 EMAIL_TAKEN` from a

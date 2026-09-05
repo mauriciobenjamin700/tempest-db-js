@@ -22,6 +22,7 @@ import {
   type SelectNode,
   isSubquery,
 } from "./query.js";
+import { escapeLike } from "./search.js";
 import type { Dialect } from "./url.js";
 
 /** A compiled, parameterized statement ready to hand to a driver. */
@@ -128,6 +129,21 @@ export abstract class BaseDialect {
 
   /** Render a case-insensitive LIKE for the active dialect. */
   protected abstract ilike(column: string, param: string): string;
+
+  /**
+   * Render a case-insensitive LIKE whose pattern carries escaped wildcards.
+   *
+   * The `ESCAPE` clause is not decoration: PostgreSQL treats `\` as the escape
+   * character by default, **SQLite has none at all** until one is declared, so
+   * without this the escaping done on our side would be meaningless there.
+   *
+   * @param column The rendered column.
+   * @param param The bound pattern.
+   * @returns The rendered comparison.
+   */
+  protected ilikeEscaped(column: string, param: string): string {
+    return `${this.ilike(column, param)} ESCAPE '\\'`;
+  }
 
   /**
    * Validate a subquery operand before it is rendered, for dialects that restrict
@@ -356,9 +372,12 @@ export abstract class BaseDialect {
     if (node.orderBy.length > 0) {
       const terms = node.orderBy
         .map((t) => {
-          const id = aggByAlias.has(t.column)
-            ? this.quoteId(t.column)
-            : this.columnId(t.column, names);
+          const id =
+            typeof t.column !== "string"
+              ? this.renderExpr(t.column, params, (k) => this.columnId(k, names))
+              : aggByAlias.has(t.column)
+                ? this.quoteId(t.column)
+                : this.columnId(t.column, names);
           return `${id} ${t.direction === "desc" ? "DESC" : "ASC"}`;
         })
         .join(", ");
@@ -615,7 +634,7 @@ export abstract class BaseDialect {
    * key to a quoted identifier — `quoteId` for single-table, `qualify` for joins —
    * so select/update/delete/join all share this one compiler.
    */
-  private compileCondition(
+  protected compileCondition(
     node: CondNode | undefined,
     params: Params,
     idFor: (key: string) => string,
@@ -652,6 +671,8 @@ export abstract class BaseDialect {
         const inner = this.compileCondition(node.part, params, idFor);
         return inner ? `NOT (${inner})` : "";
       }
+      case "fullText":
+        return this.compileFullText(node, params, idFor);
       case "compare": {
         const left = this.renderExpr(node.left, params, idFor);
         if (node.right.kind === "value") {
@@ -664,6 +685,27 @@ export abstract class BaseDialect {
         );
       }
     }
+  }
+
+  /**
+   * Compile a full-text condition.
+   *
+   * PostgreSQL gets the real thing (`@@ websearch_to_tsquery`); the dialects with
+   * no text-search engine override this and compile the node's prebuilt substring
+   * fallback instead, so the query still returns the right rows.
+   *
+   * @param node The full-text condition node.
+   * @param params The parameter collector.
+   * @param idFor Column-name resolver.
+   * @returns The rendered condition.
+   */
+  protected compileFullText(
+    node: Extract<CondNode, { kind: "fullText" }>,
+    params: Params,
+    idFor: (key: string) => string,
+  ): string {
+    const config = params.bind(node.language);
+    return `${this.tsVector(node.columns, config, idFor)} @@ websearch_to_tsquery(${config}::regconfig, ${params.bind(node.term)})`;
   }
 
   /**
@@ -729,7 +771,54 @@ export abstract class BaseDialect {
       }
       case "cast":
         return `CAST(${this.renderExpr(node.operand, params, idFor)} AS ${this.castTypeName(node.to)})`;
+      case "rank":
+        return this.renderRank(node.columns, node.term, node.language, params, idFor);
     }
+  }
+
+  /**
+   * Render a full-text relevance score.
+   *
+   * PostgreSQL has `ts_rank`; the others have nothing equivalent, and they
+   * override this to a constant so that ordering by it is a no-op rather than a
+   * compile error — the fallback keeps returning the right rows, only unranked.
+   *
+   * @param columns The columns making up the document.
+   * @param term The search term.
+   * @param language The text-search configuration.
+   * @param params The parameter collector.
+   * @param idFor Column-name resolver.
+   * @returns The rendered score expression.
+   */
+  protected renderRank(
+    columns: readonly string[],
+    term: string,
+    language: string,
+    params: Params,
+    idFor: (key: string) => string,
+  ): string {
+    const config = params.bind(language);
+    return `ts_rank(${this.tsVector(columns, config, idFor)}, websearch_to_tsquery(${config}::regconfig, ${params.bind(term)}))`;
+  }
+
+  /**
+   * Build the `to_tsvector(...)` document out of the searched columns.
+   *
+   * `coalesce(col, '')` matters: in SQL a `NULL` anywhere in a concatenation makes
+   * the whole document `NULL`, so one empty column would silently exclude the row.
+   *
+   * @param columns The columns making up the document.
+   * @param config The already-bound placeholder for the text-search config.
+   * @param idFor Column-name resolver.
+   * @returns The rendered `to_tsvector(...)` call.
+   */
+  protected tsVector(
+    columns: readonly string[],
+    config: string,
+    idFor: (key: string) => string,
+  ): string {
+    const document = columns.map((c) => `coalesce(${idFor(c)}, '')`).join(" || ' ' || ");
+    return `to_tsvector(${config}::regconfig, ${document})`;
   }
 
   /**
@@ -806,6 +895,10 @@ export abstract class BaseDialect {
         return this.ilike(left, right);
       case "ieq":
         return `lower(${left}) = lower(${right})`;
+      case "iContains":
+        throw new Error(
+          'The "iContains" operator matches a literal, so it takes a value, not an expression.',
+        );
       case "contains":
       case "containedBy":
       case "overlaps":
@@ -844,6 +937,8 @@ export abstract class BaseDialect {
         return operand === null
           ? `${id} IS NULL`
           : `lower(${id}) = lower(${params.bind(operand)})`;
+      case "iContains":
+        return this.ilikeEscaped(id, params.bind(`%${escapeLike(String(operand))}%`));
       case "contains":
         return `${id} ${this.arrayOperator("contains")} ${params.bind(operand)}`;
       case "containedBy":
@@ -904,6 +999,23 @@ export abstract class BaseDialect {
 /** SQLite dialect: `?` placeholders; `ILIKE` falls back to `LIKE` (ASCII-insensitive). */
 export class SqliteDialect extends BaseDialect {
   readonly name = "sqlite" as const;
+
+  /**
+   * SQLite has no text-search engine, so the prebuilt substring fallback is
+   * compiled instead. The rows are right; the ranking is what is missing.
+   */
+  protected override compileFullText(
+    node: Extract<CondNode, { kind: "fullText" }>,
+    params: Params,
+    idFor: (key: string) => string,
+  ): string {
+    return this.compileCondition(node.fallback, params, idFor);
+  }
+
+  /** No text-search engine means no score: a constant, so ordering by it is inert. */
+  protected override renderRank(): string {
+    return "0";
+  }
 
   /**
    * SQLite has five storage classes, so most targets collapse onto `TEXT` or
@@ -1007,6 +1119,24 @@ export class MysqlDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  /**
+   * MySQL's full-text search needs a `FULLTEXT` index and different syntax, and it
+   * is outside this project's active scope — the substring fallback is compiled,
+   * like on SQLite.
+   */
+  protected override compileFullText(
+    node: Extract<CondNode, { kind: "fullText" }>,
+    params: Params,
+    idFor: (key: string) => string,
+  ): string {
+    return this.compileCondition(node.fallback, params, idFor);
+  }
+
+  /** No `ts_rank` equivalent in scope: a constant, so ordering by it is inert. */
+  protected override renderRank(): string {
+    return "0";
   }
 
   /**

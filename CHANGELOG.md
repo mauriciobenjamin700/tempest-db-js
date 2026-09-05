@@ -26,6 +26,17 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Busca de texto: `contains`, o operador `iContains`, `escapeLike`, `fullText` e
+  `fullTextRank`** — a camada portátil tokeniza o termo e **escapa** cada token, com a
+  cláusula `ESCAPE` emitida sempre (o PostgreSQL assume `\\` por padrão, o **SQLite não
+  tem escape nenhum** até declarar um). Antes, o operando de `like`/`ilike` ia cru: quem
+  buscava `100%` casava com a tabela inteira. A camada do PostgreSQL usa
+  `to_tsvector`/`websearch_to_tsquery`/`ts_rank` e, fora dele, **compila como
+  `contains`** — as linhas certas, sem stemming, degradação documentada em vez de erro.
+  `escapeLike` existia só na docstring do `ilike`; agora existe de verdade (#35).
+- **`orderBy` aceita expressão** além de nome de coluna — sem isso não há como ordenar
+  por relevância (#35).
+
 - **`parseIntegrityError`** — lê o erro do driver de volta para a constraint que
   recusou a escrita: `{ violation, constraint, table, columns, detail }`, ou `null`
   quando não é violação de integridade. É o que separa `409 EMAIL_TAKEN` de um conflito

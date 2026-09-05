@@ -402,6 +402,9 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `caseWhen(branches, else?)` / `cast(expr, type)` | `CASE WHEN ... END` and `CAST(x AS type)`; the type is portable and mapped per dialect. |
 | `sum/avg/min/max(column \| expression)` | Aggregation over an expression — what makes `SUM(CASE WHEN ...)` possible. |
 | `parseIntegrityError(error, Model?)` | Driver error → `{ violation, constraint, table, columns, detail }`, or `null`. |
+| `contains(cols, term, opts?)` / `{ iContains }` | Case-insensitive **escaped** substring, portable. |
+| `fullText(cols, term, opts?)` / `fullTextRank(...)` | Full text on PostgreSQL; falls back to `contains` elsewhere. |
+| `escapeLike(value)` | Escapes `%`, `_` and `\\` for use with raw `like`/`ilike`. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 

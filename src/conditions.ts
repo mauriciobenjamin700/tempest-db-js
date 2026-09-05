@@ -35,7 +35,13 @@ export type ExprNode =
       }[];
       readonly fallback: ExprNode | null;
     }
-  | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType };
+  | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType }
+  | {
+      readonly kind: "rank";
+      readonly columns: readonly string[];
+      readonly term: string;
+      readonly language: string;
+    };
 
 /**
  * A target type for {@link cast}.
@@ -70,6 +76,17 @@ export type CondNode =
       readonly left: ExprNode;
       readonly op: Operator;
       readonly right: ExprNode;
+    }
+  | {
+      readonly kind: "fullText";
+      readonly columns: readonly string[];
+      readonly term: string;
+      readonly language: string;
+      /**
+       * The substring condition to compile where there is no text-search engine.
+       * Built once, here, so the dialects do not each reimplement the fallback.
+       */
+      readonly fallback: CondNode;
     };
 
 const CONDITION = Symbol.for("tempest-db-js.condition");
@@ -232,6 +249,29 @@ export class Expression {
   isNull(value = true): Condition {
     return this.compare("isNull", value);
   }
+}
+
+/**
+ * Wrap a raw condition node as a {@link Condition}.
+ *
+ * The escape hatch for the helpers that build a node kind of their own (full-text
+ * search), so they do not have to re-export the brand.
+ *
+ * @param node The node to wrap.
+ * @returns The branded condition.
+ */
+export function conditionFromNode(node: CondNode): Condition {
+  return wrap(node);
+}
+
+/**
+ * Wrap a raw expression node as an {@link Expression}.
+ *
+ * @param node The node to wrap.
+ * @returns The expression.
+ */
+export function expressionFromNode(node: ExprNode): Expression {
+  return new Expression(node);
 }
 
 /**

@@ -401,6 +401,9 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `caseWhen(branches, else?)` / `cast(expr, tipo)` | `CASE WHEN ... END` e `CAST(x AS tipo)`; o tipo é portátil e mapeado por dialeto. |
 | `sum/avg/min/max(coluna \| expressão)` | Agregação sobre expressão — é o que dá `SUM(CASE WHEN ...)`. |
 | `parseIntegrityError(error, Model?)` | Erro do driver → `{ violation, constraint, table, columns, detail }`, ou `null`. |
+| `contains(cols, termo, opts?)` / `{ iContains }` | Substring case-insensitive **escapada**, portátil. |
+| `fullText(cols, termo, opts?)` / `fullTextRank(...)` | Full-text no PostgreSQL; cai para `contains` nos demais. |
+| `escapeLike(valor)` | Escapa `%`, `_` e `\\` para usar com `like`/`ilike` crus. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 

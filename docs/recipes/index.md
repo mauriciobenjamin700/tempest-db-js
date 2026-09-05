@@ -32,6 +32,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Nomes de coluna](naming.md) | Schema em `snake_case` com modelo em `camelCase`, sem drift falso. |
 | [Colunas array do PostgreSQL](arrays.md) | `text[]`/`integer[]` tipados, com `@>`, `<@` e `&&`. |
 | [Comparação case-insensitive](case-insensitive.md) | `ieq` para login sem diferenciar caixa — e a armadilha do `ilike`. |
+| [Busca de texto](text-search.md) | `contains` escapado e portátil; `fullText`/`fullTextRank` com stemming no PostgreSQL. |
 | [SQL cru em runtime](raw-sql.md) | `session.raw` para a query que o builder ainda não expressa. |
 | [Expressões no `where`](expressions.md) | Coluna vs coluna e funções SQL, para casar índice funcional. |
 | [MySQL: o que muda](mysql.md) | `RETURNING` por read-back e o que o MySQL não faz. |

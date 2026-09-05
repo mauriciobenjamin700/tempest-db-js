@@ -34,7 +34,8 @@ export type SortDirection = "asc" | "desc";
 
 /** One ORDER BY term. */
 export interface OrderTerm {
-  readonly column: string;
+  /** The column to sort by, or an expression (a full-text rank, for instance). */
+  readonly column: string | ExprNode;
   readonly direction: SortDirection;
 }
 
@@ -175,6 +176,15 @@ interface StringOperators<T> extends BaseOperators<T> {
    * and the one that matches a `lower(col)` functional index.
    */
   ieq?: T;
+  /**
+   * Case-insensitive **substring** match of a literal — the safe operator for a
+   * search box.
+   *
+   * The operand is text the user typed, not a pattern: `%` and `_` in it are
+   * escaped, so searching for `100%` matches `100%` instead of every row. It
+   * compiles to `ILIKE '%…%' ESCAPE '\\'` (`LIKE` where there is no `ILIKE`).
+   */
+  iContains?: string;
 }
 
 /** Extra operators for array columns (PostgreSQL). */
@@ -230,6 +240,7 @@ export const OPERATORS = [
   "like",
   "ilike",
   "ieq",
+  "iContains",
   "in",
   "notIn",
   "between",
@@ -400,11 +411,14 @@ export class SelectBuilder<Full, Proj = Full, Grouped extends boolean = false> {
    * @returns A builder carrying the ordering term.
    */
   orderBy(
-    column: (keyof Full & string) | (keyof Proj & string),
+    column: (keyof Full & string) | (keyof Proj & string) | Expression,
     direction: SortDirection = "asc",
   ): SelectBuilder<Full, Proj, Grouped> {
     return this.with({
-      orderBy: [...this.node.orderBy, { column, direction }],
+      orderBy: [
+        ...this.node.orderBy,
+        { column: typeof column === "string" ? column : column.node, direction },
+      ],
     });
   }
 
