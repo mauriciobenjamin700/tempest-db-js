@@ -132,6 +132,76 @@ e `update`/`delete`/`reload` filtram pela chave inteira.
 Chave de uma coluna continua aceitando o valor cru (`getById(7)`) **e** o objeto
 (`getById({ id: 7 })`).
 
+## Os métodos além do CRUD
+
+| Método | Para quê |
+| --- | --- |
+| `existsExcluding(filtros, chave)` | unicidade **num update**: "outro registro já usa este e-mail?" |
+| `bulkUpsert(linhas, { conflictColumns, update? })` | `ON CONFLICT` em lote, um statement |
+| `softDelete(chave)` / `restore(chave)` | par do mixin `withSoftDelete` |
+| `deleteBatch(chaves)` | `DELETE ... WHERE id IN (...)`, devolvendo a contagem |
+| `changesSince({ since, cursor, limit })` | sync incremental (delta) para cliente offline |
+
+### `existsExcluding`
+
+```ts
+if (await users.existsExcluding({ email }, userId)) {
+  throw new EmailTaken();
+}
+```
+
+`exists({ email })` acharia **a própria linha** sendo editada e reportaria conflito
+falso.
+
+### `bulkUpsert`
+
+```ts
+await settings.bulkUpsert(rows, { conflictColumns: ["key"] });
+```
+
+Numa gravação de N linhas o valor novo não pode ser literal — cada linha tem o seu. Por
+isso o `SET` referencia a linha que está entrando: `sql.excluded("col")`, que vira
+`excluded."col"` no PostgreSQL e no SQLite e `VALUES(col)` no MySQL. `update:` restringe
+quais colunas são sobrescritas.
+
+### `softDelete` / `restore`
+
+Exigem a coluna `deletedAt` (do `withSoftDelete`). Sem ela, **lançam** nomeando o mixin —
+em vez de gerar SQL contra coluna inexistente.
+
+### `changesSince` — sync incremental
+
+```ts
+let cursor: string | null = null;
+let since = clientWatermark;             // null na primeira sincronização
+do {
+  const page = await items.changesSince({ since, cursor, limit: 200 });
+  apply(page.items);
+  cursor = page.nextCursor;
+  if (cursor === null) clientWatermark = page.serverTime;   // (1)!
+} while (cursor !== null);
+```
+
+1. Guarde o **`serverTime`**, não o maior `updatedAt` que você viu.
+
+!!! danger "A marca d'água é o `serverTime`, não o maior `updatedAt`"
+
+    `serverTime` é lido **antes** da query rodar. Uma linha commitada enquanto a página
+    era montada carrega timestamp posterior, então aparece no próximo pull. Usar o maior
+    `updatedAt` recebido deixaria essa linha cair no vão entre as duas sincronizações —
+    e sumir para sempre.
+
+!!! info "Linha apagada volta como tombstone"
+
+    Com o mixin de soft delete, a linha apagada **é retornada** com `deletedAt`
+    preenchido. É assim que o cliente sabe apagar a cópia local; filtrar a exclusão
+    deixaria a linha órfã no dispositivo para sempre.
+
+!!! warning "`changesSince` precisa de índice"
+
+    A query filtra e ordena por `updatedAt`. Sem índice nessa coluna, cada pull é um
+    full scan.
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — CRUD + paginação tipados.

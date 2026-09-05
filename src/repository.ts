@@ -10,6 +10,7 @@
 import type { AsyncSession } from "./engine.js";
 import {
   type Column,
+  type Condition,
   type InferInsert,
   type InferModel,
   type ModelClass,
@@ -20,10 +21,12 @@ import {
   del,
   encodeColumnValue,
   insert,
+  not,
   or,
   primaryKeyFilter,
   primaryKeysOf,
   select,
+  sql,
   update,
 } from "./index.js";
 import { type RepositorySignal, emitSignal, hasHandlers } from "./signals.js";
@@ -169,6 +172,45 @@ function afterCursor<Row>(
     ) as unknown as WhereInput<Row>;
   };
   return build(0);
+}
+
+/** Request for {@link BaseRepository.changesSince}. */
+export interface ChangesSinceFilter<Row> {
+  /**
+   * The client's high-water mark. Rows changed **strictly after** it are
+   * returned; `null` (or absent) asks for everything, which is the first sync.
+   */
+  readonly since?: Date | null;
+  /** Cursor from the previous page of this same pull. */
+  readonly cursor?: string | null;
+  /** Maximum rows per page (default 50). */
+  readonly limit?: number;
+  /** Domain filters, applied to every page. */
+  readonly filters?: WhereInput<Row>;
+}
+
+/** One page of changes, plus the watermark to persist for the next pull. */
+export interface ChangesPage<Row> extends CursorPage<Row> {
+  /**
+   * The server's clock, read **before** the query ran.
+   *
+   * This is what a client persists as its next `since` — not the newest
+   * `updatedAt` it saw. A row committed while this page was being built carries
+   * a later timestamp, so it surfaces on the following pull instead of falling
+   * into the gap between the two.
+   */
+  readonly serverTime: Date;
+}
+
+/** Options for {@link BaseRepository.bulkUpsert}. */
+export interface BulkUpsertOptions<Row> {
+  /** The columns forming the conflict target (a unique constraint or index). */
+  readonly conflictColumns: readonly (keyof Row & string)[];
+  /**
+   * Which columns to overwrite on conflict. Omitted, every column present in the
+   * incoming rows except the conflict target is written.
+   */
+  readonly update?: readonly (keyof Row & string)[];
 }
 
 /** Raised by single-record lookups (`getById`) when nothing matches (404). */
@@ -449,5 +491,177 @@ export class BaseRepository<C extends ModelClass> {
           ? encodeCursor(columns, keys, last as Record<string, unknown>)
           : null,
     };
+  }
+
+  /**
+   * Whether any **other** row matches `filters`.
+   *
+   * The uniqueness check for an update: "is this e-mail taken by somebody else?"
+   * A plain `exists` would find the row being edited and report a false conflict.
+   *
+   * @param filters What to look for.
+   * @param key The primary key to exclude — the row being updated.
+   * @returns True when a different row matches.
+   */
+  async existsExcluding(
+    filters: WhereInput<InferModel<C>>,
+    key: unknown,
+  ): Promise<boolean> {
+    const excluded = primaryKeyFilter(this.model, key) as WhereInput<InferModel<C>>;
+    const condition = and<InferModel<C>>(filters, not<InferModel<C>>(excluded));
+    return (await this.first(condition as unknown as WhereInput<InferModel<C>>)) !== null;
+  }
+
+  /**
+   * The rows that changed since a high-water mark — the delta-sync read.
+   *
+   * Rows come back oldest change first, tie-broken by primary key, so a client
+   * can advance its watermark monotonically and resume mid-stream with the
+   * cursor. The filter is **strict** (`updatedAt > since`).
+   *
+   * Soft-deleted rows are included on purpose: they are the tombstones that tell
+   * the client to delete its local copy. Filtering them out would strand deleted
+   * rows on the device forever.
+   *
+   * @param filter The watermark, cursor, page size and domain filters.
+   * @returns The page, plus the `serverTime` to persist as the next watermark.
+   * @throws Error When the model has no `updatedAt` column (see `withTimestamps`).
+   */
+  async changesSince(
+    filter: ChangesSinceFilter<InferModel<C>> = {},
+  ): Promise<ChangesPage<InferModel<C>>> {
+    this.requireColumn("updatedAt", "changesSince");
+    const serverTime = new Date();
+    const clauses: WhereInput<InferModel<C>>[] = [];
+    if (filter.filters) clauses.push(filter.filters);
+    if (filter.since) {
+      clauses.push({
+        updatedAt: { gt: filter.since },
+      } as unknown as WhereInput<InferModel<C>>);
+    }
+    const page = await this.cursorPaginate({
+      cursor: filter.cursor ?? null,
+      limit: filter.limit ?? 50,
+      orderBy: "updatedAt" as keyof InferModel<C> & string,
+      ascending: true,
+      ...(clauses.length === 0
+        ? {}
+        : {
+            filters:
+              clauses.length === 1
+                ? (clauses[0] as WhereInput<InferModel<C>>)
+                : (and<InferModel<C>>(...clauses) as unknown as WhereInput<
+                    InferModel<C>
+                  >),
+          }),
+    });
+    return { ...page, serverTime };
+  }
+
+  /**
+   * Insert many rows, overwriting the ones that conflict — one statement.
+   *
+   * @param rows The rows to write.
+   * @param options The conflict target, and optionally which columns to overwrite.
+   * @returns The stored rows.
+   * @throws Error When no conflict column is given.
+   */
+  async bulkUpsert(
+    rows: readonly InferInsert<C>[],
+    options: BulkUpsertOptions<InferModel<C>>,
+  ): Promise<InferModel<C>[]> {
+    if (rows.length === 0) return [];
+    if (options.conflictColumns.length === 0) {
+      throw new Error("bulkUpsert needs at least one conflict column.");
+    }
+    const target = new Set<string>(options.conflictColumns as readonly string[]);
+    const columns =
+      options.update ??
+      ([
+        ...new Set(rows.flatMap((row) => Object.keys(row as Record<string, unknown>))),
+      ].filter((name) => !target.has(name)) as (keyof InferModel<C> & string)[]);
+    const patch: Record<string, unknown> = {};
+    for (const name of columns) patch[name] = sql.excluded(name);
+    return this.session
+      .execute(
+        insert(this.model)
+          .values(rows)
+          .onConflictDoUpdate(options.conflictColumns, patch as Partial<InferModel<C>>)
+          .returning(),
+      )
+      .all();
+  }
+
+  /**
+   * Mark a row deleted without removing it (`deletedAt = now()`).
+   *
+   * @param key The primary key.
+   * @returns The updated row.
+   * @throws Error When the model has no `deletedAt` column (see `withSoftDelete`).
+   * @throws RecordNotFound When no row carries that key.
+   */
+  async softDelete(key: unknown): Promise<InferModel<C>> {
+    this.requireColumn("deletedAt", "softDelete");
+    const filter = primaryKeyFilter(this.model, key) as WhereInput<InferModel<C>>;
+    const affected = await this.update(filter, {
+      deletedAt: sql.now(),
+    } as unknown as Partial<InferModel<C>>);
+    if (affected === 0) throw new RecordNotFound(this.model.tablename, filter);
+    return this.getById(key);
+  }
+
+  /**
+   * Bring a soft-deleted row back (`deletedAt = null`).
+   *
+   * @param key The primary key.
+   * @returns The updated row.
+   * @throws Error When the model has no `deletedAt` column.
+   * @throws RecordNotFound When no row carries that key.
+   */
+  async restore(key: unknown): Promise<InferModel<C>> {
+    this.requireColumn("deletedAt", "restore");
+    const filter = primaryKeyFilter(this.model, key) as WhereInput<InferModel<C>>;
+    const affected = await this.update(filter, {
+      deletedAt: null,
+    } as unknown as Partial<InferModel<C>>);
+    if (affected === 0) throw new RecordNotFound(this.model.tablename, filter);
+    return this.getById(key);
+  }
+
+  /**
+   * Delete many rows by primary key, in one statement.
+   *
+   * @param keys The primary keys.
+   * @returns The number of rows actually deleted (keys that matched nothing are
+   *   not an error — deleting what is already gone is the desired end state).
+   * @throws Error When the model has a composite primary key: `IN` over a tuple is
+   *   not portable, and the caller should loop or build the condition explicitly.
+   */
+  async deleteBatch(keys: readonly unknown[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    if (this.pks.length > 1) {
+      throw new Error(
+        `${this.model.tablename} has a composite primary key (${this.pks.join(", ")}); deleteBatch takes single-column keys only.`,
+      );
+    }
+    const pk = this.pks[0] as string;
+    const values = keys.map(
+      (key) => (primaryKeyFilter(this.model, key) as Record<string, unknown>)[pk],
+    );
+    return this.delete({ [pk]: { in: values } } as WhereInput<InferModel<C>>);
+  }
+
+  /**
+   * Fail loudly when a method needs a column the model does not declare.
+   *
+   * @param column The property name required.
+   * @param method The method asking, for the message.
+   * @throws Error When the column is absent.
+   */
+  private requireColumn(column: string, method: string): void {
+    if (column in columnsOf(this.model)) return;
+    throw new Error(
+      `${this.model.tablename} has no "${column}" column, which ${method}() requires — add it with the matching mixin.`,
+    );
   }
 }

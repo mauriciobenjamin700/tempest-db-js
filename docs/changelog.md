@@ -24,6 +24,18 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`BaseRepository`: `existsExcluding`, `bulkUpsert`, `softDelete`/`restore`,
+  `deleteBatch` e `changesSince`** — as operações que todo serviço reescrevia por cima
+  do builder. `changesSince` é o read de delta sync: filtro **estrito** por `updatedAt`,
+  ordem do mais antigo, desempate pela PK, e um `serverTime` lido **antes** da query como
+  marca d'água (usar o maior `updatedAt` recebido deixaria a linha commitada durante a
+  página cair no vão entre dois pulls). Linha soft-deletada volta como tombstone, que é o
+  que faz o cliente apagar a cópia local. `softDelete`/`restore`/`changesSince` lançam
+  nomeando o mixin quando o modelo não tem a coluna (#37).
+- **`sql.excluded(coluna)`** — referencia a linha que está entrando num upsert
+  (`excluded."col"` no PostgreSQL/SQLite, `VALUES(col)` no MySQL). Sem isso, um upsert de
+  N linhas não tem como escrever o valor novo, porque cada linha tem o seu (#37).
+
 - **Signals do repositório** — `preSave`, `postSave`, `preDelete` e `postDelete` em
   volta de `create`/`createMany`/`update`/`delete`, por linha. Handler que lança num
   `pre*` **veta** a escrita; o payload traz a **mesma session**, então handler que
@@ -124,6 +136,15 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   (#28).
 
 ### Corrigido
+
+- **`sql.now()` no SQLite gravava num formato que o próprio pacote não lê.**
+  `CURRENT_TIMESTAMP` produz `"YYYY-MM-DD HH:MM:SS"` — sem `T`, sem milissegundo, sem
+  fuso —, e o JS parseia isso como horário **local**: uma linha escrita às 21:00Z era
+  lida como 00:00Z numa máquina UTC-3. Pior, comparar a coluna contra um `Date` ligado
+  (ISO) comparava `" "` com `"T"` e não casava nada, em silêncio. Agora o SQLite
+  renderiza `strftime('%Y-%m-%dT%H:%M:%fZ','now')`, exatamente o formato que o pacote
+  liga e lê. Afeta o default do DDL e o valor de `onUpdate`; base já gravada com o
+  formato antigo precisa de um `UPDATE` de conversão (#37).
 
 - **`Column.onUpdate()` passou a ser aplicado.** O valor era guardado na coluna e
   **nunca consumido** — nem no DDL, nem no builder —, então `.onUpdate(sql.now())`

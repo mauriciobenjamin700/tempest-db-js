@@ -11,7 +11,7 @@
 
 import type { CastType, CondNode, ExprNode } from "./conditions.js";
 import type { TransactionOptions } from "./engine.js";
-import { renderPortableToken } from "./expressions.js";
+import { renderExcluded, renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
 import type { JoinNode } from "./join.js";
 import type { DeleteNode, InsertNode, UpdateNode } from "./mutations.js";
@@ -259,6 +259,9 @@ export abstract class BaseDialect {
     const token = expr.expression;
     if (typeof token === "string") return renderPortableToken(token, this.name);
     if ("raw" in token) return token.raw;
+    if ("excluded" in token) {
+      return renderExcluded(this.quoteId(token.excluded), token.excluded, this.name);
+    }
     const parts = token.parts;
     let sql = parts[0] ?? "";
     for (let i = 1; i < parts.length; i++) {

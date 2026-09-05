@@ -25,6 +25,18 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`BaseRepository`: `existsExcluding`, `bulkUpsert`, `softDelete`/`restore`,
+  `deleteBatch` and `changesSince`** — the operations every service rewrote on top of the
+  builder. `changesSince` is the delta-sync read: a **strict** `updatedAt` filter, oldest
+  first, tie-broken by primary key, and a `serverTime` read **before** the query as the
+  watermark (using the newest `updatedAt` received would let a row committed mid-page
+  fall into the gap between two pulls). A soft-deleted row comes back as a tombstone,
+  which is what makes the client drop its local copy. `softDelete`/`restore`/`changesSince`
+  throw naming the mixin when the model lacks the column (#37).
+- **`sql.excluded(column)`** — references the incoming row of an upsert
+  (`excluded."col"` on PostgreSQL/SQLite, `VALUES(col)` on MySQL). Without it an N-row
+  upsert has no way to write the new value, since each row has its own (#37).
+
 - **Repository signals** — `preSave`, `postSave`, `preDelete` and `postDelete` around
   `create`/`createMany`/`update`/`delete`, per row. A handler that throws on a `pre*`
   **vetoes** the write; the payload carries the **same session**, so a handler that
@@ -131,6 +143,15 @@ project adopts [Semantic Versioning](https://semver.org/).
   PostgreSQL/MySQL engine throws (#28).
 
 ### Fixed
+
+- **`sql.now()` wrote a format on SQLite that this package could not read back.**
+  `CURRENT_TIMESTAMP` produces `"YYYY-MM-DD HH:MM:SS"` — no `T`, no milliseconds, no zone
+  — and JS parses that as **local** time: a row written at 21:00Z read back as 00:00Z on
+  a UTC-3 machine. Worse, comparing the column against a bound `Date` (ISO) compared
+  `" "` against `"T"` and silently matched nothing. SQLite now renders
+  `strftime('%Y-%m-%dT%H:%M:%fZ','now')`, exactly the format this package binds and
+  parses. It affects the DDL default and the `onUpdate` value; a database already written
+  with the old format needs a conversion `UPDATE` (#37).
 
 - **`Column.onUpdate()` is now applied.** The value was stored on the column and
   **never consumed** — not by the DDL, not by the builder — so `.onUpdate(sql.now())`

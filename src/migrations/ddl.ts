@@ -169,7 +169,10 @@ export function renderDefault(
         "sql.expr`...` binds parameters and cannot be rendered as a DEFAULT — use sql.raw().",
       );
     }
-    return renderPortableToken(expr, dialect);
+    const rendered = renderPortableToken(expr, dialect);
+    // SQLite only accepts a function call in a DEFAULT clause when it is
+    // parenthesized; a bare keyword like CURRENT_TIMESTAMP must not be.
+    return dialect === "sqlite" && rendered.includes("(") ? `(${rendered})` : rendered;
   }
   const value = def.value;
   if (value === null) return "NULL";
