@@ -405,6 +405,8 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `contains(cols, term, opts?)` / `{ iContains }` | Case-insensitive **escaped** substring, portable. |
 | `fullText(cols, term, opts?)` / `fullTextRank(...)` | Full text on PostgreSQL; falls back to `contains` elsewhere. |
 | `escapeLike(value)` | Escapes `%`, `_` and `\\` for use with raw `like`/`ilike`. |
+| `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` on the repository path; a throwing `pre*` vetoes. |
+| `hasHandlers` / `clearSignals` | Whether anything listens (the repository skips the extra SELECT otherwise); test cleanup. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 

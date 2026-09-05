@@ -25,6 +25,14 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Repository signals** — `preSave`, `postSave`, `preDelete` and `postDelete` around
+  `create`/`createMany`/`update`/`delete`, per row. A handler that throws on a `pre*`
+  **vetoes** the write; the payload carries the **same session**, so a handler that
+  writes commits (or rolls back) with the write it observed. `update`/`delete` take a
+  filter rather than a row, so the extra read that hands the row to a handler only
+  happens when one is registered (`hasHandlers`) — no usage, no cost. `clearSignals` for
+  tests (#36).
+
 - **Text search: `contains`, the `iContains` operator, `escapeLike`, `fullText` and
   `fullTextRank`** — the portable layer tokenizes the term and **escapes** every token,
   always emitting the `ESCAPE` clause (PostgreSQL assumes `\\` by default, **SQLite has

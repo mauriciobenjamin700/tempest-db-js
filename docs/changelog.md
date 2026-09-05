@@ -24,6 +24,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Signals do repositório** — `preSave`, `postSave`, `preDelete` e `postDelete` em
+  volta de `create`/`createMany`/`update`/`delete`, por linha. Handler que lança num
+  `pre*` **veta** a escrita; o payload traz a **mesma session**, então handler que
+  escreve comita (ou faz rollback) junto com a escrita observada. `update`/`delete`
+  recebem filtro, não linha, então a leitura extra que entrega a linha ao handler só
+  acontece quando existe handler (`hasHandlers`) — sem uso, custo zero. `clearSignals`
+  para teste (#36).
+
 - **Busca de texto: `contains`, o operador `iContains`, `escapeLike`, `fullText` e
   `fullTextRank`** — a camada portátil tokeniza o termo e **escapa** cada token, com a
   cláusula `ESCAPE` emitida sempre (o PostgreSQL assume `\\` por padrão, o **SQLite não

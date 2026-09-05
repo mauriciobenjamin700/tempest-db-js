@@ -26,6 +26,7 @@ import {
   select,
   update,
 } from "./index.js";
+import { type RepositorySignal, emitSignal, hasHandlers } from "./signals.js";
 
 /** Pagination request — 1-indexed page. */
 export interface PaginationFilter<Row> {
@@ -248,30 +249,112 @@ export class BaseRepository<C extends ModelClass> {
     return (await this.session.execute(query).all()).length;
   }
 
-  /** Insert one row, returning the created row. */
+  /**
+   * Insert one row, returning the created row.
+   *
+   * Fires `preSave` (which can veto by throwing) and then `postSave`.
+   *
+   * @param data The row to insert.
+   * @returns The stored row.
+   */
   async create(data: InferInsert<C>): Promise<InferModel<C>> {
-    return this.session.execute(insert(this.model).values(data).returning()).one();
+    await this.fire("preSave", data as unknown as InferModel<C>, true);
+    const row = await this.session
+      .execute(insert(this.model).values(data).returning())
+      .one();
+    await this.fire("postSave", row, true);
+    return row;
   }
 
-  /** Insert many rows, returning the created rows. */
+  /**
+   * Insert many rows, returning the created rows.
+   *
+   * Signals fire per row, so a handler sees one row at a time whether it was
+   * inserted alone or in a batch.
+   *
+   * @param data The rows to insert.
+   * @returns The stored rows.
+   */
   async createMany(data: readonly InferInsert<C>[]): Promise<InferModel<C>[]> {
     if (data.length === 0) return [];
-    return this.session.execute(insert(this.model).values(data).returning()).all();
+    for (const row of data) {
+      await this.fire("preSave", row as unknown as InferModel<C>, true);
+    }
+    const rows = await this.session
+      .execute(insert(this.model).values(data).returning())
+      .all();
+    for (const row of rows) await this.fire("postSave", row, true);
+    return rows;
   }
 
-  /** Update rows matching `filters`; returns the number of rows affected. */
+  /**
+   * Update rows matching `filters`; returns the number of rows affected.
+   *
+   * With a `preSave`/`postSave` handler registered, the matching rows are read
+   * first so the handler can see them — that extra `SELECT` is skipped entirely
+   * when nothing is listening.
+   *
+   * @param filters Which rows to update.
+   * @param set The columns to change.
+   * @returns The number of rows affected.
+   */
   async update(
     filters: WhereInput<InferModel<C>>,
     set: Partial<InferModel<C>>,
   ): Promise<number> {
-    return this.session
+    const listening =
+      hasHandlers(this.model, "preSave") || hasHandlers(this.model, "postSave");
+    const before = listening ? await this.list(filters) : [];
+    for (const row of before) await this.fire("preSave", { ...row, ...set }, false);
+    const affected = await this.session
       .execute(update(this.model).set(set).where(filters))
       .rowsAffected();
+    if (hasHandlers(this.model, "postSave")) {
+      for (const row of await this.list(filters)) await this.fire("postSave", row, false);
+    }
+    return affected;
   }
 
-  /** Delete rows matching `filters`; returns the number of rows affected. */
+  /**
+   * Delete rows matching `filters`; returns the number of rows affected.
+   *
+   * `preDelete` and `postDelete` receive the row as it was **before** the delete —
+   * the only chance to see it. Reading it costs a `SELECT`, which is skipped when
+   * no handler is registered.
+   *
+   * @param filters Which rows to delete.
+   * @returns The number of rows affected.
+   */
   async delete(filters: WhereInput<InferModel<C>>): Promise<number> {
-    return this.session.execute(del(this.model).where(filters)).rowsAffected();
+    const listening =
+      hasHandlers(this.model, "preDelete") || hasHandlers(this.model, "postDelete");
+    const doomed = listening ? await this.list(filters) : [];
+    for (const row of doomed) await this.fire("preDelete", row, false);
+    const affected = await this.session
+      .execute(del(this.model).where(filters))
+      .rowsAffected();
+    for (const row of doomed) await this.fire("postDelete", row, false);
+    return affected;
+  }
+
+  /**
+   * Fire one signal for one row on this repository's model and session.
+   *
+   * @param signal Which signal.
+   * @param row The row it is about.
+   * @param isInsert Whether the write was an insert.
+   */
+  private async fire(
+    signal: RepositorySignal,
+    row: InferModel<C>,
+    isInsert: boolean,
+  ): Promise<void> {
+    await emitSignal(signal, {
+      row,
+      model: this.model,
+      session: this.session,
+      isInsert,
+    });
   }
 
   /**

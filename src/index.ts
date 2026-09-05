@@ -997,6 +997,16 @@ export {
 } from "./search.js";
 
 export {
+  clearSignals,
+  emitSignal,
+  hasHandlers,
+  onSignal,
+  type RepositorySignal,
+  type SignalHandler,
+  type SignalPayload,
+} from "./signals.js";
+
+export {
   BaseRepository,
   type CursorPage,
   type CursorPaginationFilter,
