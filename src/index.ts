@@ -980,6 +980,12 @@ export {
 } from "./mixins.js";
 
 export {
+  type IntegrityFailure,
+  type IntegrityViolation,
+  parseIntegrityError,
+} from "./integrity.js";
+
+export {
   BaseRepository,
   type CursorPage,
   type CursorPaginationFilter,

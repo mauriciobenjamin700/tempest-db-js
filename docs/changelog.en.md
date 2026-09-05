@@ -25,6 +25,16 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`parseIntegrityError`** — reads the driver's error back into the constraint that
+  refused the write: `{ violation, constraint, table, columns, detail }`, or `null` when
+  it is not an integrity violation. It is what separates `409 EMAIL_TAKEN` from a
+  generic conflict without every service writing its own regex. It follows the `cause`
+  chain (so `QueryExecutionError` is no obstacle), understands **both** ways SQLite
+  reports a code (`node:sqlite` numeric, `better-sqlite3` named) and PostgreSQL's
+  SQLSTATE plus `DETAIL:` line — where **all** the columns of a composite constraint
+  come from. Pass the model and the names come back as properties instead of columns.
+  MySQL returns `null`, by scope (#34).
+
 - **`pool.prePing` and `pool.recycleMs`** — what was missing for a connection that dies
   without saying so (a failover, a pgbouncer restart, a firewall dropping an idle
   socket). `prePing` validates the connection with `SELECT 1` **before pinning it for a
