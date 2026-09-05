@@ -3,6 +3,29 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+> Work cycle over issues #24–#51. The npm publish happens **once**, at the end of the
+> cycle — every delivery lands here until then.
+
+### ⚠️ Breaking
+
+- **SQLite now enforces `FOREIGN KEY`.** Enforcement used to be off (SQLite's own
+  per-connection default), so an orphan `INSERT` was accepted and `ON DELETE CASCADE`
+  never fired. The engine now turns it on when any SQLite connection opens, on both
+  drivers. A database that already holds an orphan row will start rejecting writes that
+  touch it — which is the point. Escape hatch:
+  `{ sqlite: { foreignKeys: false } }` (#24).
+
+### Added
+
+- **`EngineOptions.sqlite`** — per-connection pragmas applied at open time:
+  `foreignKeys` (defaults to `true`), `journalMode`, `busyTimeoutMs`, `synchronous`.
+  Each one is **read back after it is written**, because SQLite answers a pragma it
+  cannot honor by keeping the old value and saying nothing: `journalMode: "wal"` on a
+  `:memory:` database now throws instead of pretending. Passing `sqlite` to a
+  PostgreSQL/MySQL engine throws (#28).
+
 ## [0.8.0] — 2026-09-05
 
 `better-sqlite3` stopped being a promise: `EngineOptions.driver` and the

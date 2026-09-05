@@ -80,6 +80,61 @@ using reader = createSyncEngine("sqlite:///app.db", {
 1. Opção do `better-sqlite3`. No `node:sqlite` a mesma ideia se escreve
    `{ readOnly: true }` — nomes diferentes, porque é a API do driver, não a nossa.
 
+## Pragmas de conexão
+
+Pragma do SQLite é **por conexão**, não por arquivo — então ele mora no engine, não
+numa migração. Só um tem default que muda comportamento:
+
+```ts
+using engine = createSyncEngine("sqlite:///app.db", {
+  sqlite: {
+    foreignKeys: true,      // (1)!
+    journalMode: "wal",     // (2)!
+    busyTimeoutMs: 5000,    // (3)!
+    synchronous: "normal",  // (4)!
+  },
+});
+```
+
+1. **Default `true`.** Ligado por nós, não pelo SQLite.
+2. Leitores param de bloquear o escritor. Precisa de arquivo real.
+3. Quanto tempo um escritor espera por um lock antes de desistir.
+4. Durabilidade × throughput de escrita.
+
+!!! danger "Sem `foreign_keys = ON`, sua FK é decorativa"
+
+    O SQLite nasce com a verificação de foreign key **desligada**, por conexão. Sem
+    ligar, um `INSERT` órfão passa e `ON DELETE CASCADE` nunca dispara — a constraint
+    está no schema e não faz nada.
+
+    O tempest-db-js liga por padrão, para o mesmo modelo se comportar igual nos três
+    bancos. Desligue (`foreignKeys: false`) só para o caso que existe para isso:
+    carregar um dump cuja ordem de inserção não respeita o grafo.
+
+!!! info "Pragma recusado é erro, não silêncio"
+
+    O SQLite responde a um pragma que não pode honrar mantendo o valor antigo e **não
+    dizendo nada**. Cada pragma é relido depois de escrito, e a divergência vira erro:
+
+    ```ts
+    createSyncEngine("sqlite://:memory:", { sqlite: { journalMode: "wal" } });
+    // Error: SQLite refused PRAGMA journal_mode = wal for ":memory:" and stayed on
+    //        "memory" — an in-memory database cannot use WAL.
+    ```
+
+    Banco em memória não faz WAL. Melhor saber na abertura do que descobrir quando a
+    latência não melhorou.
+
+!!! warning "Migração que reconstrói tabela religa a FK"
+
+    O SQLite não sabe alterar constraint, então o motor de migração reconstrói a
+    tabela (`CREATE new / copy / DROP old`), desligando a verificação de FK em volta da
+    cópia e **religando** no fim. Com `foreignKeys: false`, uma migração dessas deixa a
+    verificação ligada.
+
+`sqlite` num engine PostgreSQL ou MySQL lança — pragma não existe lá, e ignorar em
+silêncio é como uma escolha de durabilidade se perde.
+
 ## Nome errado é erro, não silêncio
 
 Um driver que este pacote não tem falha na criação do engine:
