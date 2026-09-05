@@ -20,13 +20,20 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
-import { backupDatabase, restoreDatabase } from "./backup.js";
-import type { CliConfig } from "./migrations/cli.js";
-import { runMigrationCli } from "./migrations/cli.js";
-import { diffSchema } from "./migrations/diff.js";
-import { reflectSchema } from "./migrations/ir.js";
-import { type RenameCandidate, detectRenames } from "./migrations/renames.js";
-import { replaySchema } from "./migrations/replay.js";
+// Everything comes from the package root on purpose: the CLI must share the very
+// same `Column` class and caches as the models a user's config module imports,
+// and a second bundled copy would reflect every model as having no columns.
+import {
+  type CliConfig,
+  type RenameCandidate,
+  backupDatabase,
+  detectRenames,
+  diffSchema,
+  reflectSchema,
+  replaySchema,
+  restoreDatabase,
+  runMigrationCli,
+} from "./index.js";
 
 /** Config file names looked up in the current directory, in order. */
 const DEFAULT_CONFIG_NAMES: readonly string[] = [

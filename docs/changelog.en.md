@@ -3,6 +3,23 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] — 2026-09-05
+
+A packaging fix found while validating the published 0.9.0 artifact.
+
+### Fixed
+
+- **Each entry point shipped its own copy of the core**, and the consequence was silent:
+  `tempest-db-js/migrations` and the `tempest-db` binary each carried **their own**
+  `Column`, so a model built through the main entry reflected as having **no columns at
+  all** — `instanceof Column` compared two different classes. In practice `reflectTable`
+  returned `{}`, the `CREATE TABLE` came out with only the constraints, and
+  `tempest-db check` saw nothing. The core is now bundled **once**, at the root, and the
+  other entries load it by the package's own name (a self-reference through `exports`),
+  with a packaging test asserting on the **built** files — the defect is invisible in the
+  source tree, which is a single module graph (surfaced by #48, but it affected the whole
+  migration workflow for as long as the subpath has existed).
+
 ## [0.9.0] — 2026-09-05
 
 The #24–#51 cycle: 28 deliveries built on the analysis comparing this package against

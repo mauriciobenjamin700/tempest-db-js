@@ -1337,6 +1337,13 @@ export {
   cteRecursive,
 } from "./cte.js";
 
+// The migration API is re-exported from the root so the package has **one**
+// bundled copy of the core. The `tempest-db-js/migrations` subpath is a thin
+// re-export of this, not a second bundle: two bundles would each carry their own
+// `Column` class and caches, and a model built by one would reflect as having no
+// columns in the other.
+export * from "./migrations/index.js";
+
 export { aliasOf, aliased } from "./aliased.js";
 
 export { type FlushResult, type Tracked, UnitOfWork } from "./unit-of-work.js";
