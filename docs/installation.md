@@ -49,6 +49,12 @@ não puxa nenhum banco junto.
     então você já consegue executar queries SQLite reais sem nenhum pacote extra.
     `better-sqlite3` é uma alternativa opcional; PostgreSQL precisa do `postgres`.
 
+!!! tip "Trocar de driver SQLite"
+
+    Instalou o `better-sqlite3`? Ligue com `{ driver: "better-sqlite3" }` ou com a
+    URL `sqlite+better-sqlite3:///app.db`. Detalhes em
+    [Escolhendo o driver do SQLite](recipes/sqlite-drivers.md).
+
 ## Configuração do TypeScript
 
 O tempest-db-js assume um `tsconfig.json` em modo **strict**. O mínimo recomendado:

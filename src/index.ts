@@ -916,6 +916,7 @@ export {
   AsyncResult,
   AsyncSession,
   type AsyncDriver,
+  BetterSqliteDriver,
   createEngine,
   createSyncEngine,
   type DriverResult,

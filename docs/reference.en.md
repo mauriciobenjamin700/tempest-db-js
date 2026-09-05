@@ -391,6 +391,8 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
 | `createEngine(url, { onNotice })` | Server-side notices (PG `NOTICE`); **without it, nothing is printed**. |
 | `createEngine(url, { driverOptions })` | Passed straight to the driver, applied last (wins over `pool`/`onNotice`). |
+| `createEngine(url, { driver })` | Picks the SQLite driver: `"node:sqlite"` (default) or `"better-sqlite3"`. An unknown name throws. |
+| `NodeSqliteDriver` / `BetterSqliteDriver` | Both SQLite drivers; `.open(path, options?)` opens a handle directly. |
 
 `Result` terminals (async ones return a `Promise`):
 

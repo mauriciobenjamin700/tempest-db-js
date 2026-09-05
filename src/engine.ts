@@ -19,7 +19,7 @@ import type { JoinBuilder, JoinNode } from "./join.js";
 import type { InsertBuilder, InsertNode, UpdateBuilder } from "./mutations.js";
 import { type SelectBuilder, select } from "./query.js";
 import { coerceRow } from "./serialize.js";
-import { type Dialect, parseDatabaseUrl } from "./url.js";
+import { type Dialect, type ParsedDatabaseUrl, parseDatabaseUrl } from "./url.js";
 
 /** A synchronous `require`, usable from both ESM and CJS builds. */
 const nodeRequire = createRequire(import.meta.url);
@@ -133,6 +133,98 @@ export class NodeSqliteDriver implements SyncDriver {
     const stmt = this.prepare(sql);
     const bound = params.map(encodeSqliteParam);
     if (returnsRows(sql)) {
+      return { rows: stmt.all(...bound) as Record<string, unknown>[], changes: 0 };
+    }
+    const info = stmt.run(...bound);
+    return { rows: [], changes: Number(info.changes ?? 0) };
+  }
+
+  *iterate(
+    sql: string,
+    params: readonly unknown[],
+  ): IterableIterator<Record<string, unknown>> {
+    const stmt = this.prepare(sql);
+    const bound = params.map(encodeSqliteParam);
+    yield* stmt.iterate(...bound) as IterableIterator<Record<string, unknown>>;
+  }
+
+  close(): void {
+    this.statements.clear();
+    this.db.close();
+  }
+}
+
+/**
+ * SQLite driver backed by the `better-sqlite3` peer dependency.
+ *
+ * Selected with `{ driver: "better-sqlite3" }` or the URL suffix
+ * `sqlite+better-sqlite3://…`; the built-in `node:sqlite` stays the default, so
+ * nothing has to be installed to use SQLite. Pick this one when the service
+ * already runs on better-sqlite3, or needs what it exposes and `node:sqlite`
+ * does not — `pragma()`, loadable extensions, its own WAL helpers.
+ *
+ * Row shape matches {@link NodeSqliteDriver}: plain objects, BLOBs as `Buffer`
+ * (a `Uint8Array` subclass), which is what `coerceRow` already expects.
+ */
+export class BetterSqliteDriver implements SyncDriver {
+  // biome-ignore lint/suspicious/noExplicitAny: the peer dep's types are optional here.
+  private readonly db: any;
+  /** Prepared-statement cache keyed by SQL text — see {@link NodeSqliteDriver}. */
+  // biome-ignore lint/suspicious/noExplicitAny: see above.
+  private readonly statements = new Map<string, any>();
+
+  // biome-ignore lint/suspicious/noExplicitAny: accept an already-open Database handle.
+  constructor(database: any) {
+    this.db = database;
+  }
+
+  /**
+   * Open a `better-sqlite3` database at the given path (or `":memory:"`).
+   *
+   * @param path The database file, or `":memory:"`.
+   * @param options Passed straight to `new Database()` (`readonly`, `timeout`, …).
+   * @returns A driver over the open handle.
+   * @throws If `better-sqlite3` is not installed — it is an optional peer
+   *   dependency, so the error names the package to install.
+   */
+  static open(
+    path: string,
+    options?: Readonly<Record<string, unknown>>,
+  ): BetterSqliteDriver {
+    let Database: new (path: string, options?: Record<string, unknown>) => unknown;
+    try {
+      const mod = nodeRequire("better-sqlite3") as
+        | { default?: typeof Database }
+        | typeof Database;
+      Database = ((mod as { default?: typeof Database }).default ??
+        mod) as typeof Database;
+    } catch (cause) {
+      throw new Error(
+        'The "better-sqlite3" driver requires the better-sqlite3 package: npm install better-sqlite3',
+        { cause },
+      );
+    }
+    return new BetterSqliteDriver(
+      options ? new Database(path, { ...options }) : new Database(path),
+    );
+  }
+
+  /** Return the cached prepared statement for `sql`, preparing it on first use. */
+  // biome-ignore lint/suspicious/noExplicitAny: statement type is optional here.
+  private prepare(sql: string): any {
+    const cached = this.statements.get(sql);
+    if (cached) return cached;
+    const stmt = this.db.prepare(sql);
+    this.statements.set(sql, stmt);
+    return stmt;
+  }
+
+  execute(sql: string, params: readonly unknown[]): DriverResult {
+    const stmt = this.prepare(sql);
+    const bound = params.map(encodeSqliteParam);
+    // better-sqlite3 throws when all()/run() is called on the wrong statement
+    // kind, and it already knows which is which — ask it instead of guessing.
+    if (stmt.reader) {
       return { rows: stmt.all(...bound) as Record<string, unknown>[], changes: 0 };
     }
     const info = stmt.run(...bound);
@@ -769,7 +861,22 @@ export type NoticeLogger = (notice: Record<string, unknown>) => void;
 
 /** Options shared by both engine flavors. */
 export interface EngineOptions {
-  /** Override the driver detected from the URL (e.g. `"better-sqlite3"`). */
+  /**
+   * Override the driver detected from the URL.
+   *
+   * SQLite ships two: `"node:sqlite"` (the built-in, default — nothing to
+   * install) and `"better-sqlite3"` (the optional peer dependency). PostgreSQL
+   * runs on `"postgres"` (postgres.js) and MySQL on `"mysql2"`; naming those is
+   * a no-op today, kept so the option means the same thing everywhere.
+   *
+   * A name this dialect does not have throws — passing `{ driver: "sqlite3" }`
+   * is a decision that would otherwise be silently ignored.
+   *
+   * The `+suffix` in the URL (`sqlite+better-sqlite3:///app.db`) selects the same
+   * way, with one difference: a suffix naming a driver from another ecosystem
+   * (`sqlite+aiosqlite`, `postgresql+asyncpg`) is ignored rather than rejected,
+   * so a URL copied from a Python service still connects.
+   */
   readonly driver?: string;
   /** Connection-pool tuning (PostgreSQL only). */
   readonly pool?: PoolOptions;
@@ -909,9 +1016,85 @@ function asAsync(driver: SyncDriver): AsyncDriver {
   };
 }
 
+/** The SQLite drivers this package can open. */
+type SqliteDriverName = "node:sqlite" | "better-sqlite3";
+
+/** Accepted spellings of each SQLite driver, lowercased. */
+const SQLITE_DRIVER_ALIASES: Readonly<Record<string, SqliteDriverName>> = {
+  "node:sqlite": "node:sqlite",
+  "node-sqlite": "node:sqlite",
+  node: "node:sqlite",
+  "better-sqlite3": "better-sqlite3",
+  better_sqlite3: "better-sqlite3",
+  bettersqlite3: "better-sqlite3",
+};
+
+/** Accepted spellings of the one driver each server dialect runs on. */
+const SERVER_DRIVER_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  postgresql: ["postgres", "postgres.js", "postgresjs", "pg"],
+  mysql: ["mysql", "mysql2"],
+};
+
+/**
+ * Validate an explicit `options.driver` against a server dialect.
+ *
+ * PostgreSQL and MySQL each have exactly one driver here, so the option can only
+ * confirm it. Confirming is allowed; naming something else is the error the
+ * silent no-op used to hide.
+ *
+ * @param dialect The dialect parsed from the URL.
+ * @param driver The explicit override, if any.
+ * @throws If `driver` is not a spelling of that dialect's driver.
+ */
+function checkServerDriver(dialect: Dialect, driver: string | undefined): void {
+  if (!driver) return;
+  const accepted = SERVER_DRIVER_ALIASES[dialect] ?? [];
+  if (accepted.includes(driver.toLowerCase())) return;
+  throw new Error(
+    `Unknown ${dialect} driver ${JSON.stringify(driver)}; tempest-db-js runs ${dialect} on ${JSON.stringify(accepted[0])}.`,
+  );
+}
+
+/**
+ * Decide which SQLite driver to open: the explicit option first, then the URL
+ * suffix, then the built-in.
+ *
+ * @param parsed The parsed URL, for its `+suffix`.
+ * @param options Engine options, for an explicit `driver`.
+ * @returns The driver to open.
+ * @throws If `options.driver` names a driver this package does not ship. An
+ *   unrecognized URL suffix does not throw — `sqlite+aiosqlite:///app.db` comes
+ *   from a Python service and means "SQLite", so it falls through to the default.
+ */
+function resolveSqliteDriver(
+  parsed: ParsedDatabaseUrl,
+  options?: EngineOptions,
+): SqliteDriverName {
+  const explicit = options?.driver;
+  if (explicit) {
+    const resolved = SQLITE_DRIVER_ALIASES[explicit.toLowerCase()];
+    if (!resolved) {
+      throw new Error(
+        `Unknown SQLite driver ${JSON.stringify(explicit)}; supported: "node:sqlite" (built-in, default) and "better-sqlite3".`,
+      );
+    }
+    return resolved;
+  }
+  const fromUrl = parsed.driver
+    ? SQLITE_DRIVER_ALIASES[parsed.driver.toLowerCase()]
+    : undefined;
+  return fromUrl ?? "node:sqlite";
+}
+
 /** Open a SQLite sync driver from a parsed URL, passing driver options through. */
-function openSqliteDriver(path: string, options?: EngineOptions): SyncDriver {
-  return NodeSqliteDriver.open(path, options?.driverOptions);
+function openSqliteDriver(
+  parsed: ParsedDatabaseUrl,
+  options?: EngineOptions,
+): SyncDriver {
+  const path = parsed.database ?? ":memory:";
+  return resolveSqliteDriver(parsed, options) === "better-sqlite3"
+    ? BetterSqliteDriver.open(path, options?.driverOptions)
+    : NodeSqliteDriver.open(path, options?.driverOptions);
 }
 
 /**
@@ -930,10 +1113,7 @@ export function createSyncEngine(url: string, options?: EngineOptions): SyncEngi
       `createSyncEngine supports only SQLite; ${parsed.dialect} is async-only — use createEngine.`,
     );
   }
-  return new SyncEngine(
-    openSqliteDriver(parsed.database ?? ":memory:", options),
-    options?.onQuery,
-  );
+  return new SyncEngine(openSqliteDriver(parsed, options), options?.onQuery);
 }
 
 /**
@@ -950,12 +1130,13 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
   const parsed = parseDatabaseUrl(url);
   if (parsed.dialect === "sqlite") {
     return new AsyncEngine(
-      asAsync(openSqliteDriver(parsed.database ?? ":memory:", options)),
+      asAsync(openSqliteDriver(parsed, options)),
       "sqlite",
       options?.onQuery,
     );
   }
   if (parsed.dialect === "mysql") {
+    checkServerDriver("mysql", options?.driver);
     // MySQL: mysql2 is lazy-loaded the first time a query runs.
     return new AsyncEngine(
       createMysqlDriver(parsed.raw, options),
@@ -963,6 +1144,7 @@ export function createEngine(url: string, options?: EngineOptions): AsyncEngine 
       options?.onQuery,
     );
   }
+  checkServerDriver("postgresql", options?.driver);
   // PostgreSQL: postgres.js is lazy-loaded the first time a query runs.
   return new AsyncEngine(
     createPostgresDriver(parsed.raw, options),

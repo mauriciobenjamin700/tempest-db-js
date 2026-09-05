@@ -3,6 +3,45 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-09-05
+
+`better-sqlite3` stopped being a promise: `EngineOptions.driver` and the
+`sqlite+better-sqlite3` suffix now really select a driver.
+
+### Added
+
+- **`BetterSqliteDriver`** — a SQLite driver over the optional `better-sqlite3`
+  peer dependency, exported from the public index, with the same prepared-statement
+  cache as `NodeSqliteDriver`. Rows, coercion (`bigint`, `Date`, `boolean`, JSON),
+  `RETURNING` and `stream()` are identical across both — swapping drivers does not
+  change consumer code. The package is loaded **lazily**, like `postgres` and
+  `mysql2`, and a missing install throws an error naming the `npm install`.
+- **Real driver selection** — `{ driver: "better-sqlite3" }` and
+  `sqlite+better-sqlite3:///app.db` open better-sqlite3; the option wins over the
+  suffix when both appear. `node:sqlite` stays the default, with nothing to
+  install. New recipe: *Choosing the SQLite driver*.
+
+### ⚠️ Breaking
+
+- **`EngineOptions.driver` now throws on an unknown name.** The field used to be
+  silently ignored for any value, on any dialect — passing
+  `{ driver: "better-sqlite3" }` ran on `node:sqlite` with no warning. Now
+  `"sqlite3"` on SQLite, `"asyncpg"` on PostgreSQL and `"mysql3"` on MySQL fail
+  when the engine is created. It is a runtime break only for code that was already
+  being ignored, which is exactly the trap issue #22 recorded.
+- The **URL suffix** stays forgiving on purpose: `sqlite+aiosqlite`,
+  `postgresql+asyncpg` and friends are ignored, not rejected, so a URL copied from
+  a Python service keeps connecting.
+
+### Fixed
+
+- **`EngineOptions.driver`, the `+better-sqlite3` suffix and the optional peer
+  dependency were documented and ignored** (#22). `openSqliteDriver` never read
+  `options.driver` or `parsed.driver`, and no line in `src/` ever loaded
+  `better-sqlite3`. Anyone choosing the driver — for WAL, `pragma()`, a loadable
+  extension, or because the rest of the service already used it — silently ran on
+  another one.
+
 ## [0.7.0] — 2026-08-30
 
 Two fixes from the same real consumer (`zap-api`): the noise `InferInsert` forced
