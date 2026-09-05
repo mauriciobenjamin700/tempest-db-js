@@ -569,6 +569,53 @@ function assertRawParams(params: readonly unknown[]): void {
   }
 }
 
+/**
+ * A transaction isolation level, in the SQL standard's names.
+ *
+ * The database's default is what you get without asking: `read committed` on
+ * PostgreSQL and MySQL's `repeatable read`. SQLite has only `serializable`.
+ */
+export type IsolationLevel =
+  | "read uncommitted"
+  | "read committed"
+  | "repeatable read"
+  | "serializable";
+
+/** Characteristics for one transaction block. */
+export interface TransactionOptions {
+  /**
+   * The isolation level for this block.
+   *
+   * Raising it is how the queue and outbox patterns get their invariants: under
+   * `read committed` two workers can both pass the same check before either
+   * commits. Asking for a level a dialect does not implement throws.
+   */
+  readonly isolation?: IsolationLevel;
+  /**
+   * Open the block read-only, so the database itself rejects a write in it.
+   * PostgreSQL and MySQL only; SQLite throws.
+   */
+  readonly readOnly?: boolean;
+}
+
+/**
+ * Refuse transaction characteristics on a block that is only joining an outer one.
+ *
+ * Isolation is fixed when the transaction opens; asking for it on a nested block
+ * cannot take effect, and silently ignoring the request would leave the caller
+ * believing they got a guarantee they do not have.
+ *
+ * @param options The options passed to the nested call.
+ * @throws Error When any characteristic was requested.
+ */
+function assertNoNestedOptions(options?: TransactionOptions): void {
+  if (options?.isolation || options?.readOnly) {
+    throw new Error(
+      "Transaction characteristics can only be set on the outermost transaction() — a nested block joins the one already open.",
+    );
+  }
+}
+
 /** A synchronous unit of work (SQLite). */
 export class SyncSession {
   constructor(
@@ -690,8 +737,9 @@ export class SyncSession {
    * @param fn The body; receives the session to work through.
    * @returns Whatever `fn` returned.
    */
-  transaction<T>(fn: (tx: SyncSession) => T): T {
+  transaction<T>(fn: (tx: SyncSession) => T, options?: TransactionOptions): T {
     if (this.depth > 0) {
+      assertNoNestedOptions(options);
       this.depth += 1;
       try {
         return fn(this);
@@ -699,7 +747,7 @@ export class SyncSession {
         this.depth -= 1;
       }
     }
-    this.exec("BEGIN", []);
+    for (const stmt of this.dialect.beginStatements(options)) this.exec(stmt, []);
     this.depth = 1;
     try {
       const out = fn(this);
@@ -1006,8 +1054,12 @@ export class AsyncSession {
    *   pooled driver).
    * @returns Whatever `fn` returned.
    */
-  async transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    fn: (tx: AsyncSession) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T> {
     if (this.depth > 0) {
+      assertNoNestedOptions(options);
       this.depth += 1;
       try {
         return await fn(this);
@@ -1015,11 +1067,12 @@ export class AsyncSession {
         this.depth -= 1;
       }
     }
+    const begin = this.dialect.beginStatements(options);
     if (this.driver.reserve) {
       const reserved = await this.driver.reserve();
       const scoped = new AsyncSession(reserved, this.dialect, this.hooks);
       try {
-        await scoped.exec("BEGIN", []);
+        for (const stmt of begin) await scoped.exec(stmt, []);
         scoped.depth = 1;
         const out = await fn(scoped);
         await scoped.exec("COMMIT", []);
@@ -1032,7 +1085,7 @@ export class AsyncSession {
         await reserved.release();
       }
     }
-    await this.exec("BEGIN", []);
+    for (const stmt of begin) await this.exec(stmt, []);
     this.depth = 1;
     try {
       const out = await fn(this);
@@ -1271,8 +1324,8 @@ export class SyncEngine {
     return new SyncSession(this.driver, getDialect("sqlite"), this.hooks);
   }
 
-  transaction<T>(fn: (tx: SyncSession) => T): T {
-    return this.session().transaction(fn);
+  transaction<T>(fn: (tx: SyncSession) => T, options?: TransactionOptions): T {
+    return this.session().transaction(fn, options);
   }
 
   close(): void {
@@ -1297,8 +1350,11 @@ export class AsyncEngine {
     return new AsyncSession(this.driver, getDialect(this.dialect), this.hooks);
   }
 
-  transaction<T>(fn: (tx: AsyncSession) => Promise<T>): Promise<T> {
-    return this.session().transaction(fn);
+  transaction<T>(
+    fn: (tx: AsyncSession) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T> {
+    return this.session().transaction(fn, options);
   }
 
   async close(): Promise<void> {

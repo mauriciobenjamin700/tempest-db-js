@@ -10,6 +10,7 @@
  */
 
 import type { CastType, CondNode, ExprNode } from "./conditions.js";
+import type { TransactionOptions } from "./engine.js";
 import { renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
 import type { JoinNode } from "./join.js";
@@ -255,6 +256,25 @@ export abstract class BaseDialect {
     return isSqlExpression(value)
       ? this.renderExpression(value, params)
       : params.bind(value);
+  }
+
+  /**
+   * The statements that open a transaction with the requested characteristics.
+   *
+   * Returned as a list because the dialects disagree on shape: PostgreSQL takes
+   * everything on the `BEGIN` itself, MySQL needs a separate `SET TRANSACTION`
+   * before it, and SQLite has no syntax at all.
+   *
+   * @param options The requested isolation level and read-only flag.
+   * @returns The statements to run, in order.
+   * @throws Error When the dialect cannot honor what was asked.
+   */
+  beginStatements(options?: TransactionOptions): string[] {
+    const parts = ["BEGIN"];
+    if (options?.isolation)
+      parts.push(`ISOLATION LEVEL ${options.isolation.toUpperCase()}`);
+    if (options?.readOnly) parts.push("READ ONLY");
+    return [parts.join(" ")];
   }
 
   /**
@@ -917,6 +937,29 @@ export class SqliteDialect extends BaseDialect {
   }
 
   /**
+   * SQLite runs one writer at a time, so its only isolation level **is**
+   * serializable — there is no syntax to ask for another, and no weaker level to
+   * fall back to. Asking for one is an error rather than a silent no-op, since a
+   * caller who wrote `repeatable read` was reasoning about a guarantee.
+   *
+   * `readOnly` likewise has no per-transaction form here (`PRAGMA query_only` is
+   * per connection), so it is refused instead of quietly ignored.
+   */
+  override beginStatements(options?: TransactionOptions): string[] {
+    if (options?.isolation && options.isolation !== "serializable") {
+      throw new Error(
+        `SQLite only implements the "serializable" isolation level; ${JSON.stringify(options.isolation)} has no equivalent here.`,
+      );
+    }
+    if (options?.readOnly) {
+      throw new Error(
+        "SQLite has no read-only transaction; open the engine with { sqlite: { ... } } on a read-only connection instead.",
+      );
+    }
+    return ["BEGIN"];
+  }
+
+  /**
    * SQLite has no row-level locking, so a lock request is an error rather than a
    * silently unlocked `SELECT` — a lock that does not exist only shows up as
    * duplicated work under production concurrency.
@@ -964,6 +1007,21 @@ export class MysqlDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  /**
+   * MySQL sets the level with a statement **before** the transaction opens, and
+   * spells the read-only flag on `START TRANSACTION` rather than on `BEGIN`.
+   */
+  override beginStatements(options?: TransactionOptions): string[] {
+    const statements: string[] = [];
+    if (options?.isolation) {
+      statements.push(
+        `SET TRANSACTION ISOLATION LEVEL ${options.isolation.toUpperCase()}`,
+      );
+    }
+    statements.push(options?.readOnly ? "START TRANSACTION READ ONLY" : "BEGIN");
+    return statements;
   }
 
   /**

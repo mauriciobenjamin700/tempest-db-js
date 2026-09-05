@@ -118,6 +118,53 @@ session.inTransaction;      // boolean
     `beginNested` needs an open block — PostgreSQL rejects a savepoint outside a
     transaction.
 
+## Isolation level
+
+The level is requested on the block, not on the engine:
+
+```ts
+await session.transaction(
+  async (tx) => {
+    await claimBatch(tx);
+  },
+  { isolation: "serializable" },
+);
+```
+
+| Level | PostgreSQL | SQLite | MySQL |
+| --- | --- | --- | --- |
+| `read uncommitted` | accepted (behaves as `read committed`) | **error** | accepted |
+| `read committed` | default | **error** | accepted |
+| `repeatable read` | accepted | **error** | default |
+| `serializable` | accepted | the only one it has | accepted |
+
+SQLite runs one writer at a time, so the only level it has **is** serializable — there
+is no syntax to ask for another and no weaker level to fall back to. Asking for one
+**throws**, because a caller who wrote `repeatable read` was reasoning about a
+guarantee.
+
+### Read-only blocks
+
+```ts
+await session.transaction(async (tx) => report(tx), { readOnly: true });
+```
+
+`BEGIN ... READ ONLY` on PostgreSQL, `START TRANSACTION READ ONLY` on MySQL: the
+**database** refuses the write, not the application. SQLite throws — `PRAGMA query_only`
+is per connection, not per transaction.
+
+!!! danger "Serializable returns errors, and the error is normal"
+
+    Under `serializable` PostgreSQL aborts one of two concurrent transactions with
+    `could not serialize access` (SQLSTATE `40001`). That is not a bug: it is the
+    database saying the pair would violate serializability. **The caller must retry** —
+    without a retry, `serializable` only trades wrong data for an error.
+
+!!! warning "Characteristics belong to the outermost block"
+
+    Isolation is fixed when the transaction opens. Requesting it on a nested block
+    (which joins the outer one) throws, rather than pretending it was applied.
+
 ## Recap
 
 - `engine.transaction(fn)` → `COMMIT` on success, `ROLLBACK` if `fn` throws.
