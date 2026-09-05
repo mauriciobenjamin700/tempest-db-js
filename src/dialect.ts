@@ -226,6 +226,17 @@ export abstract class BaseDialect {
   }
 
   /**
+   * The `EXPLAIN` prefix for this dialect.
+   *
+   * @param analyze Whether to measure by actually running the statement.
+   * @returns The prefix to put in front of the statement.
+   * @throws Error When the dialect cannot do what was asked.
+   */
+  explainPrefix(analyze: boolean): string {
+    return analyze ? "EXPLAIN (FORMAT JSON, ANALYZE)" : "EXPLAIN (FORMAT JSON)";
+  }
+
+  /**
    * The SQL keyword for a set operation.
    *
    * @param op The operator.
@@ -1114,6 +1125,19 @@ export class SqliteDialect extends BaseDialect {
   readonly name = "sqlite" as const;
 
   /**
+   * SQLite explains with `EXPLAIN QUERY PLAN`, and has no `ANALYZE` — the plain
+   * `EXPLAIN` there dumps bytecode, which answers a different question.
+   */
+  override explainPrefix(analyze: boolean): string {
+    if (analyze) {
+      throw new Error(
+        "SQLite has no EXPLAIN ANALYZE; use EXPLAIN QUERY PLAN (analyze: false).",
+      );
+    }
+    return "EXPLAIN QUERY PLAN";
+  }
+
+  /**
    * SQLite has no text-search engine, so the prebuilt substring fallback is
    * compiled instead. The rows are right; the ranking is what is missing.
    */
@@ -1232,6 +1256,11 @@ export class MysqlDialect extends BaseDialect {
 
   protected ilike(column: string, param: string): string {
     return `${column} LIKE ${param}`; // MySQL LIKE is case-insensitive by default
+  }
+
+  /** MySQL's `EXPLAIN FORMAT=JSON` spells the option differently. */
+  override explainPrefix(analyze: boolean): string {
+    return analyze ? "EXPLAIN ANALYZE" : "EXPLAIN FORMAT=JSON";
   }
 
   /**

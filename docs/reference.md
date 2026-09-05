@@ -390,6 +390,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `transaction(fn, { isolation, readOnly })` | Características do bloco. SQLite só aceita `serializable`; nível/`readOnly` em bloco aninhado lança. |
 | `session.transactionDepth` / `session.inTransaction` | Profundidade dos blocos abertos; `transaction()` aninhado adere ao de fora. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`/`prePing`/`recycleMs`) — PostgreSQL. |
+| `engine.explain(fn, opts?)` | Plano de todo statement do bloco. `analyze` executa e é recusado em escrita. |
 | `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook **depois** do statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filtra por limiar. |
 | `createEngine(url, { onNotice })` | Notices do servidor (PG `NOTICE`); **sem ele, nada é impresso**. |
 | `createEngine(url, { driverOptions })` | Repasse direto ao driver, aplicado por último (vence `pool`/`onNotice`). |

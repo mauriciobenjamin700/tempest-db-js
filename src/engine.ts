@@ -14,6 +14,12 @@
 import { createRequire } from "node:module";
 import { col, fn } from "./conditions.js";
 import { type BaseDialect, getDialect } from "./dialect.js";
+import {
+  type ExplainOptions,
+  type ExplainReport,
+  type RecordedStatement,
+  buildReport,
+} from "./explain.js";
 import { type ModelClass, columnNamesOf, columnsOf } from "./index.js";
 import type { JoinBuilder, JoinNode } from "./join.js";
 import type { InsertBuilder, InsertNode, UpdateBuilder } from "./mutations.js";
@@ -247,9 +253,19 @@ export class BetterSqliteDriver implements SyncDriver {
   }
 }
 
-/** True when a statement yields rows (SELECT, PRAGMA, or any `RETURNING`). */
+/**
+ * True when a statement yields rows.
+ *
+ * `node:sqlite` needs this decided up front (`all()` vs `run()`), and getting it
+ * wrong is silent: a statement that returns rows, run through `run()`, reports
+ * zero rows instead of failing. So the list covers every row-producing form —
+ * `WITH` (a CTE query), `EXPLAIN`, `VALUES` and `TABLE`, not only `SELECT`.
+ */
 function returnsRows(sql: string): boolean {
-  return /^\s*(select|pragma)/i.test(sql) || /\breturning\b/i.test(sql);
+  return (
+    /^\s*(select|with|values|table|pragma|explain)\b/i.test(sql) ||
+    /\breturning\b/i.test(sql)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1389,6 +1405,61 @@ export class AsyncEngine {
     options?: TransactionOptions,
   ): Promise<T> {
     return this.session().transaction(fn, options);
+  }
+
+  /**
+   * Run `fn` and return the query plan of every statement it ran.
+   *
+   * The block gets its own session over a **recording** driver, so the plans are
+   * built from the statements and the parameters the code really used — not from
+   * SQL copied out of a log by hand. A development tool: it runs the block once
+   * and then one `EXPLAIN` per statement, so keep it out of the hot path.
+   *
+   * @param fn The code to observe; receives the recording session.
+   * @param options `analyze: true` to measure (refused for writes), `filter` to
+   *   explain only some statements.
+   * @returns The report, one plan per statement in execution order.
+   * @throws Error When `analyze` is requested for a statement that writes, or on
+   *   a dialect that has no `EXPLAIN ANALYZE`.
+   *
+   * @example
+   * ```ts
+   * const report = await engine.explain(async (session) => {
+   *   await new BaseRepository(Order, session).paginate({ page: 3 });
+   * });
+   * console.log(report.summary());
+   * ```
+   */
+  async explain(
+    fn: (session: AsyncSession) => Promise<unknown>,
+    options?: ExplainOptions,
+  ): Promise<ExplainReport> {
+    const statements: RecordedStatement[] = [];
+    const recorder: AsyncDriver = {
+      execute: async (sql, params) => {
+        statements.push({ sql, params });
+        return this.driver.execute(sql, params);
+      },
+      close: () => Promise.resolve(),
+      ...(this.driver.iterate
+        ? {
+            iterate: (sql: string, params: readonly unknown[]) => {
+              statements.push({ sql, params });
+              return (this.driver.iterate as NonNullable<AsyncDriver["iterate"]>)(
+                sql,
+                params,
+              );
+            },
+          }
+        : {}),
+    };
+    await fn(new AsyncSession(recorder, getDialect(this.dialect), this.hooks));
+    return buildReport(
+      this.session(),
+      statements,
+      (analyze) => getDialect(this.dialect).explainPrefix(analyze),
+      options,
+    );
   }
 
   async close(): Promise<void> {

@@ -142,6 +142,42 @@ const engine = createEngine(url, {
 (`pool` and `onNotice` included) — it is an escape hatch, so it gets the last
 word.
 
+## Why is this query slow? `engine.explain`
+
+Timing says **that** it is slow; the plan says **why**. Instead of copying SQL out of a
+log into psql — and hoping the parameters match — wrap the block:
+
+```ts
+const report = await engine.explain(async (session) => {
+  await new BaseRepository(Order, session).paginate({ filters: { status: "open" }, page: 3 });
+});
+
+console.log(report.summary());
+for (const plan of report.plans) {
+  console.log(plan.sql, plan.params, plan.summary());
+}
+```
+
+The block gets a **recording** session: the plans come from the statements and the
+parameters the code actually used.
+
+| | PostgreSQL | SQLite |
+| --- | --- | --- |
+| Prefix | `EXPLAIN (FORMAT JSON)` | `EXPLAIN QUERY PLAN` |
+| `analyze: true` | `EXPLAIN (FORMAT JSON, ANALYZE)` | **error** — it does not exist |
+
+!!! danger "`analyze: true` **executes** the statement"
+
+    That is how it measures. Which is why it is refused for anything that is not a read —
+    analyzing an `UPDATE` would apply it a second time. To explain only the reads of a
+    mixed block, pass `{ filter: isReadOnlyStatement }`.
+
+!!! warning "A development tool"
+
+    The block runs **and** each statement gets an `EXPLAIN` afterwards — twice the round
+    trips. Use it in a test, in an investigation, on a debug endpoint; never on the hot
+    path.
+
 ## Recap
 
 - `createEngine(url, { onQuery })` → per-statement `{ sql, params }` hook.

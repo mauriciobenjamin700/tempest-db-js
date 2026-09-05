@@ -391,6 +391,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `transaction(fn, { isolation, readOnly })` | Block characteristics. SQLite only accepts `serializable`; a level or `readOnly` on a nested block throws. |
 | `session.transactionDepth` / `session.inTransaction` | Depth of open blocks; a nested `transaction()` joins the outer one. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`/`prePing`/`recycleMs`) — PostgreSQL. |
+| `engine.explain(fn, opts?)` | The plan of every statement in the block. `analyze` executes, and is refused for writes. |
 | `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook fired **after** the statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filters by threshold. |
 | `createEngine(url, { onNotice })` | Server-side notices (PG `NOTICE`); **without it, nothing is printed**. |
 | `createEngine(url, { driverOptions })` | Passed straight to the driver, applied last (wins over `pool`/`onNotice`). |

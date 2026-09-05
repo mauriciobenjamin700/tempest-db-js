@@ -140,6 +140,41 @@ const engine = createEngine(url, {
 `driverOptions` é aplicado **por último** e vence tudo que a lib derivou
 (inclusive `pool` e `onNotice`) — é escape hatch, então tem a última palavra.
 
+## Por que esta query está lenta? `engine.explain`
+
+Medir tempo diz **que** está lento; o plano diz **por quê**. Em vez de copiar SQL do log
+e colar no psql — torcendo para os parâmetros serem os mesmos —, envolva o bloco:
+
+```ts
+const report = await engine.explain(async (session) => {
+  await new BaseRepository(Order, session).paginate({ filters: { status: "open" }, page: 3 });
+});
+
+console.log(report.summary());
+for (const plan of report.plans) {
+  console.log(plan.sql, plan.params, plan.summary());
+}
+```
+
+O bloco recebe uma session **gravadora**: os planos saem dos statements e dos parâmetros
+que o código realmente usou.
+
+| | PostgreSQL | SQLite |
+| --- | --- | --- |
+| Prefixo | `EXPLAIN (FORMAT JSON)` | `EXPLAIN QUERY PLAN` |
+| `analyze: true` | `EXPLAIN (FORMAT JSON, ANALYZE)` | **erro** — não existe |
+
+!!! danger "`analyze: true` **executa** o statement"
+
+    É assim que ele mede. Por isso é recusado para qualquer coisa que não seja leitura —
+    analisar um `UPDATE` o aplicaria uma segunda vez. Para explicar só as leituras de um
+    bloco misto, passe `{ filter: isReadOnlyStatement }`.
+
+!!! warning "Ferramenta de desenvolvimento"
+
+    O bloco roda **e** cada statement ganha um `EXPLAIN` depois — o dobro de ida e volta.
+    Use em teste, em investigação, num endpoint de debug; nunca no caminho quente.
+
 ## Recap
 
 - `createEngine(url, { onQuery })` → hook por statement `{ sql, params }`.
