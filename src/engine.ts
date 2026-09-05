@@ -1150,6 +1150,31 @@ export interface PoolOptions {
   readonly idleTimeoutMs?: number;
   /** Give up acquiring a connection after this long (ms). */
   readonly connectTimeoutMs?: number;
+  /**
+   * Validate a connection before pinning it for a transaction.
+   *
+   * A pooled connection can die without the pool noticing — a failover, a
+   * pgbouncer restart, a firewall dropping an idle socket. The damage lands on
+   * whoever picks it up next, and it lands worst on a transaction: `BEGIN`
+   * succeeds, a statement mid-block fails, and the block dies halfway.
+   *
+   * With this on, `transaction()` runs `SELECT 1` on the reserved connection
+   * first and reserves another one if that fails. It costs a round trip per
+   * transaction, which is why it is opt-in.
+   *
+   * PostgreSQL only — MySQL throws, and SQLite has no pool.
+   */
+  readonly prePing?: boolean;
+  /**
+   * Close and reopen a connection older than this (ms), regardless of activity.
+   *
+   * The blunt companion to {@link prePing}: it bounds how long a connection can
+   * have been alive, which is what keeps a slow leak (a server-side timeout, a
+   * load balancer's idle cap) from becoming a mystery error hours later.
+   *
+   * PostgreSQL only — MySQL throws, and SQLite has no pool.
+   */
+  readonly recycleMs?: number;
 }
 
 /**
@@ -1691,6 +1716,11 @@ function createMysqlDriver(url: string, options?: EngineOptions): AsyncDriver {
     // biome-ignore lint/suspicious/noExplicitAny: dynamic import of the peer dep.
     const mod = (await import(/* @vite-ignore */ moduleName)) as any;
     const opts: Record<string, unknown> = { uri: url };
+    if (pool?.prePing || pool?.recycleMs !== undefined) {
+      throw new Error(
+        "pool.prePing and pool.recycleMs are PostgreSQL-only; mysql2 has no equivalent knob.",
+      );
+    }
     if (pool?.size !== undefined) opts.connectionLimit = pool.size;
     if (pool?.idleTimeoutMs !== undefined) opts.idleTimeout = pool.idleTimeoutMs;
     if (pool?.connectTimeoutMs !== undefined) opts.connectTimeout = pool.connectTimeoutMs;
@@ -1764,6 +1794,9 @@ function createPostgresDriver(url: string, options?: EngineOptions): AsyncDriver
     if (pool?.connectTimeoutMs !== undefined) {
       opts.connect_timeout = Math.ceil(pool.connectTimeoutMs / 1000);
     }
+    if (pool?.recycleMs !== undefined) {
+      opts.max_lifetime = Math.ceil(pool.recycleMs / 1000);
+    }
     opts.onnotice = (notice: unknown): void => emitNotice(options?.onNotice, notice);
     Object.assign(opts, options?.driverOptions ?? {});
     client = (mod.default ?? mod)(url, opts);
@@ -1777,7 +1810,18 @@ function createPostgresDriver(url: string, options?: EngineOptions): AsyncDriver
     async reserve(): Promise<ReservedAsyncDriver> {
       await ensure();
       // biome-ignore lint/suspicious/noExplicitAny: reserved connection from postgres.js.
-      const conn: any = await client.reserve();
+      let conn: any = await client.reserve();
+      if (pool?.prePing) {
+        try {
+          await conn.unsafe("SELECT 1", []);
+        } catch {
+          // The connection died while it sat in the pool. Drop it and take
+          // another one — the pool opens a fresh one when none is idle.
+          conn.release();
+          conn = await client.reserve();
+          await conn.unsafe("SELECT 1", []);
+        }
+      }
       return {
         async execute(sql: string, params: readonly unknown[]): Promise<DriverResult> {
           return toPostgresResult(await conn.unsafe(sql, params as unknown[]));
