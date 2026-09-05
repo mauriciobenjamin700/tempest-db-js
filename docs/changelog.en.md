@@ -25,6 +25,17 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`exists` / `notExists` and `scalar`** — correlated `EXISTS (...)`, the right shape
+  when only existence matters (the database can stop at the first match, which an `IN`
+  over a materialized set cannot), plus scalar subqueries as values. `scalar()` takes the
+  result of `.asSubquery(column)`, so a two-column scalar subquery is a **compile** error
+  instead of a runtime error in the database (#38).
+- **`where` accepts an expression in the object form** — `{ userId: col("users.id") }`
+  compares two columns, and so does `{ total: { gt: col("paid") } }`. An expression in
+  that position used to be **bound as a parameter**: the comparison silently became the
+  column against the string `"users.id"`. A qualified reference (`table.column`) now
+  resolves to `"table"."column"` instead of becoming one identifier (#38).
+
 - **`BaseRepository`: `existsExcluding`, `bulkUpsert`, `softDelete`/`restore`,
   `deleteBatch` and `changesSince`** — the operations every service rewrote on top of the
   builder. `changesSince` is the delta-sync read: a **strict** `updatedAt` filter, oldest

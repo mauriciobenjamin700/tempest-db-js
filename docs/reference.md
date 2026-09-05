@@ -403,6 +403,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `repo.deleteBatch(chaves)` | `DELETE ... IN (...)`; PK composta lança. |
 | `repo.changesSince(filter)` | Delta sync: página + `serverTime` como marca d'água. |
 | `repo.cursorPaginate(filter)` | Página por cursor: `{ items, nextCursor }`, sem `COUNT(*)`, PK como desempate. `InvalidCursor` em cursor inválido. |
+| `exists(sub)` / `notExists(sub)` | `EXISTS (...)` correlacionado; `col("tabela.coluna")` referencia a query externa. |
+| `scalar(sub)` | Subquery de **uma** coluna como valor; exige `.asSubquery(col)`. |
 | `caseWhen(branches, else?)` / `cast(expr, tipo)` | `CASE WHEN ... END` e `CAST(x AS tipo)`; o tipo é portátil e mapeado por dialeto. |
 | `sum/avg/min/max(coluna \| expressão)` | Agregação sobre expressão — é o que dá `SUM(CASE WHEN ...)`. |
 | `parseIntegrityError(error, Model?)` | Erro do driver → `{ violation, constraint, table, columns, detail }`, ou `null`. |

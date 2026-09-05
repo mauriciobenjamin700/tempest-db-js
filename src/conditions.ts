@@ -36,6 +36,7 @@ export type ExprNode =
       readonly fallback: ExprNode | null;
     }
   | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType }
+  | { readonly kind: "scalar"; readonly select: unknown }
   | {
       readonly kind: "rank";
       readonly columns: readonly string[];
@@ -76,6 +77,13 @@ export type CondNode =
       readonly left: ExprNode;
       readonly op: Operator;
       readonly right: ExprNode;
+    }
+  | {
+      readonly kind: "exists";
+      /** The subquery's SELECT node. */
+      readonly select: unknown;
+      /** True for `NOT EXISTS`. */
+      readonly negate: boolean;
     }
   | {
       readonly kind: "fullText";

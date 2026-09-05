@@ -16,6 +16,8 @@ import {
   type Condition,
   type ExprNode,
   type Expression,
+  conditionFromNode,
+  expressionFromNode,
   toCondNode,
 } from "./conditions.js";
 import {
@@ -118,6 +120,75 @@ export interface Subquery<T> {
   readonly node: SelectNode;
 }
 
+/**
+ * `EXISTS (subquery)` — true when the subquery returns at least one row.
+ *
+ * The right shape for "is there any…" questions: the database can stop at the
+ * first match, which an `IN` over a materialized list cannot. Correlate it by
+ * referencing an outer column with a qualified `col("users.id")`.
+ *
+ * @param subquery The inner SELECT, as a builder or a `.asSubquery()` result.
+ * @returns A condition, composable with `and`/`or`/`not`.
+ *
+ * @example
+ * ```ts
+ * select(User).where(
+ *   exists(select(Order).where({ userId: col("users.id"), status: "open" })),
+ * );
+ * // WHERE EXISTS (SELECT * FROM "orders" WHERE "userId" = "users"."id" AND ...)
+ * ```
+ */
+export function exists(subquery: SubqueryLike): Condition {
+  return conditionFromNode({ kind: "exists", select: nodeOf(subquery), negate: false });
+}
+
+/**
+ * `NOT EXISTS (subquery)` — true when the subquery returns no row.
+ *
+ * @param subquery The inner SELECT.
+ * @returns The condition.
+ */
+export function notExists(subquery: SubqueryLike): Condition {
+  return conditionFromNode({ kind: "exists", select: nodeOf(subquery), negate: true });
+}
+
+/**
+ * A scalar subquery — a `SELECT` of one column used where a value goes.
+ *
+ * Takes the result of `.asSubquery(column)` rather than a bare builder, because
+ * that is what pins the projection to exactly **one** column: a scalar subquery
+ * returning two columns is a runtime error in every database, and this makes it a
+ * compile error instead.
+ *
+ * @param subquery A single-column subquery.
+ * @returns An expression usable in `where`, `orderBy` or an aggregate.
+ *
+ * @example
+ * ```ts
+ * select(User).where(
+ *   scalar(select(Order, ["total"]).where({ userId: col("users.id") })
+ *     .orderBy("createdAt", "desc").limit(1).asSubquery("total")).gt(100),
+ * );
+ * ```
+ */
+export function scalar<T>(subquery: Subquery<T>): Expression {
+  return expressionFromNode({ kind: "scalar", select: subquery.node });
+}
+
+/** What the subquery helpers accept: a builder, or a narrowed subquery. */
+/* biome-ignore lint/suspicious/noExplicitAny: any select shape may be embedded. */
+export type SubqueryLike = SelectBuilder<any, any, any> | Subquery<unknown>;
+
+/**
+ * Read the SELECT node out of either accepted shape.
+ *
+ * @param subquery The builder or subquery.
+ * @returns Its AST node.
+ */
+function nodeOf(subquery: SubqueryLike): SelectNode {
+  return (subquery as { node: SelectNode }).node;
+}
+
 /** Runtime guard: is this `in`/`notIn` operand a subquery rather than a list? */
 export function isSubquery(value: unknown): value is Subquery<unknown> {
   return (
@@ -127,12 +198,21 @@ export function isSubquery(value: unknown): value is Subquery<unknown> {
   );
 }
 
+/**
+ * A comparison operand: a value of the column's type, or another expression.
+ *
+ * Accepting an {@link Expression} is what makes a correlated subquery readable —
+ * `where({ userId: col("users.id") })` compares two columns instead of binding
+ * the string `"users.id"` as a parameter.
+ */
+export type Operand<T> = T | Expression;
+
 /** Operators valid on every column type. */
 interface BaseOperators<T> {
   /** Equal to. */
-  eq?: T;
+  eq?: Operand<T>;
   /** Not equal to. */
-  ne?: T;
+  ne?: Operand<T>;
   /**
    * One of the given values (`IN`) — a list, or a single-column
    * {@link Subquery} built with `.asSubquery(column)`.
@@ -147,13 +227,13 @@ interface BaseOperators<T> {
 /** Extra operators for ordered types (numbers, bigint, dates). */
 interface OrderedOperators<T> extends BaseOperators<T> {
   /** Greater than. */
-  gt?: T;
+  gt?: Operand<T>;
   /** Greater than or equal. */
-  gte?: T;
+  gte?: Operand<T>;
   /** Less than. */
-  lt?: T;
+  lt?: Operand<T>;
   /** Less than or equal. */
-  lte?: T;
+  lte?: Operand<T>;
   /** Inclusive range `BETWEEN lo AND hi`. */
   between?: readonly [T, T];
 }
@@ -175,7 +255,7 @@ interface StringOperators<T> extends BaseOperators<T> {
    * wildcards. The safe operator for a case-insensitive lookup (login, email),
    * and the one that matches a `lower(col)` functional index.
    */
-  ieq?: T;
+  ieq?: Operand<T>;
   /**
    * Case-insensitive **substring** match of a literal — the safe operator for a
    * search box.
@@ -226,7 +306,7 @@ export type OperatorsFor<T> = [T] extends [readonly unknown[]]
  * `string`, is a compile error.
  */
 export type WhereInput<Row = Record<string, unknown>> = {
-  [K in keyof Row]?: Row[K] | OperatorsFor<NonNullable<Row[K]>>;
+  [K in keyof Row]?: Row[K] | Expression | OperatorsFor<NonNullable<Row[K]>>;
 };
 
 /** The full set of operator keys, for the dialect compiler to recognize. */
