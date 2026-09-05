@@ -404,6 +404,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `contains(cols, termo, opts?)` / `{ iContains }` | Substring case-insensitive **escapada**, portátil. |
 | `fullText(cols, termo, opts?)` / `fullTextRank(...)` | Full-text no PostgreSQL; cai para `contains` nos demais. |
 | `escapeLike(valor)` | Escapa `%`, `_` e `\\` para usar com `like`/`ilike` crus. |
+| `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` no caminho do repository; `pre*` que lança veta. |
+| `hasHandlers` / `clearSignals` | Se há handler (o repository evita o SELECT extra sem eles); limpeza em teste. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 
