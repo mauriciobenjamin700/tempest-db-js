@@ -389,6 +389,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `session.stream(builder)` | Lazy iteration (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (nested transaction). |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
+| `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook fired **after** the statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filters by threshold. |
 | `createEngine(url, { onNotice })` | Server-side notices (PG `NOTICE`); **without it, nothing is printed**. |
 | `createEngine(url, { driverOptions })` | Passed straight to the driver, applied last (wins over `pool`/`onNotice`). |
 | `createEngine(url, { driver })` | Picks the SQLite driver: `"node:sqlite"` (default) or `"better-sqlite3"`. An unknown name throws. |

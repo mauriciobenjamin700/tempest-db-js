@@ -10,6 +10,12 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### ⚠️ Breaking
 
+- **The 3rd parameter of `SyncSession`/`AsyncSession` changed from `QueryLogger` to
+  `QueryHooks`** (`{ onQuery, onQueryEnd, slowQueryMs }`), and likewise for the
+  `SyncEngine`/`AsyncEngine` constructors. Users of `createEngine`/`createSyncEngine`
+  are unaffected; code constructing a session or engine by hand with a logger function
+  passes `{ onQuery: logger }` instead (#29).
+
 - **SQLite now enforces `FOREIGN KEY`.** Enforcement used to be off (SQLite's own
   per-connection default), so an orphan `INSERT` was accepted and `ON DELETE CASCADE`
   never fired. The engine now turns it on when any SQLite connection opens, on both
@@ -18,6 +24,14 @@ project adopts [Semantic Versioning](https://semver.org/).
   `{ sqlite: { foreignKeys: false } }` (#24).
 
 ### Added
+
+- **`onQueryEnd` and `slowQueryMs` in `EngineOptions`** — the other half of `onQuery`,
+  which fires **before** the statement and therefore cannot time anything. The new hook
+  fires afterwards with `durationMs`, `rowCount` and — on the failure path — the
+  driver's `error`: a slow statement that also fails is the interesting one.
+  `slowQueryMs` filters by threshold, which gives a slow-query log with no APM agent.
+  For `stream()`, the time spans until the iteration ends. An error thrown by the hook
+  is swallowed, like the others (#29).
 
 - **`BaseRepository.cursorPaginate`** — cursor pagination: `{ items, nextCursor }`,
   with no `COUNT(*)` and a boundary that stays stable under concurrent inserts, which

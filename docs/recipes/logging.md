@@ -30,6 +30,53 @@ O hook roda para **todo** statement da session: `execute`, `stream`, e os
     `onQuery` é o ponto para medir latência (marque tempo, correlacione por SQL),
     contar queries por request, ou alimentar um tracer.
 
+## Duração: `onQueryEnd`
+
+`onQuery` dispara **antes** do statement rodar — logo, não mede nada. O par dele é o
+`onQueryEnd`, que dispara depois, com o tempo que o driver levou:
+
+```ts
+const engine = createEngine("postgresql://app@localhost/app", {
+  onQueryEnd: ({ sql, durationMs, rowCount, error }) => {
+    metrics.histogram("db.query.ms", durationMs, { failed: error !== undefined });
+    if (durationMs > 200) logger.warn({ sql, durationMs, rowCount }, "slow query");
+  },
+});
+```
+
+| Campo | O que traz |
+| --- | --- |
+| `sql` / `params` | os mesmos que o `onQuery` anunciou |
+| `durationMs` | tempo de parede do driver |
+| `rowCount` | linhas devolvidas (SELECT/`RETURNING`) ou afetadas (write) |
+| `error` | o erro do driver, quando o statement falhou |
+
+### Log de query lenta em uma linha
+
+```ts
+createEngine(url, {
+  slowQueryMs: 200,
+  onQueryEnd: ({ sql, durationMs }) => logger.warn({ sql, durationMs }, "slow query"),
+});
+```
+
+Com `slowQueryMs`, o hook só é chamado para statement que cruza o limiar — é o log de
+query lenta mais barato que existe, sem agente de APM.
+
+!!! info "Dispara no erro também"
+
+    Statement que falha chama `onQueryEnd` com `error` preenchido e `rowCount: 0`. O
+    statement lento **que ainda por cima falha** é justamente o que interessa, e um hook
+    que só visse o caminho feliz o perderia.
+
+!!! tip "`stream()` é medido até o fim da iteração"
+
+    Num `stream`, o tempo vai da compilação até a última linha consumida — que é o que
+    responde "por que essa página demora". `rowCount` traz quantas linhas saíram.
+
+Como `onQuery`, erro lançado dentro do `onQueryEnd` é engolido: logging nunca derruba a
+query.
+
 ## Erros com o SQL que falhou
 
 Quando o driver rejeita um statement, tempest-db-js lança `QueryExecutionError`
