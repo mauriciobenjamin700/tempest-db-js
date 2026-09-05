@@ -114,6 +114,53 @@ session.inTransaction;      // boolean
     `beginNested` precisa de um bloco aberto — o PostgreSQL recusa savepoint fora de
     transação.
 
+## Nível de isolamento
+
+O nível é pedido no bloco, não no engine:
+
+```ts
+await session.transaction(
+  async (tx) => {
+    await claimBatch(tx);
+  },
+  { isolation: "serializable" },
+);
+```
+
+| Nível | PostgreSQL | SQLite | MySQL |
+| --- | --- | --- | --- |
+| `read uncommitted` | aceita (age como `read committed`) | **erro** | aceita |
+| `read committed` | default | **erro** | aceita |
+| `repeatable read` | aceita | **erro** | default |
+| `serializable` | aceita | único que existe | aceita |
+
+O SQLite roda um escritor por vez, então o único nível que ele tem **é** serializable —
+não há sintaxe para pedir outro nem nível mais fraco para onde cair. Pedir outro
+**lança**, porque quem escreveu `repeatable read` estava raciocinando sobre uma
+garantia.
+
+### Bloco somente-leitura
+
+```ts
+await session.transaction(async (tx) => report(tx), { readOnly: true });
+```
+
+`BEGIN ... READ ONLY` no PostgreSQL, `START TRANSACTION READ ONLY` no MySQL: o **banco**
+recusa a escrita, não a aplicação. No SQLite lança — `PRAGMA query_only` é por conexão,
+não por transação.
+
+!!! danger "Serializable devolve erro, e o erro é normal"
+
+    Sob `serializable` o PostgreSQL aborta uma das transações concorrentes com
+    `could not serialize access` (SQLSTATE `40001`). Isso não é bug: é o banco dizendo
+    que as duas juntas violariam a serialização. **O chamador precisa repetir** a
+    transação — sem retry, `serializable` só troca dado errado por erro.
+
+!!! warning "Característica só no bloco mais externo"
+
+    Isolamento é fixado quando a transação abre. Pedir num bloco aninhado (que adere ao
+    de fora) lança, em vez de fingir que foi aplicado.
+
 ## Recap
 
 - `engine.transaction(fn)` → `COMMIT` no sucesso, `ROLLBACK` se `fn` lançar.

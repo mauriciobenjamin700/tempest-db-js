@@ -388,6 +388,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `toAsyncDriver(driver)` | Adapts a sync **or** async driver to the async interface (used by the CLI). |
 | `session.stream(builder)` | Lazy iteration (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (nested transaction), on both sessions. Recoverable: a failure discards only the savepoint. |
+| `transaction(fn, { isolation, readOnly })` | Block characteristics. SQLite only accepts `serializable`; a level or `readOnly` on a nested block throws. |
 | `session.transactionDepth` / `session.inTransaction` | Depth of open blocks; a nested `transaction()` joins the outer one. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
 | `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook fired **after** the statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filters by threshold. |

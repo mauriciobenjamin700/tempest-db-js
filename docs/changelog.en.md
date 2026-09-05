@@ -25,6 +25,14 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Per-transaction isolation level and read-only blocks** —
+  `transaction(fn, { isolation, readOnly })`. PostgreSQL puts everything on the `BEGIN`
+  itself; MySQL needs a `SET TRANSACTION` first and spells read-only on
+  `START TRANSACTION`; SQLite implements only `serializable` and **throws** for any
+  other level or for `readOnly`, rather than silently accepting a guarantee it cannot
+  give. Requesting a characteristic on a nested block throws too: isolation is fixed
+  when the transaction opens (#32).
+
 - **`caseWhen` and `cast`** — `CASE WHEN ... THEN ... ELSE ... END` and
   `CAST(x AS type)` as first-class expressions. The `CASE` branches use the same `where`
   language, with no new grammar, and the `CAST` target is a portable vocabulary each

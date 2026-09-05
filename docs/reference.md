@@ -387,6 +387,7 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `toAsyncDriver(driver)` | Adapta driver sync **ou** async à interface async (usado pelo CLI). |
 | `session.stream(builder)` | Iteração preguiçosa (sync: `Iterable`; async: `AsyncIterable`). |
 | `session.beginNested(fn)` | Savepoint (transação aninhada), nas duas sessions. Recuperável: falha só descarta o savepoint. |
+| `transaction(fn, { isolation, readOnly })` | Características do bloco. SQLite só aceita `serializable`; nível/`readOnly` em bloco aninhado lança. |
 | `session.transactionDepth` / `session.inTransaction` | Profundidade dos blocos abertos; `transaction()` aninhado adere ao de fora. |
 | `createEngine(url, { pool })` | `PoolOptions` (`size`/`idleTimeoutMs`/`connectTimeoutMs`) — PostgreSQL. |
 | `createEngine(url, { onQueryEnd, slowQueryMs })` | Hook **depois** do statement: `durationMs`, `rowCount`, `error`. `slowQueryMs` filtra por limiar. |

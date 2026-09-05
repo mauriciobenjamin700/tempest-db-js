@@ -24,6 +24,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Nível de isolamento e bloco somente-leitura por transação** —
+  `transaction(fn, { isolation, readOnly })`. O PostgreSQL põe tudo no próprio `BEGIN`;
+  o MySQL precisa de um `SET TRANSACTION` antes e usa `START TRANSACTION READ ONLY`; o
+  SQLite só implementa `serializable` e **lança** para qualquer outro nível ou para
+  `readOnly`, em vez de aceitar em silêncio uma garantia que não dá. Característica
+  pedida em bloco aninhado também lança: isolamento é fixado quando a transação abre
+  (#32).
+
 - **`caseWhen` e `cast`** — `CASE WHEN ... THEN ... ELSE ... END` e `CAST(x AS tipo)`
   como expressões de primeira classe. Os ramos do `CASE` usam a mesma linguagem de
   `where`, sem gramática nova, e o alvo do `CAST` é um vocabulário portátil que cada

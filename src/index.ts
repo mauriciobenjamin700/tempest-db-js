@@ -1016,6 +1016,7 @@ export {
   createSyncEngine,
   type DriverResult,
   type EngineOptions,
+  type IsolationLevel,
   type Executable,
   NoResultError,
   NodeSqliteDriver,
@@ -1036,4 +1037,5 @@ export {
   SyncResult,
   SyncSession,
   toAsyncDriver,
+  type TransactionOptions,
 } from "./engine.js";
