@@ -1054,6 +1054,17 @@ export {
 export { type TenantScope, TenantScopedRepository } from "./tenant.js";
 
 export {
+  type AuditAction,
+  type AuditDiff,
+  type AuditEntry,
+  type AuditOptions,
+  auditLogModel,
+  diffSnapshots,
+  enableAudit,
+  snapshot,
+} from "./audit.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,

@@ -416,6 +416,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `contains(cols, term, opts?)` / `{ iContains }` | Case-insensitive **escaped** substring, portable. |
 | `fullText(cols, term, opts?)` / `fullTextRank(...)` | Full text on PostgreSQL; falls back to `contains` elsewhere. |
 | `escapeLike(value)` | Escapes `%`, `_` and `\\` for use with raw `like`/`ilike`. |
+| `auditLogModel(table)` / `enableAudit(Model, opts)` | Append-only trail with a diff; written in the change's own transaction. |
 | `onSignal(Model, signal, handler)` | `preSave`/`postSave`/`preDelete`/`postDelete` on the repository path; a throwing `pre*` vetoes. |
 | `hasHandlers` / `clearSignals` | Whether anything listens (the repository skips the extra SELECT otherwise); test cleanup. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
