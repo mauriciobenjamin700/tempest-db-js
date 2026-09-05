@@ -3,10 +3,15 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.9.0] — 2026-09-05
 
-> Ciclo de trabalho sobre as issues #24–#51. A publicação no npm sai **uma vez**, no
-> fim do ciclo — cada entrega entra aqui até lá.
+O ciclo das issues #24–#51: 28 entregas em cima da análise que comparou este pacote com a
+camada de banco do `tempest-fastapi-sdk` e com a superfície do SQLAlchemy 2.0. Três eixos:
+**corretude** (FK que não era verificada, chave composta truncada, formato de data que o
+próprio pacote não lia de volta), **superfície de query** (CTE, janela, conjunto, EXISTS,
+CASE/CAST, escrita que lê outra tabela) e **o que todo serviço reescrevia por cima do
+builder** (mixins, cursor pagination, signals, outbox, auditoria, tenant, erro de
+integridade, backup).
 
 ### ⚠️ Breaking
 

@@ -3,10 +3,15 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adopts [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.0] — 2026-09-05
 
-> Work cycle over issues #24–#51. The npm publish happens **once**, at the end of the
-> cycle — every delivery lands here until then.
+The #24–#51 cycle: 28 deliveries built on the analysis comparing this package against
+`tempest-fastapi-sdk`'s database layer and SQLAlchemy 2.0's surface. Three axes:
+**correctness** (a foreign key that was never enforced, a truncated composite key, a date
+format the package could not read back), **query surface** (CTEs, windows, set operations,
+EXISTS, CASE/CAST, writes that read another table) and **what every service rewrote on top
+of the builder** (mixins, cursor pagination, signals, outbox, audit, tenancy, integrity
+errors, backups).
 
 ### ⚠️ Breaking
 
