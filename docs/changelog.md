@@ -24,6 +24,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Funções de janela e `select().compute()`** — `over(fn, { partitionBy, orderBy,
+  frame })` com `rowNumber`, `rank`, `denseRank`, `percentRank`, `lag`, `lead`,
+  `firstValue`, `lastValue` e qualquer agregação. `compute({ alias: expressão })` projeta
+  por alias **sem agrupar**, então a linha continua e o valor vem junto — e o alias entra
+  no tipo da linha, porque `Expression` passou a carregar o tipo do valor. Função que só
+  existe dentro de janela devolve um `WindowFn`, que **só** `over()` aceita: usar `lag()`
+  sem `OVER` deixa de ser erro de runtime do banco e vira erro de compilação (#45).
+
 - **Backup e restore, no CLI e programáticos** — `tempest-db backup <arquivo> --url` e
   `tempest-db restore`, mais `backupDatabase`/`restoreDatabase`. PostgreSQL usa
   `pg_dump`/`pg_restore`/`psql` com o formato escolhido **pela extensão** (`.sql` plano,

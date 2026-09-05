@@ -440,6 +440,11 @@ export abstract class BaseDialect {
           ? "*"
           : node.columns.map((c) => this.columnId(c, names)).join(", ");
     }
+    const computed = Object.entries(node.computed ?? {}).map(
+      ([alias, expr]) =>
+        `${this.renderExpr(expr, params, (k) => this.columnId(k, names))} AS ${this.quoteId(alias)}`,
+    );
+    if (computed.length > 0) cols = [cols, ...computed].join(", ");
     let sql = `SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
 
     const where = this.compileCondition(node.where, params, (k) =>
@@ -897,6 +902,23 @@ export abstract class BaseDialect {
       }
       case "rank":
         return this.renderRank(node.columns, node.term, node.language, params, idFor);
+      case "star":
+        return "*";
+      case "window": {
+        const call = this.renderExpr(node.fn, params, idFor);
+        const parts: string[] = [];
+        if (node.partitionBy.length > 0) {
+          parts.push(`PARTITION BY ${node.partitionBy.map(idFor).join(", ")}`);
+        }
+        if (node.orderBy.length > 0) {
+          const terms = node.orderBy
+            .map((t) => `${idFor(t.column)} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+            .join(", ");
+          parts.push(`ORDER BY ${terms}`);
+        }
+        if (node.frame) parts.push(node.frame);
+        return `${call} OVER (${parts.join(" ")})`;
+      }
     }
   }
 

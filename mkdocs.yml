@@ -101,6 +101,7 @@ plugins:
             SQL cru em runtime: Raw SQL at runtime
             Expressões no where: Expressions in where
             Operações de conjunto: Set operations
+            Funções de janela: Window functions
             "MySQL: o que muda": "MySQL: what changes"
             Exemplos: Examples
             Galeria: Gallery
@@ -186,6 +187,7 @@ nav:
       - SQL cru em runtime: recipes/raw-sql.md
       - Expressões no where: recipes/expressions.md
       - Operações de conjunto: recipes/set-operations.md
+      - Funções de janela: recipes/window-functions.md
       - "MySQL: o que muda": recipes/mysql.md
   - Exemplos:
       - examples/index.md
