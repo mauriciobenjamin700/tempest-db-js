@@ -25,6 +25,15 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Append-only audit trail** — `auditLogModel(table)` for the schema and
+  `enableAudit(Model, { log, actor, exclude })` to turn it on. One entry per
+  create/update/delete, with `rowKey` (a composite key in full), the action, an actor
+  resolved **at write time**, and a `{ column: [before, after] }` diff carrying **only
+  what changed** — an update with no delta writes nothing. Built on the signals (#36), so
+  the entry is written on the same session and therefore in the change's own transaction:
+  a rollback takes the entry with it, because a trail recording an uncommitted change is
+  worse than no trail (#43).
+
 - **`TenantScopedRepository`** — a repository bound to one tenant: the predicate joins
   **every** read and the column is stamped on **every** write, because `BaseRepository`'s
   methods now pass through a single scoping point (`scopeFilters` / `scopeWrite`,

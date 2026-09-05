@@ -86,6 +86,7 @@ plugins:
             Logging e erros: Logging & errors
             Erros de integridade (409): Integrity errors (409)
             Signals do repositório: Repository signals
+            Trilha de auditoria: Audit trail
             Escolhendo o driver do SQLite: Choosing the SQLite driver
             Transações e savepoints: Transactions & savepoints
             Colunas JSON e enum: JSON & enum columns
@@ -170,6 +171,7 @@ nav:
       - Logging e erros: recipes/logging.md
       - Erros de integridade (409): recipes/integrity-errors.md
       - Signals do repositório: recipes/signals.md
+      - Trilha de auditoria: recipes/audit.md
       - Escolhendo o driver do SQLite: recipes/sqlite-drivers.md
       - Transações e savepoints: recipes/transactions.md
       - Colunas JSON e enum: recipes/json-enum.md

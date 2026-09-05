@@ -24,6 +24,7 @@ recipes show you how to apply them in real day-to-day situations.
 | [Logging & errors](logging.en.md) | See the SQL that runs (`onQuery`) and errors carrying the failing SQL/params. |
 | [Integrity errors (409)](integrity-errors.en.md) | Read the driver's error back into the constraint that refused the write. |
 | [Repository signals](signals.en.md) | `preSave`/`postSave`/`preDelete`/`postDelete` — react to writes without wrapping every call site. |
+| [Audit trail](audit.en.md) | One entry per change, with a before/after diff, in the same transaction. |
 | [Choosing the SQLite driver](sqlite-drivers.en.md) | `node:sqlite` (default) or `better-sqlite3`, via the engine option or the URL suffix. |
 | [Transactions and savepoints](transactions.en.md) | Atomic operations with automatic commit/rollback and savepoints. |
 | [JSON and enum columns](json-enum.en.md) | Store typed objects and literal unions with type safety. |

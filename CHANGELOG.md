@@ -26,6 +26,15 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Trilha de auditoria append-only** — `auditLogModel(tabela)` para o schema e
+  `enableAudit(Model, { log, actor, exclude })` para ligar. Uma entrada por
+  create/update/delete, com `rowKey` (chave composta inteira), ação, ator resolvido **na
+  hora da escrita** e um diff `{ coluna: [antes, depois] }` que traz **só o que mudou** —
+  update sem delta não gera entrada. Implementado sobre os signals (#36), então a entrada
+  é escrita na mesma session e, portanto, na mesma transação da mudança: rollback leva a
+  entrada junto, porque trilha que registra mudança não-commitada é pior que trilha
+  nenhuma (#43).
+
 - **`TenantScopedRepository`** — repository preso a um tenant: o predicado entra em
   **toda** leitura e a coluna é carimbada em **toda** escrita, porque os métodos do
   `BaseRepository` passam a atravessar um ponto único de escopo (`scopeFilters` /
