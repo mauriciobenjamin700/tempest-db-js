@@ -11,6 +11,7 @@
  * This is a SPIKE, not the final API.
  */
 
+import { aliasOf } from "./aliased.js";
 import {
   type CondNode,
   type Condition,
@@ -89,6 +90,8 @@ export interface LockOptions {
 export interface SelectNode {
   readonly kind: "select";
   readonly table: string;
+  /** The name the table is read under (`FROM "users" AS "sub"`), when aliased. */
+  readonly alias?: string | undefined;
   /** Projected columns, or "*" for the whole row. */
   readonly columns: readonly string[] | "*";
   /** Emit `SELECT DISTINCT` when true. */
@@ -673,10 +676,12 @@ export function select(
   model: ModelClass,
   columns?: readonly string[],
 ): SelectBuilder<unknown, unknown> {
+  const base = aliasOf(model);
   return new SelectBuilder(
     {
       kind: "select",
-      table: model.tablename,
+      table: base ? base.tablename : model.tablename,
+      alias: base ? model.tablename : undefined,
       columns: columns ?? "*",
       distinct: false,
       aggregates: [],

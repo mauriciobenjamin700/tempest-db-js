@@ -11,7 +11,7 @@
  * special casing anywhere else.
  */
 
-import type { InferModel, ModelClass } from "./index.js";
+import type { InferModel, ModelClass, NamingStrategy } from "./index.js";
 import { type SelectBuilder, type SelectNode, select } from "./query.js";
 import type { SetBuilder, SetNode } from "./setops.js";
 
@@ -44,6 +44,28 @@ export interface CteOptions {
    * Ignored where the dialect has no such syntax.
    */
   readonly materialized?: boolean;
+}
+
+/**
+ * Build the model that reads from the CTE.
+ *
+ * Unlike {@link aliased}, the name here **is** the relation — `FROM "subtree"`,
+ * not `FROM "categories" AS "subtree"` — so this does not mark the class as an
+ * alias of the underlying table.
+ *
+ * @param model The model whose shape the CTE yields.
+ * @param name The CTE's name.
+ * @returns A model class reading from the CTE.
+ */
+function cteModel<C extends ModelClass>(model: C, name: string): C {
+  const relation = class extends (model as unknown as new () => object) {};
+  Object.defineProperty(relation, "tablename", { value: name, writable: true });
+  Object.defineProperty(relation, "naming", {
+    value: (model as { naming?: NamingStrategy }).naming,
+    writable: true,
+  });
+  Object.defineProperty(relation, "tableArgs", { value: undefined, writable: true });
+  return relation as unknown as C;
 }
 
 /**
@@ -96,22 +118,6 @@ export function attach<B extends { node: object }>(builder: B, node: CteNode): B
 }
 
 /**
- * Build the alias model: the same columns, under the CTE's name.
- *
- * @param model The model whose shape the CTE yields.
- * @param name The CTE's name.
- * @returns A model class reading from the CTE.
- */
-function aliasModel<C extends ModelClass>(model: C, name: string): C {
-  const alias = class extends (model as unknown as new () => object) {};
-  Object.defineProperty(alias, "tablename", { value: name, writable: true });
-  Object.defineProperty(alias, "naming", {
-    value: (model as { naming?: unknown }).naming,
-  });
-  return alias as unknown as C;
-}
-
-/**
  * A named query the rest of the statement can select from.
  *
  * @param name The CTE's name.
@@ -133,7 +139,7 @@ export function cte<C extends ModelClass>(
   body: CteBody<InferModel<C>>,
   options?: CteOptions,
 ): Cte<C> {
-  return new Cte(aliasModel(model, name), {
+  return new Cte(cteModel(model, name), {
     name,
     recursive: false,
     body: body.node as SelectNode | SetNode,
@@ -170,7 +176,7 @@ export function cteRecursive<C extends ModelClass>(
   build: (self: C) => CteBody<InferModel<C>>,
   options?: CteOptions,
 ): Cte<C> {
-  const self = aliasModel(model, name);
+  const self = cteModel(model, name);
   return new Cte(self, {
     name,
     recursive: true,

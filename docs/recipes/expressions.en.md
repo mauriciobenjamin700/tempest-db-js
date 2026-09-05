@@ -219,6 +219,38 @@ select(User).where(scalar(biggest).gt(100));
 pins the projection to **one** column. A scalar subquery returning two columns is a
 runtime error in every database; here it is a compile error.
 
+## Table aliases outside a join
+
+`join(Model, "a")` has always required an alias, so a self-join works there. A plain
+`select()` had no way to name its own table — which is what a correlated subquery over the
+**same** table needs: without an alias, the inner and outer `users` are the same name.
+
+```ts
+import { aliased, col, exists, select } from "tempest-db-js";
+
+const sub = aliased(Employee, "sub");
+
+select(Employee).where(
+  exists(select(sub).where({ managerId: col("employees.id") })),
+);
+// WHERE EXISTS (SELECT * FROM "employees" AS "sub" WHERE "managerId" = "employees"."id")
+```
+
+`aliased(Model, "x")` returns a **real model**: same columns, same naming strategy, same
+codecs. It works in `select`, in `join`, in `col("x.column")` and in row coercion, with no
+special casing.
+
+!!! info "An alias is not a second declaration of the table"
+
+    Table args (`unique`, `check`, `index`) are **not** carried over. An alias is a way to
+    **read** the table; reflecting it into a migration would try to create a table named
+    after the alias.
+
+!!! tip "For a CTE use `cte()` — there the name is the relation"
+
+    In a CTE the name **is** the relation (`FROM "subtree"`), not a nickname for another
+    table (`FROM "categories" AS "subtree"`). Different things, hence different functions.
+
 ## Recap
 
 - `col<Row>("column")` references a column; comparing two gives `WHERE a > b`.

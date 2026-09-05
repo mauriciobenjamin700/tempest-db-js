@@ -9,6 +9,7 @@
  * split back into one nested object per source, each coerced by its model.
  */
 
+import { aliasOf } from "./aliased.js";
 import { type CondNode, type Condition, toCondNode } from "./conditions.js";
 import {
   type InferModel,
@@ -181,7 +182,7 @@ export class JoinBuilder<S extends Sources> {
   ): JoinClause {
     return {
       kind,
-      table: model.tablename,
+      table: aliasOf(model)?.tablename ?? model.tablename,
       alias,
       on: Object.entries(on) as [string, string][],
     };
@@ -292,7 +293,7 @@ export function join<C extends ModelClass, A extends string>(
   return new JoinBuilder(
     {
       kind: "join_select",
-      base: { table: model.tablename, alias },
+      base: { table: aliasOf(model)?.tablename ?? model.tablename, alias },
       joins: [],
       selections: selectionsFor(alias, model),
       where: undefined,

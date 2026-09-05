@@ -1337,6 +1337,8 @@ export {
   cteRecursive,
 } from "./cte.js";
 
+export { aliasOf, aliased } from "./aliased.js";
+
 export {
   BaseRepository,
   type BulkUpsertOptions,
