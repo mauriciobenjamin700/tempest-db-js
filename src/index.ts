@@ -1035,6 +1035,15 @@ export {
 } from "./setops.js";
 
 export {
+  type ClaimOptions,
+  type FailOptions,
+  type OutboxEventInput,
+  OutboxRepository,
+  type OutboxStatus,
+  outboxModel,
+} from "./outbox.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,

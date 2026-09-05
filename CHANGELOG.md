@@ -26,6 +26,15 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Outbox transacional** — `outboxModel(tabela)` para o schema e `OutboxRepository`
+  para o relay: `publish`, `pending`, `claim`, `markSent`, `markFailed` com backoff e
+  desistência permanente. `claim` usa `FOR UPDATE SKIP LOCKED` sobre subquery, então dois
+  relays concorrentes pegam lotes **disjuntos**, e incrementa `attempts` no próprio claim,
+  o que dá a política de dead letter de graça. `publish()` **não** abre transação própria
+  de propósito: a atomicidade vem do `transaction()` re-entrante, com a linha de negócio
+  e o evento na mesma session — um `saveWithOutbox` seria um segundo jeito de fazer a
+  mesma coisa (#40).
+
 - **Operações de conjunto: `union`, `unionAll`, `intersect` e `except`** — combinam dois
   ou mais SELECTs num builder executável como qualquer outro, com a **forma dos ramos
   verificada em tempo de compilação** (é o erro que o banco só reporta em runtime).

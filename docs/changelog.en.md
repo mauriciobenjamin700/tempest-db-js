@@ -25,6 +25,15 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Transactional outbox** — `outboxModel(table)` for the schema and `OutboxRepository`
+  for the relay: `publish`, `pending`, `claim`, `markSent`, `markFailed` with backoff and
+  permanent give-up. `claim` uses `FOR UPDATE SKIP LOCKED` over a subquery, so two
+  concurrent relays take **disjoint** batches, and it increments `attempts` on the claim
+  itself, which gives a dead-letter policy for free. `publish()` deliberately does **not**
+  open its own transaction: atomicity comes from the re-entrant `transaction()`, with the
+  business row and the event on the same session — a `saveWithOutbox` would be a second
+  way to do the same thing (#40).
+
 - **Set operations: `union`, `unionAll`, `intersect` and `except`** — they combine two or
   more SELECTs into a builder executable like any other, with **branch shapes checked at
   compile time** (the mistake the database only reports at runtime).
