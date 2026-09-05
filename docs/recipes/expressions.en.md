@@ -177,6 +177,48 @@ accepts:
     the database has to convert row by row. If the comparison is frequent, the fix is a
     **functional index** over the same expression, or fixing the column's type.
 
+## `EXISTS` — "is there any?"
+
+```ts
+import { col, exists, notExists, select } from "tempest-db-js";
+
+select(User).where(
+  exists(select(Order).where({ userId: col("users.id"), status: "open" })),
+);
+// WHERE EXISTS (SELECT * FROM "orders" WHERE "userId" = "users"."id" AND "status" = $1)
+```
+
+`notExists` is the complement — customers **without** an open order.
+
+!!! tip "`EXISTS` for existence, `IN` for membership"
+
+    A correlated `EXISTS` can stop at the **first** matching row; an `IN` over a
+    subquery materializes the set before comparing. When the question is "is there at
+    least one?", `EXISTS` is the shape the planner optimizes best.
+
+### Column against column, in the object form
+
+`where({ userId: col("users.id") })` compares **two columns**. Such a value used to be
+bound as a parameter in the object form — the subquery compared the column against the
+string `"users.id"`. The `where` now accepts an expression both as a bare value and
+inside an operator (`{ total: { gt: col("orders.paid") } }`).
+
+## Scalar subqueries
+
+```ts
+const biggest = select(Order, ["total"])
+  .where({ userId: col("users.id") })
+  .orderBy("total", "desc")
+  .limit(1)
+  .asSubquery("total");
+
+select(User).where(scalar(biggest).gt(100));
+```
+
+`scalar()` takes the result of `.asSubquery(column)`, not a bare builder — that is what
+pins the projection to **one** column. A scalar subquery returning two columns is a
+runtime error in every database; here it is a compile error.
+
 ## Recap
 
 - `col<Row>("column")` references a column; comparing two gives `WHERE a > b`.

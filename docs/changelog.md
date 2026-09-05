@@ -24,6 +24,17 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`exists` / `notExists` e `scalar`** — `EXISTS (...)` correlacionado, que é a forma
+  certa quando só importa a existência (o banco para na primeira linha que casa, o que um
+  `IN` sobre conjunto materializado não faz), e subquery escalar como valor. `scalar()`
+  recebe o resultado de `.asSubquery(coluna)`, então uma subquery escalar de duas colunas
+  vira erro de **compilação** em vez de erro de runtime no banco (#38).
+- **`where` aceita expressão na forma objeto** — `{ userId: col("users.id") }` compara
+  duas colunas, e `{ total: { gt: col("paid") } }` também. Antes, expressão nessa posição
+  era **ligada como parâmetro**: a comparação virava coluna contra a string
+  `"users.id"`, silenciosamente. Referência qualificada (`tabela.coluna`) passou a ser
+  resolvida como `"tabela"."coluna"` em vez de virar um identificador só (#38).
+
 - **`BaseRepository`: `existsExcluding`, `bulkUpsert`, `softDelete`/`restore`,
   `deleteBatch` e `changesSince`** — as operações que todo serviço reescrevia por cima
   do builder. `changesSince` é o read de delta sync: filtro **estrito** por `updatedAt`,

@@ -176,6 +176,48 @@ O alvo vem de um vocabulário portátil, e cada dialeto renderiza o nome que ele
     banco precisa converter linha a linha. Se a comparação é frequente, o certo é um
     **índice funcional** sobre a mesma expressão, ou consertar o tipo da coluna.
 
+## `EXISTS` — "existe alguma?"
+
+```ts
+import { col, exists, notExists, select } from "tempest-db-js";
+
+select(User).where(
+  exists(select(Order).where({ userId: col("users.id"), status: "open" })),
+);
+// WHERE EXISTS (SELECT * FROM "orders" WHERE "userId" = "users"."id" AND "status" = $1)
+```
+
+`notExists` é o complemento — clientes **sem** pedido aberto.
+
+!!! tip "`EXISTS` para existir, `IN` para pertencer"
+
+    `EXISTS` correlacionado pode parar na **primeira** linha que casa; um `IN` sobre
+    subquery materializa o conjunto antes de comparar. Quando a pergunta é "existe pelo
+    menos uma?", `EXISTS` é a forma que o planner otimiza melhor.
+
+### Coluna contra coluna, na forma objeto
+
+`where({ userId: col("users.id") })` compara **duas colunas**. Antes, um valor desses na
+forma objeto era ligado como parâmetro — a subquery comparava a coluna com a string
+`"users.id"`. Agora o `where` aceita expressão tanto no valor solto quanto dentro do
+operador (`{ total: { gt: col("orders.paid") } }`).
+
+## Subquery escalar
+
+```ts
+const maior = select(Order, ["total"])
+  .where({ userId: col("users.id") })
+  .orderBy("total", "desc")
+  .limit(1)
+  .asSubquery("total");
+
+select(User).where(scalar(maior).gt(100));
+```
+
+`scalar()` recebe o resultado de `.asSubquery(coluna)`, não um builder solto — é o que
+fixa a projeção em **uma** coluna. Subquery escalar devolvendo duas colunas é erro de
+runtime em todo banco; aqui é erro de compilação.
+
 ## Recap
 
 - `col<Row>("coluna")` referencia uma coluna; comparar duas dá `WHERE a > b`.

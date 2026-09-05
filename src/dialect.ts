@@ -9,7 +9,12 @@
  * It does NOT touch a database — execution is Phase 4b (`session.execute`).
  */
 
-import type { CastType, CondNode, ExprNode } from "./conditions.js";
+import {
+  type CastType,
+  type CondNode,
+  type ExprNode,
+  isExpression,
+} from "./conditions.js";
 import type { TransactionOptions } from "./engine.js";
 import { renderExcluded, renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
@@ -241,7 +246,16 @@ export abstract class BaseDialect {
    * @returns The quoted database identifier.
    */
   protected columnId(prop: string, names: NameMap | undefined): string {
-    return this.quoteId(names?.[prop] ?? prop);
+    const mapped = names?.[prop];
+    if (mapped !== undefined) return this.quoteId(mapped);
+    const dot = prop.indexOf(".");
+    // A dotted reference is a correlated one — `col("users.id")` inside a
+    // subquery points at the outer query's table, and quoting it whole would
+    // produce the identifier "users.id" instead of "users"."id".
+    if (dot > 0 && dot < prop.length - 1) {
+      return `${this.quoteId(prop.slice(0, dot))}.${this.quoteId(prop.slice(dot + 1))}`;
+    }
+    return this.quoteId(prop);
   }
 
   /**
@@ -648,9 +662,28 @@ export abstract class BaseDialect {
         const conditions: string[] = [];
         for (const [key, value] of Object.entries(node.fields)) {
           const id = idFor(key);
-          if (isOperatorObject(value)) {
+          if (isExpression(value)) {
+            // `where({ userId: col("users.id") })` — the value is another column,
+            // not a parameter. Binding it would compare the column against the
+            // string "users.id".
+            conditions.push(
+              this.compileExprOperator(
+                id,
+                "eq",
+                this.renderExpr(value.node, params, idFor),
+              ),
+            );
+          } else if (isOperatorObject(value)) {
             for (const [op, operand] of Object.entries(value)) {
-              conditions.push(this.compileOperator(id, op, operand, params));
+              conditions.push(
+                isExpression(operand)
+                  ? this.compileExprOperator(
+                      id,
+                      op,
+                      this.renderExpr(operand.node, params, idFor),
+                    )
+                  : this.compileOperator(id, op, operand, params),
+              );
             }
           } else {
             // bare value → equality (null → IS NULL)
@@ -673,6 +706,12 @@ export abstract class BaseDialect {
       case "not": {
         const inner = this.compileCondition(node.part, params, idFor);
         return inner ? `NOT (${inner})` : "";
+      }
+      case "exists": {
+        const select = node.select as SelectNode;
+        this.checkSubquery(select);
+        const keyword = node.negate ? "NOT EXISTS" : "EXISTS";
+        return `${keyword} (${this.compileSelect(select, params)})`;
       }
       case "fullText":
         return this.compileFullText(node, params, idFor);
@@ -774,6 +813,11 @@ export abstract class BaseDialect {
       }
       case "cast":
         return `CAST(${this.renderExpr(node.operand, params, idFor)} AS ${this.castTypeName(node.to)})`;
+      case "scalar": {
+        const select = node.select as SelectNode;
+        this.checkSubquery(select);
+        return `(${this.compileSelect(select, params)})`;
+      }
       case "rank":
         return this.renderRank(node.columns, node.term, node.language, params, idFor);
     }
