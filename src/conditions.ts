@@ -26,7 +26,35 @@ export interface CondFields {
 export type ExprNode =
   | { readonly kind: "column"; readonly name: string }
   | { readonly kind: "value"; readonly value: unknown }
-  | { readonly kind: "fn"; readonly name: string; readonly args: readonly ExprNode[] };
+  | { readonly kind: "fn"; readonly name: string; readonly args: readonly ExprNode[] }
+  | {
+      readonly kind: "case";
+      readonly branches: readonly { readonly when: CondNode; readonly then: ExprNode }[];
+      readonly fallback: ExprNode | null;
+    }
+  | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType };
+
+/**
+ * A target type for {@link cast}.
+ *
+ * Kept as a portable vocabulary rather than raw SQL: each dialect maps it to the
+ * name it actually accepts (`integer` is `INTEGER` on PostgreSQL and `SIGNED` on
+ * MySQL), so the same model does not need a different cast per database.
+ */
+export type CastType =
+  | "integer"
+  | "bigint"
+  | "real"
+  | "numeric"
+  | "text"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "timestamp"
+  | "uuid"
+  | "json"
+  | "jsonb"
+  | "blob";
 
 /** Logical condition nodes. */
 export type CondNode =
@@ -232,6 +260,64 @@ export function col<Row = Record<string, unknown>>(name: keyof Row & string): Ex
  */
 export function val(value: unknown): Expression {
   return new Expression({ kind: "value", value });
+}
+
+/**
+ * A `CASE WHEN ... THEN ... ELSE ... END` expression.
+ *
+ * The branch conditions are the same `where` language used everywhere else — the
+ * object form or a `Condition` — so no second grammar shows up just for `CASE`.
+ * The branch results are expressions, and a bare value there is **bound**, not
+ * interpolated.
+ *
+ * The classic use is a conditional aggregate: summing only the rows that match,
+ * in one pass over the table instead of one query per bucket.
+ *
+ * @param branches `[condition, result]` pairs, evaluated in order.
+ * @param fallback The `ELSE` result. Omitted, a row matching no branch is `NULL`.
+ * @returns An expression usable anywhere an expression is.
+ * @throws Error When no branch is given — `CASE END` is not valid SQL.
+ *
+ * @example
+ * ```ts
+ * select(Order).aggregate(["customer"], {
+ *   paid: sum(caseWhen([[{ status: "paid" }, col("total")]], val(0))),
+ * });
+ * // SUM(CASE WHEN "status" = $1 THEN "total" ELSE $2 END) AS "paid"
+ * ```
+ */
+export function caseWhen<Row = Record<string, unknown>>(
+  branches: readonly (readonly [WhereArg<Row>, unknown])[],
+  fallback?: unknown,
+): Expression {
+  if (branches.length === 0) {
+    throw new Error("caseWhen() needs at least one [condition, result] branch.");
+  }
+  return new Expression({
+    kind: "case",
+    branches: branches.map(([when, then]) => ({
+      when: toCondNode(when as Condition | Record<string, unknown>),
+      then: toExprNode(then),
+    })),
+    fallback: fallback === undefined ? null : toExprNode(fallback),
+  });
+}
+
+/**
+ * A `CAST(x AS type)` expression.
+ *
+ * @param operand The expression to convert; a bare string is a column name.
+ * @param to The target type, from the portable {@link CastType} vocabulary.
+ * @returns An expression for the cast.
+ *
+ * @example
+ * ```ts
+ * select(Event).where(cast("externalId", "integer").eq(42));
+ * // WHERE CAST("externalId" AS INTEGER) = $1
+ * ```
+ */
+export function cast(operand: Expression | string, to: CastType): Expression {
+  return new Expression({ kind: "cast", operand: toArg(operand), to });
 }
 
 /** Function names are interpolated verbatim, so they must be plain identifiers. */

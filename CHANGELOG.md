@@ -26,6 +26,16 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **`caseWhen` e `cast`** — `CASE WHEN ... THEN ... ELSE ... END` e `CAST(x AS tipo)`
+  como expressões de primeira classe. Os ramos do `CASE` usam a mesma linguagem de
+  `where`, sem gramática nova, e o alvo do `CAST` é um vocabulário portátil que cada
+  dialeto renderiza com o nome que aceita (`integer` é `INTEGER` no PostgreSQL e no
+  SQLite, `SIGNED` no MySQL). Antes as duas saíam por `sql.raw`, perdendo tipo (#31).
+- **Agregação sobre expressão** — `sum`/`avg`/`min`/`max` passam a aceitar expressão
+  além de nome de coluna, que é o que torna a agregação condicional
+  (`SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END)`) expressável: uma passada na
+  tabela em vez de uma query por bucket (#31).
+
 - **`transaction()` re-entrante** — bloco aninhado na mesma sessão adere ao de fora:
   um `BEGIN`, um `COMMIT`, e a falha interna faz rollback do conjunto. É o que faz um
   service que orquestra vários repositories funcionar, já que todos seguram a mesma
