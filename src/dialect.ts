@@ -15,6 +15,7 @@ import {
   type ExprNode,
   isExpression,
 } from "./conditions.js";
+import type { CteNode } from "./cte.js";
 import type { TransactionOptions } from "./engine.js";
 import { renderExcluded, renderPortableToken } from "./expressions.js";
 import { type NameMap, type SqlExpression, isSqlExpression } from "./index.js";
@@ -226,6 +227,36 @@ export abstract class BaseDialect {
   }
 
   /**
+   * Render the `WITH` clause of a statement.
+   *
+   * `RECURSIVE` is a property of the **clause**, not of an entry: one recursive
+   * entry makes the whole `WITH` recursive, which is what the SQL standard says
+   * and what PostgreSQL and SQLite both implement.
+   *
+   * @param entries The `WITH` entries, if any.
+   * @param params The parameter collector.
+   * @returns The clause with a trailing space, or an empty string.
+   */
+  protected compileWith(entries: readonly CteNode[] | undefined, params: Params): string {
+    if (!entries || entries.length === 0) return "";
+    const recursive = entries.some((entry) => entry.recursive) ? "RECURSIVE " : "";
+    const rendered = entries.map((entry) => {
+      const body =
+        entry.body.kind === "set_op"
+          ? this.compileSetOp(entry.body, params)
+          : this.compileSelect(entry.body, params);
+      const hint =
+        entry.materialized === null
+          ? ""
+          : entry.materialized
+            ? " MATERIALIZED"
+            : " NOT MATERIALIZED";
+      return `${this.quoteId(entry.name)} AS${hint} (${body})`;
+    });
+    return `WITH ${recursive}${rendered.join(", ")} `;
+  }
+
+  /**
    * The `EXPLAIN` prefix for this dialect.
    *
    * @param analyze Whether to measure by actually running the statement.
@@ -270,7 +301,10 @@ export abstract class BaseDialect {
   protected compileSetOp(node: SetNode, params: Params): string {
     const keyword = ` ${this.setOperator(node.op)} `;
     const branches = node.branches.map((branch) => {
-      const sql = this.compileSelect(branch, params);
+      const sql =
+        branch.kind === "join_select"
+          ? this.compileJoin(branch, params)
+          : this.compileSelect(branch, params);
       const scoped = branch.orderBy.length > 0 || branch.limit !== undefined;
       return scoped ? `(${sql})` : sql;
     });
@@ -445,7 +479,7 @@ export abstract class BaseDialect {
         `${this.renderExpr(expr, params, (k) => this.columnId(k, names))} AS ${this.quoteId(alias)}`,
     );
     if (computed.length > 0) cols = [cols, ...computed].join(", ");
-    let sql = `SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
+    let sql = `${this.compileWith(node.with, params)}SELECT ${node.distinct ? "DISTINCT " : ""}${cols} FROM ${this.quoteId(node.table)}`;
 
     const where = this.compileCondition(node.where, params, (k) =>
       this.columnId(k, names),
@@ -683,15 +717,19 @@ export abstract class BaseDialect {
     return sql;
   }
 
-  private compileJoin(node: JoinNode, params: Params): string {
+  protected compileJoin(node: JoinNode, params: Params): string {
     const names = node.names;
     const cols = node.selections
       .map((s) => {
         const ref = `${s.alias}.${s.column}`;
-        return `${this.qualify(ref, names)} AS ${this.quoteId(ref)}`;
+        // `pick` projects one source flat, so the labels are the bare column
+        // names a single-table shape needs, not the "alias.column" a composite
+        // row is split by.
+        const label = node.pick ? s.column : ref;
+        return `${this.qualify(ref, names)} AS ${this.quoteId(label)}`;
       })
       .join(", ");
-    let sql = `SELECT ${cols} FROM ${this.quoteId(node.base.table)} AS ${this.quoteId(node.base.alias)}`;
+    let sql = `${this.compileWith(node.with, params)}SELECT ${cols} FROM ${this.quoteId(node.base.table)} AS ${this.quoteId(node.base.alias)}`;
     for (const j of node.joins) {
       const kw = j.kind === "left" ? "LEFT JOIN" : "INNER JOIN";
       const on = j.on

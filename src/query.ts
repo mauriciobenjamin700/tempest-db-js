@@ -100,6 +100,8 @@ export interface SelectNode {
   /** `HAVING` condition, keyed by aggregate alias or grouped column. */
   readonly having?: CondNode | undefined;
   readonly orderBy: readonly OrderTerm[];
+  /** `WITH` entries this statement carries, in order. */
+  readonly with?: readonly import("./cte.js").CteNode[] | undefined;
   /** Extra projected expressions, by result alias (window functions, CASE, …). */
   readonly computed?: Readonly<Record<string, ExprNode>> | undefined;
   readonly limit: number | undefined;

@@ -26,6 +26,17 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **CTE: `cte` e `cteRecursive`** — `WITH` e `WITH RECURSIVE`. O `.model` da CTE é um
+  model de verdade com o nome dela como tabela, então `select`, `join` e `where` a aceitam
+  sem caso especial. A forma recursiva percorre árvore numa query só; o `RECURSIVE` é
+  emitido para a **cláusula** quando qualquer entrada é recursiva, como manda o padrão.
+  Hint de materialização (`MATERIALIZED` / `NOT MATERIALIZED`) para PostgreSQL 12+ (#46).
+- **`join(...).pick(alias)`** — projeta **um** source do join, com nomes de coluna simples
+  em vez da linha composta. É o que faz um join caber onde um `SELECT` de uma tabela cabe:
+  o ramo recursivo de uma CTE, um ramo de `UNION`. Sem isso, as colunas do ramo
+  (`"c.id"`) não batem com as da CTE. Operações de conjunto passaram a aceitar um ramo de
+  join assim (#46).
+
 - **Funções de janela e `select().compute()`** — `over(fn, { partitionBy, orderBy,
   frame })` com `rowNumber`, `rank`, `denseRank`, `percentRank`, `lag`, `lead`,
   `firstValue`, `lastValue` e qualquer agregação. `compute({ alias: expressão })` projeta

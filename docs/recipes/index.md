@@ -40,6 +40,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | [Expressões no `where`](expressions.md) | Coluna vs coluna e funções SQL, para casar índice funcional. |
 | [Operações de conjunto](set-operations.md) | `UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT` com a forma dos ramos checada no tipo. |
 | [Funções de janela](window-functions.md) | `rowNumber`, `rank`, `lag`/`lead` e agregação em janela, via `compute()`. |
+| [CTE (WITH e WITH RECURSIVE)](cte.md) | Nomear uma consulta e percorrer árvore numa query só. |
 | [MySQL: o que muda](mysql.md) | `RETURNING` por read-back e o que o MySQL não faz. |
 
 ## Procurando algo maior?

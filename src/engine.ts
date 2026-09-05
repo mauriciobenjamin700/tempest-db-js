@@ -339,9 +339,15 @@ function splitJoinRow(
 
 /** Coerce one raw driver row into the builder's native row shape. */
 function coerceOne(builder: unknown, raw: Record<string, unknown>): unknown {
-  const node = (builder as { node: { kind: string } }).node;
+  const node = (builder as { node: { kind: string; pick?: string } }).node;
   if (node.kind === "join_select") {
     const b = builder as unknown as JoinRunnable;
+    // `pick` asked for one source, flat: coerce it like a single-table row
+    // instead of splitting the composite.
+    if (node.pick) {
+      const model = b.sources[node.pick];
+      if (model) return coerceRow(model, raw);
+    }
     return splitJoinRow(b.node, b.sources, raw);
   }
   const b = builder as unknown as SingleBuilder;
