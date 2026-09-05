@@ -201,6 +201,49 @@ do {
     The query filters and orders by `updatedAt`. Without an index on that column every
     pull is a full scan.
 
+## Multi-tenant: a scope you cannot forget
+
+In a shared-schema database every row lives in the same table, and one forgotten
+`WHERE tenantId = ?` leaks one customer's data to another. The problem is not the
+predicate — it is that **every** query site has to remember it.
+
+```ts
+const docs = new TenantScopedRepository(Doc, session, {
+  column: "tenantId",
+  id: currentTenant,
+});
+
+await docs.list({ status: "open" });   // ... AND "tenantId" = ?
+await docs.create({ title: "new" });   // tenantId filled in
+```
+
+The predicate joins **every** read — `list`, `first`, `exists`, `count`, `getById`,
+`paginate`, `cursorPaginate`, `update`, `delete` — because those methods go through a
+single scoping point (`scopeFilters`), not because each one remembers.
+
+!!! danger "Another tenant's row is "not found", not "forbidden""
+
+    `getById` of another customer's row raises `RecordNotFound` — the same as a row that
+    does not exist. Telling the two apart would already be a leak: it would confirm that
+    the id exists somewhere else.
+
+!!! warning "Writing another tenant **throws**"
+
+    ```ts
+    await docs.create({ id: 5, tenantId: 2, title: "x" });
+    // Error: Refusing to write docs.tenantId = 2 from a repository scoped to 1
+    ```
+
+    Silently overwriting it would turn a caller's bug into data that looks deliberate.
+
+!!! info "The filter is added to, never replaced"
+
+    Passing `{ tenantId: other }` in a filter yields a contradiction that matches nothing
+    — not a window into the other tenant.
+
+A model without the tenant column makes the constructor throw: a scope that silently
+matches nothing is worse than no scope at all.
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — typed CRUD + pagination.
