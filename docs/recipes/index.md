@@ -16,6 +16,7 @@ receitas mostram como aplicá-los em situações reais do dia a dia.
 | --- | --- |
 | [Chaves estrangeiras e UNIQUE](constraints.md) | FK, UNIQUE de coluna e constraints de tabela (composto/nomeado), estilo SQLAlchemy. |
 | [created_at / updated_at](timestamps.md) | Timestamps gerenciados pelo banco, sem lembrar de setar na mão. |
+| [Mixins de modelo](mixins.md) | `withTimestamps`, `withSoftDelete`, `withAudit` — as colunas repetidas em toda tabela, declaradas uma vez. |
 | [Paginação tipada](pagination.md) | Listas paginadas com total/páginas, alinhadas ao `tempest-fastapi-sdk`. |
 | [Agregações e DISTINCT](aggregations.md) | `count`/`sum`/`avg`/`min`/`max` + `GROUP BY` tipado e `DISTINCT`. |
 | [Upsert (ON CONFLICT)](upsert.md) | Inserir resolvendo conflito de chave: `DO NOTHING` ou `DO UPDATE`. |

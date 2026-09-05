@@ -20,6 +20,16 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **Mixins de modelo** — `withTimestamps` (`createdAt`/`updatedAt`), `withSoftDelete`
+  (`deletedAt`, mais `notDeleted()`/`onlyDeleted()` para o `where`) e `withAudit`
+  (`createdBy`/`updatedBy`, com o tipo do autor configurável por fábrica). São funções
+  que recebem a classe base e devolvem a subclasse, então compõem
+  (`withAudit(withSoftDelete(withTimestamps(Model)))`) e contribuem colunas de verdade:
+  aparecem no `InferModel`, no `InferInsert`, no IR de migração e no DDL (#26).
+- **`defaultAsWriteValue`** — converte o default guardado numa coluna
+  (`DefaultValue`) para o que o caminho de escrita renderiza. Era a peça que faltava
+  entre o formato do IR e o de `set()`/`values()`.
+
 - **`EngineOptions.sqlite`** — pragmas por conexão aplicados na abertura:
   `foreignKeys` (default `true`), `journalMode`, `busyTimeoutMs`, `synchronous`. Cada
   um é **relido depois de escrito**, porque o SQLite responde a um pragma que não pode
@@ -28,6 +38,14 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   (#28).
 
 ### Corrigido
+
+- **`Column.onUpdate()` passou a ser aplicado.** O valor era guardado na coluna e
+  **nunca consumido** — nem no DDL, nem no builder —, então `.onUpdate(sql.now())`
+  não fazia nada, apesar de a receita `created_at / updated_at` documentar que "o valor
+  é reaplicado a cada UPDATE". Agora o `UpdateBuilder` injeta o valor de toda coluna com
+  `onUpdate` que o `set()` não menciona. Aplicado na escrita, não no schema: só o MySQL
+  tem `ON UPDATE` de coluna, e renderizar no DDL faria o mesmo modelo divergir por
+  banco. Valor explícito no `set()` continua vencendo (#26).
 
 - **Chave primária composta é respeitada inteira** no `BaseRepository` e no
   `activeRecord`. As duas camadas tinham uma cópia de `primaryKeyOf` que devolvia a

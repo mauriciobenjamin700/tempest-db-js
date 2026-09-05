@@ -16,6 +16,7 @@ recipes show you how to apply them in real day-to-day situations.
 | --- | --- |
 | [Foreign keys & UNIQUE](constraints.en.md) | FK, column UNIQUE and table constraints (composite/named), SQLAlchemy-style. |
 | [created_at / updated_at](timestamps.en.md) | Database-managed timestamps, without remembering to set them by hand. |
+| [Model mixins](mixins.en.md) | `withTimestamps`, `withSoftDelete`, `withAudit` — the columns every table repeats, declared once. |
 | [Typed pagination](pagination.en.md) | Paginated lists with total/pages, aligned with `tempest-fastapi-sdk`. |
 | [Aggregations & DISTINCT](aggregations.en.md) | `count`/`sum`/`avg`/`min`/`max` + typed `GROUP BY` and `DISTINCT`. |
 | [Upsert (ON CONFLICT)](upsert.en.md) | Insert resolving a key conflict: `DO NOTHING` or `DO UPDATE`. |

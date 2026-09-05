@@ -392,6 +392,8 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `createEngine(url, { driverOptions })` | Repasse direto ao driver, aplicado por último (vence `pool`/`onNotice`). |
 | `createEngine(url, { driver })` | Escolhe o driver do SQLite: `"node:sqlite"` (padrão) ou `"better-sqlite3"`. Nome desconhecido lança. |
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Os dois drivers SQLite; `.open(path, options?)` abre um handle direto. |
+| `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Mixins de modelo: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
+| `notDeleted()` / `onlyDeleted()` | Fragmentos de `where` para o mixin de soft delete. |
 | `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | Colunas da chave primária (array — composta é mais de uma) e o filtro que identifica uma linha. |
 | `createEngine(url, { sqlite })` | Pragmas por conexão: `foreignKeys` (default **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Recusado pelo SQLite ⇒ erro. |
 

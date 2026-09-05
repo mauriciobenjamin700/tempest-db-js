@@ -15,6 +15,12 @@ on SQLite, `now()` on PostgreSQL).
 
 It's the same model as SQLAlchemy's `server_default` + `onupdate`.
 
+!!! tip "Do not hand-write the pair"
+
+    [`withTimestamps(Model)`](mixins.en.md) declares exactly this pair for you, and does
+    not let one table end up with `updatedAt` but no `onUpdate`. This page explains what
+    the mixin does underneath.
+
 ## The model
 
 ```ts
