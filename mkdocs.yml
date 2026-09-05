@@ -90,6 +90,7 @@ plugins:
             Escolhendo o driver do SQLite: Choosing the SQLite driver
             Transações e savepoints: Transactions & savepoints
             Colunas JSON e enum: JSON & enum columns
+            Tipos de coluna próprios: Custom column types
             Serialização (linha ↔ JSON): Serialization (row ↔ JSON)
             Conectando ao PostgreSQL: Connecting to PostgreSQL
             Fila durável com PostgreSQL: A durable queue on PostgreSQL
@@ -177,6 +178,7 @@ nav:
       - Escolhendo o driver do SQLite: recipes/sqlite-drivers.md
       - Transações e savepoints: recipes/transactions.md
       - Colunas JSON e enum: recipes/json-enum.md
+      - Tipos de coluna próprios: recipes/custom-types.md
       - Serialização (linha ↔ JSON): recipes/serialization.md
       - Conectando ao PostgreSQL: recipes/postgres.md
       - Fila durável com PostgreSQL: recipes/queue.md

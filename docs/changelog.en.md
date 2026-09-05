@@ -25,6 +25,14 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`customType({ base, toDb, fromDb })`** — a column type of your own (money in cents,
+  `Temporal`, a branded id, a value object). The conversion runs in all **three** places
+  that matter: writes (`values`/`set`), reads (row coercion, `RETURNING`, `stream`, joins)
+  and **`where` operands** — including each element of an `in` and both ends of a
+  `between`. The DDL and the IR keep using the `base` type, so a custom type is invisible
+  to the schema and cannot cause drift. `null` passes straight through, and a SQL
+  expression is not converted — it is rendered (#49).
+
 - **`check()` and `index()` in `tableArgs`** — `CHECK` (with the expression in the **same
   language as `where`**, not a raw string, so the diff compares a tree instead of text) and
   indexes, including unique and **partial** ones. They flow into the IR, the diff, the DDL

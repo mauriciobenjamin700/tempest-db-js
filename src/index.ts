@@ -312,6 +312,8 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     readonly reference: ForeignKeyRef | null = null,
     /** An explicit database column name overriding the property name, or `null`. */
     readonly dbName: string | null = null,
+    /** Conversion to and from the stored representation, or `null` for none. */
+    readonly codec: ColumnCodec | null = null,
   ) {}
 
   /** Clone this column with one facet replaced, carrying every other over. */
@@ -321,6 +323,7 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     onUpdateValue?: DefaultValue | null;
     reference?: ForeignKeyRef | null;
     dbName?: string | null;
+    codec?: ColumnCodec | null;
   }): Column<T, F2> {
     return new Column<T, F2>(
       this.type,
@@ -329,6 +332,7 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
       patch.onUpdateValue !== undefined ? patch.onUpdateValue : this.onUpdateValue,
       patch.reference !== undefined ? patch.reference : this.reference,
       patch.dbName !== undefined ? patch.dbName : this.dbName,
+      patch.codec !== undefined ? patch.codec : this.codec,
     );
   }
 
@@ -434,6 +438,99 @@ class Column<T, F extends ColumnFlags = ColumnFlags> {
     }
     return this.derive({ onUpdateValue: resolved });
   }
+}
+
+/**
+ * Conversion between a domain value and what the database stores.
+ *
+ * The pair is applied on **both** paths — writes and reads — plus on a `where`
+ * operand, so a custom-typed column cannot be compared against the wrong shape by
+ * accident.
+ */
+export interface ColumnCodec {
+  /** Domain value → stored value. */
+  readonly toDb: (value: unknown) => unknown;
+  /** Stored value → domain value. */
+  readonly fromDb: (value: unknown) => unknown;
+}
+
+/**
+ * Declare a column type of your own, over one this package already has.
+ *
+ * Money as integer cents, a `Temporal.Instant`, a branded id, a value object —
+ * the conversion belongs to the column, not to every call site that forgets it.
+ * The DDL and the migration IR keep using the **base** type, so a custom type is
+ * invisible to the schema and cannot cause drift.
+ *
+ * @param spec `base` is a factory for the underlying column; `toDb`/`fromDb`
+ *   convert. `base` is a factory, not a column, because each declaration needs
+ *   its own instance.
+ * @returns A factory producing columns of the custom type.
+ *
+ * @example
+ * ```ts
+ * const money = customType<Money, bigint>({
+ *   base: () => column.bigInteger(),
+ *   toDb: (m) => m.cents,
+ *   fromDb: (cents) => Money.fromCents(cents),
+ * });
+ *
+ * class Order extends Model {
+ *   total = money().notNull();
+ * }
+ * ```
+ */
+export function customType<Domain, Stored>(spec: {
+  base: () => Column<Stored, ColumnFlags>;
+  toDb: (value: Domain) => Stored;
+  fromDb: (value: Stored) => Domain;
+}): () => Column<Domain, ColumnFlags> {
+  const codec: ColumnCodec = {
+    toDb: (value) =>
+      value === null || value === undefined ? value : spec.toDb(value as Domain),
+    fromDb: (value) =>
+      value === null || value === undefined ? value : spec.fromDb(value as Stored),
+  };
+  return () => {
+    const base = spec.base();
+    return new Column<Domain, ColumnFlags>(
+      base.type,
+      base.flags,
+      base.defaultValue,
+      base.onUpdateValue,
+      base.reference,
+      base.dbName,
+      codec,
+    );
+  };
+}
+
+/** The per-column codecs of a model, keyed by property name, or `null` if none. */
+const codecCache = new WeakMap<ModelClass, Record<string, ColumnCodec> | null>();
+
+/**
+ * The codecs a model declares, by property name.
+ *
+ * `null` when the model has no custom type, which is the common case — the write
+ * and read paths skip the whole conversion step on that answer.
+ *
+ * @param model The model class.
+ * @returns The codec map, or `null`.
+ */
+export function codecsOf(model: ModelClass): Record<string, ColumnCodec> | null {
+  const cached = codecCache.get(model);
+  if (cached !== undefined) return cached;
+  const codecs: Record<string, ColumnCodec> = {};
+  let found = false;
+  for (const [prop, col] of Object.entries(columnsOf(model))) {
+    if (col.codec) {
+      codecs[prop] = col.codec;
+      found = true;
+    }
+  }
+  const result = found ? codecs : null;
+  codecCache.set(model, result);
+  return result;
 }
 
 /** Build a `Column` of static type `T` from a kind + optional meta. */

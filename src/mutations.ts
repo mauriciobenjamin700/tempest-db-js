@@ -18,11 +18,13 @@ import {
   toCondNode,
 } from "./conditions.js";
 import {
+  type ColumnCodec,
   type InferInsert,
   type InferModel,
   type ModelClass,
   type NameMap,
   type SqlExpression,
+  codecsOf,
   columnNamesOf,
   columnsOf,
   defaultAsWriteValue,
@@ -113,6 +115,34 @@ function assertWritableValues(
 }
 
 /**
+ * Convert a row's values into what the database stores, for the columns that
+ * declare a custom type.
+ *
+ * Done here, in the builder, because this is the last place with the model in
+ * hand: the dialect binds values without knowing which column they came from.
+ *
+ * @param model The model being written.
+ * @param values The row as the caller wrote it.
+ * @returns The row in stored representation.
+ */
+function encodeWriteValues(
+  model: ModelClass,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const codecs = codecsOf(model);
+  if (!codecs) return values;
+  const out: Record<string, unknown> = { ...values };
+  for (const [key, codec] of Object.entries(codecs)) {
+    if (!(key in out)) continue;
+    const value = out[key];
+    // A SQL expression is not a domain value — it is rendered, not converted.
+    if (isSqlExpression(value) || isExpression(value)) continue;
+    out[key] = codec.toDb(value);
+  }
+  return out;
+}
+
+/**
  * Reject a multi-row insert whose rows disagree about a **defaulted** column.
  *
  * Every row of one INSERT shares one column list, so a key present in some rows
@@ -195,6 +225,8 @@ export interface OnConflictUpdateOptions<Full> {
 /** Serializable AST for an INSERT. */
 export interface InsertNode {
   readonly kind: "insert";
+  /** Per-column codecs for custom types, by property name. */
+  readonly codecs?: Readonly<Record<string, ColumnCodec>> | undefined;
   readonly table: string;
   readonly values: readonly Record<string, unknown>[];
   /**
@@ -248,9 +280,13 @@ export class InsertBuilder<Full, Ins, Ret = number> {
       string,
       unknown
     >[];
-    for (const row of list) assertWritableValues(this.source, row, "values");
-    assertConsistentRows(this.source, list);
-    return this.with<Ret>({ values: list });
+    // Encode before validating: a custom type's domain value (a Money object,
+    // say) is not bindable until its codec has converted it, so validating first
+    // would reject exactly the values the codec exists for.
+    const encoded = list.map((row) => encodeWriteValues(this.source, row));
+    for (const row of encoded) assertWritableValues(this.source, row, "values");
+    assertConsistentRows(this.source, encoded);
+    return this.with<Ret>({ values: encoded });
   }
 
   /**
@@ -369,6 +405,7 @@ export function insert<C extends ModelClass>(
       values: [],
       returning: null,
       names: columnNamesOf(model) ?? undefined,
+      codecs: codecsOf(model) ?? undefined,
     },
     model,
   );
@@ -381,6 +418,8 @@ export function insert<C extends ModelClass>(
 /** Serializable AST for an UPDATE. */
 export interface UpdateNode {
   readonly kind: "update";
+  /** Per-column codecs for custom types, by property name. */
+  readonly codecs?: Readonly<Record<string, ColumnCodec>> | undefined;
   readonly table: string;
   /** Extra source tables (`UPDATE ... FROM other`), by alias. */
   readonly from?: readonly { readonly table: string; readonly alias: string }[];
@@ -461,9 +500,10 @@ export class UpdateBuilder<Full, Guarded extends boolean, Ret = number> {
    * ```
    */
   set(values: WritePatch<Full>): UpdateBuilder<Full, Guarded, Ret> {
-    assertWritableValues(this.source, values as Record<string, unknown>, "set");
+    const encoded = encodeWriteValues(this.source, values as Record<string, unknown>);
+    assertWritableValues(this.source, encoded, "set");
     return this.with<Guarded, Ret>({
-      set: withOnUpdateValues(this.source, values as Record<string, unknown>),
+      set: withOnUpdateValues(this.source, encoded),
     });
   }
 
@@ -524,6 +564,7 @@ export function update<C extends ModelClass>(
       guarded: false,
       returning: null,
       names: columnNamesOf(model) ?? undefined,
+      codecs: codecsOf(model) ?? undefined,
     },
     model,
   );
@@ -536,6 +577,8 @@ export function update<C extends ModelClass>(
 /** Serializable AST for a DELETE. */
 export interface DeleteNode {
   readonly kind: "delete";
+  /** Per-column codecs for custom types, by property name. */
+  readonly codecs?: Readonly<Record<string, ColumnCodec>> | undefined;
   readonly table: string;
   /** Extra source tables (`DELETE ... USING other`), by alias. */
   readonly using?: readonly { readonly table: string; readonly alias: string }[];
@@ -623,6 +666,7 @@ export function del<C extends ModelClass>(model: C): DeleteBuilder<InferModel<C>
       guarded: false,
       returning: null,
       names: columnNamesOf(model) ?? undefined,
+      codecs: codecsOf(model) ?? undefined,
     },
     model,
   );
