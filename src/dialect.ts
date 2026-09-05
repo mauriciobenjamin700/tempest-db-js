@@ -698,7 +698,7 @@ export abstract class BaseDialect {
         const branches = node.branches
           .map(
             (b) =>
-              `WHEN ${this.compileCondition(b.when, params, idFor)} THEN ${this.renderExpr(b.then, params, idFor)}`,
+              `WHEN ${this.compileCondition(b.when, params, idFor)} THEN ${this.renderExpr(b.result, params, idFor)}`,
           )
           .join(" ");
         const fallback =

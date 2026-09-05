@@ -29,7 +29,10 @@ export type ExprNode =
   | { readonly kind: "fn"; readonly name: string; readonly args: readonly ExprNode[] }
   | {
       readonly kind: "case";
-      readonly branches: readonly { readonly when: CondNode; readonly then: ExprNode }[];
+      readonly branches: readonly {
+        readonly when: CondNode;
+        readonly result: ExprNode;
+      }[];
       readonly fallback: ExprNode | null;
     }
   | { readonly kind: "cast"; readonly operand: ExprNode; readonly to: CastType };
@@ -295,9 +298,9 @@ export function caseWhen<Row = Record<string, unknown>>(
   }
   return new Expression({
     kind: "case",
-    branches: branches.map(([when, then]) => ({
+    branches: branches.map(([when, result]) => ({
       when: toCondNode(when as Condition | Record<string, unknown>),
-      then: toExprNode(then),
+      result: toExprNode(result),
     })),
     fallback: fallback === undefined ? null : toExprNode(fallback),
   });
