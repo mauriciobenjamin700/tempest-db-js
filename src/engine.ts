@@ -19,6 +19,7 @@ import type { JoinBuilder, JoinNode } from "./join.js";
 import type { InsertBuilder, InsertNode, UpdateBuilder } from "./mutations.js";
 import { type SelectBuilder, select } from "./query.js";
 import { coerceRow } from "./serialize.js";
+import type { SetBuilder } from "./setops.js";
 import { type Dialect, type ParsedDatabaseUrl, parseDatabaseUrl } from "./url.js";
 
 /** A synchronous `require`, usable from both ESM and CJS builds. */
@@ -265,13 +266,21 @@ type GuardedUpdate = UpdateBuilder<any, true, any>;
 type GuardedDelete = import("./mutations.js").DeleteBuilder<any, true, any>;
 /* biome-ignore lint/suspicious/noExplicitAny: join sources are irrelevant to dispatch. */
 type AnyJoin = JoinBuilder<any>;
+/* biome-ignore lint/suspicious/noExplicitAny: the row type is irrelevant to dispatch. */
+type AnySet = SetBuilder<any>;
 
 /**
  * A builder that is safe to execute. UPDATE/DELETE are accepted only once
  * guarded (after `.where()` or `.unguarded()`) — an unguarded full-table write
  * is a compile error at the execution boundary.
  */
-export type Executable = AnySelect | AnyInsert | GuardedUpdate | GuardedDelete | AnyJoin;
+export type Executable =
+  | AnySelect
+  | AnyInsert
+  | GuardedUpdate
+  | GuardedDelete
+  | AnyJoin
+  | AnySet;
 
 /** The element type a builder yields on execution. */
 export type RowOf<B> = B extends { readonly __row: infer R } ? R : never;

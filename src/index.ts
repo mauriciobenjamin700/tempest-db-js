@@ -1025,6 +1025,16 @@ export {
 } from "./signals.js";
 
 export {
+  except,
+  intersect,
+  SetBuilder,
+  type SetNode,
+  type SetOperator,
+  union,
+  unionAll,
+} from "./setops.js";
+
+export {
   BaseRepository,
   type BulkUpsertOptions,
   type ChangesPage,

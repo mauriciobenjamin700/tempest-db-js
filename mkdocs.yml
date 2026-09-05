@@ -98,6 +98,7 @@ plugins:
             Busca de texto: Text search
             SQL cru em runtime: Raw SQL at runtime
             Expressões no where: Expressions in where
+            Operações de conjunto: Set operations
             "MySQL: o que muda": "MySQL: what changes"
             Exemplos: Examples
             Galeria: Gallery
@@ -180,6 +181,7 @@ nav:
       - Busca de texto: recipes/text-search.md
       - SQL cru em runtime: recipes/raw-sql.md
       - Expressões no where: recipes/expressions.md
+      - Operações de conjunto: recipes/set-operations.md
       - "MySQL: o que muda": recipes/mysql.md
   - Exemplos:
       - examples/index.md

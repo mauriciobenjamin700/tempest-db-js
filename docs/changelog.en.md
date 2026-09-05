@@ -25,6 +25,13 @@ project adopts [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Set operations: `union`, `unionAll`, `intersect` and `except`** — they combine two or
+  more SELECTs into a builder executable like any other, with **branch shapes checked at
+  compile time** (the mistake the database only reports at runtime).
+  `orderBy`/`limit`/`offset` apply to the set; a branch carrying its own ordering or limit
+  is **parenthesized**, since otherwise those clauses would bind to the combined query —
+  a different query. `INTERSECT`/`EXCEPT` throw on MySQL, by scope (#39).
+
 - **`exists` / `notExists` and `scalar`** — correlated `EXISTS (...)`, the right shape
   when only existence matters (the database can stop at the first match, which an `IN`
   over a materialized set cannot), plus scalar subqueries as values. `scalar()` takes the

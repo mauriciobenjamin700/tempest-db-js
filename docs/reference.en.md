@@ -404,6 +404,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `repo.deleteBatch(keys)` | `DELETE ... IN (...)`; a composite PK throws. |
 | `repo.changesSince(filter)` | Delta sync: a page plus `serverTime` as the watermark. |
 | `repo.cursorPaginate(filter)` | A cursor page: `{ items, nextCursor }`, no `COUNT(*)`, primary key as tie-break. `InvalidCursor` on a bad cursor. |
+| `union` / `unionAll` / `intersect` / `except` | Combine SELECTs; branch shapes checked by the types. The builder's `ORDER BY`/`LIMIT` apply to the set. |
 | `exists(sub)` / `notExists(sub)` | Correlated `EXISTS (...)`; `col("table.column")` references the outer query. |
 | `scalar(sub)` | A **one**-column subquery as a value; requires `.asSubquery(col)`. |
 | `caseWhen(branches, else?)` / `cast(expr, type)` | `CASE WHEN ... END` and `CAST(x AS type)`; the type is portable and mapped per dialect. |
