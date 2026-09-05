@@ -132,6 +132,75 @@ and `update`/`delete`/`reload` filter on the whole key.
 A single-column key still takes the bare value (`getById(7)`) **and** the object
 (`getById({ id: 7 })`).
 
+## The methods beyond CRUD
+
+| Method | What for |
+| --- | --- |
+| `existsExcluding(filters, key)` | uniqueness **on an update**: "does another row already use this e-mail?" |
+| `bulkUpsert(rows, { conflictColumns, update? })` | batch `ON CONFLICT`, one statement |
+| `softDelete(key)` / `restore(key)` | the `withSoftDelete` mixin's other half |
+| `deleteBatch(keys)` | `DELETE ... WHERE id IN (...)`, returning the count |
+| `changesSince({ since, cursor, limit })` | delta sync for an offline client |
+
+### `existsExcluding`
+
+```ts
+if (await users.existsExcluding({ email }, userId)) {
+  throw new EmailTaken();
+}
+```
+
+`exists({ email })` would find **the row being edited** and report a false conflict.
+
+### `bulkUpsert`
+
+```ts
+await settings.bulkUpsert(rows, { conflictColumns: ["key"] });
+```
+
+Writing N rows, the new value cannot be a literal — each row has its own. So the `SET`
+references the incoming row: `sql.excluded("col")`, which becomes `excluded."col"` on
+PostgreSQL and SQLite and `VALUES(col)` on MySQL. `update:` restricts which columns get
+overwritten.
+
+### `softDelete` / `restore`
+
+They require the `deletedAt` column (from `withSoftDelete`). Without it they **throw**,
+naming the mixin — rather than emitting SQL against a column that does not exist.
+
+### `changesSince` — delta sync
+
+```ts
+let cursor: string | null = null;
+let since = clientWatermark;             // null on the first sync
+do {
+  const page = await items.changesSince({ since, cursor, limit: 200 });
+  apply(page.items);
+  cursor = page.nextCursor;
+  if (cursor === null) clientWatermark = page.serverTime;   // (1)!
+} while (cursor !== null);
+```
+
+1. Persist **`serverTime`**, not the newest `updatedAt` you saw.
+
+!!! danger "The watermark is `serverTime`, not the newest `updatedAt`"
+
+    `serverTime` is read **before** the query runs. A row committed while the page was
+    being built carries a later timestamp, so it surfaces on the next pull. Using the
+    newest `updatedAt` you received would let that row fall into the gap between the two
+    syncs — and disappear for good.
+
+!!! info "A deleted row comes back as a tombstone"
+
+    With the soft-delete mixin, a deleted row **is returned**, with `deletedAt` set. That
+    is how the client knows to drop its local copy; filtering deletions out would strand
+    the row on the device forever.
+
+!!! warning "`changesSince` wants an index"
+
+    The query filters and orders by `updatedAt`. Without an index on that column every
+    pull is a full scan.
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — typed CRUD + pagination.

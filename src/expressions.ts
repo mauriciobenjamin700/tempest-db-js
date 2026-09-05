@@ -13,6 +13,22 @@ import type { Dialect } from "./url.js";
 export type PortableToken = "now" | "current_date" | "current_time" | "uuidv4";
 
 /**
+ * Render a reference to the incoming row of an upsert.
+ *
+ * PostgreSQL and SQLite expose it as the `excluded` pseudo-table; MySQL has no
+ * such table and spells the same idea as `VALUES(col)` inside
+ * `ON DUPLICATE KEY UPDATE`.
+ *
+ * @param column The already-quoted column identifier.
+ * @param bare The column name without quoting, for MySQL's `VALUES()` form.
+ * @param dialect The target dialect.
+ * @returns The SQL text.
+ */
+export function renderExcluded(column: string, bare: string, dialect: Dialect): string {
+  return dialect === "mysql" ? `VALUES(${bare})` : `excluded.${column}`;
+}
+
+/**
  * Render a portable expression token to SQL for the dialect.
  *
  * @param token The dialect-neutral token.
@@ -22,7 +38,14 @@ export type PortableToken = "now" | "current_date" | "current_time" | "uuidv4";
 export function renderPortableToken(token: PortableToken, dialect: Dialect): string {
   switch (token) {
     case "now":
-      return dialect === "postgresql" ? "now()" : "CURRENT_TIMESTAMP";
+      if (dialect === "postgresql") return "now()";
+      // SQLite's CURRENT_TIMESTAMP is "YYYY-MM-DD HH:MM:SS": no `T`, no
+      // milliseconds, no zone. JS parses that as **local** time, so a row written
+      // at 21:00Z read back as 00:00Z on a UTC-3 machine, and comparing the column
+      // against a bound ISO string compared " " with "T" and silently matched
+      // nothing. `strftime` writes exactly the format this package binds and reads.
+      if (dialect === "sqlite") return "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+      return "CURRENT_TIMESTAMP";
     case "current_date":
       return "CURRENT_DATE";
     case "current_time":

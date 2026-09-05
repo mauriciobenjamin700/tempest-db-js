@@ -13,6 +13,7 @@ import {
   withSoftDelete,
   withTimestamps,
 } from "../src/index.js";
+import { renderOperation } from "../src/migrations/ddl.js";
 import { reflectTable } from "../src/migrations/ir.js";
 
 class Note extends withSoftDelete(withTimestamps(Model)) {
@@ -26,14 +27,11 @@ class Doc extends withAudit(Model, () => column.integer()) {
   id = column.integer().primaryKey();
 }
 
-const DDL = `
-CREATE TABLE notes (
-  createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deletedAt TEXT,
-  id INTEGER PRIMARY KEY,
-  title TEXT NOT NULL
-)`;
+/** The DDL the package itself would emit — the point is that the defaults match. */
+const DDL = renderOperation(
+  { kind: "create_table", table: reflectTable(Note) },
+  "sqlite",
+)[0] as string;
 
 describe("model mixins — declaration", () => {
   it("contributes real columns, base columns first", () => {

@@ -94,7 +94,9 @@ export type PortableExpression =
   | "current_time"
   | "uuidv4"
   | { readonly raw: string }
-  | { readonly parts: readonly string[] };
+  | { readonly parts: readonly string[] }
+  /** The incoming value of a column, inside an upsert's `DO UPDATE` clause. */
+  | { readonly excluded: string };
 
 /**
  * A column default. Either a constant literal value or a server-side expression
@@ -181,6 +183,18 @@ export const sql = {
   currentTime: (): SqlExpression => expression("current_time"),
   /** A freshly generated UUID v4 (`gen_random_uuid()` / portable fallback). */
   uuidv4: (): SqlExpression => expression("uuidv4"),
+  /**
+   * The **incoming** value of a column, valid only inside an upsert's
+   * `onConflictDoUpdate` patch.
+   *
+   * A multi-row upsert cannot spell the new value as a literal — each row has its
+   * own — so the assignment has to name the row being inserted:
+   * `EXCLUDED."total"` on PostgreSQL and SQLite, `VALUES(total)` on MySQL.
+   *
+   * @param column The column's property name.
+   * @returns The expression, for use as a write value.
+   */
+  excluded: (column: string): SqlExpression => expression({ excluded: column }),
   /**
    * Escape hatch: a verbatim SQL expression rendered as-is, with no parameters.
    *
@@ -1008,6 +1022,9 @@ export {
 
 export {
   BaseRepository,
+  type BulkUpsertOptions,
+  type ChangesPage,
+  type ChangesSinceFilter,
   type CursorPage,
   type CursorPaginationFilter,
   InvalidCursor,

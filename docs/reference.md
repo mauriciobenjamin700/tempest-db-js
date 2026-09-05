@@ -397,6 +397,11 @@ Banco identificado pela URL; execução **async por padrão**, sync opcional pra
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Os dois drivers SQLite; `.open(path, options?)` abre um handle direto. |
 | `withTimestamps(Base)` / `withSoftDelete(Base)` / `withAudit(Base, actor?)` | Mixins de modelo: `createdAt`/`updatedAt`, `deletedAt`, `createdBy`/`updatedBy`. |
 | `notDeleted()` / `onlyDeleted()` | Fragmentos de `where` para o mixin de soft delete. |
+| `repo.existsExcluding(filtros, chave)` | Unicidade num update, ignorando a própria linha. |
+| `repo.bulkUpsert(linhas, opts)` | `ON CONFLICT` em lote, com `sql.excluded()` no `SET`. |
+| `repo.softDelete(chave)` / `repo.restore(chave)` | Exigem `deletedAt` (mixin); lançam sem ele. |
+| `repo.deleteBatch(chaves)` | `DELETE ... IN (...)`; PK composta lança. |
+| `repo.changesSince(filter)` | Delta sync: página + `serverTime` como marca d'água. |
 | `repo.cursorPaginate(filter)` | Página por cursor: `{ items, nextCursor }`, sem `COUNT(*)`, PK como desempate. `InvalidCursor` em cursor inválido. |
 | `caseWhen(branches, else?)` / `cast(expr, tipo)` | `CASE WHEN ... END` e `CAST(x AS tipo)`; o tipo é portátil e mapeado por dialeto. |
 | `sum/avg/min/max(coluna \| expressão)` | Agregação sobre expressão — é o que dá `SUM(CASE WHEN ...)`. |

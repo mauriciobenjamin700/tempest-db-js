@@ -63,7 +63,9 @@ describe("SQL expressions in a write", () => {
   it("renders a portable expression per dialect", () => {
     const q = update(Outbound).set({ updatedAt: sql.now() }).where({ id: "a" });
     expect(pg.compile(q.node).sql).toContain('"updatedAt" = now()');
-    expect(sqlite.compile(q.node).sql).toContain('"updatedAt" = CURRENT_TIMESTAMP');
+    expect(sqlite.compile(q.node).sql).toContain(
+      `"updatedAt" = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+    );
   });
 
   it("renders an expression inside INSERT VALUES", () => {
