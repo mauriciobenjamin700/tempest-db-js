@@ -393,6 +393,7 @@ Database identified by URL; execution **async by default**, sync optional for SQ
 | `createEngine(url, { driverOptions })` | Passed straight to the driver, applied last (wins over `pool`/`onNotice`). |
 | `createEngine(url, { driver })` | Picks the SQLite driver: `"node:sqlite"` (default) or `"better-sqlite3"`. An unknown name throws. |
 | `NodeSqliteDriver` / `BetterSqliteDriver` | Both SQLite drivers; `.open(path, options?)` opens a handle directly. |
+| `primaryKeysOf(Model)` / `primaryKeyFilter(Model, key)` | The primary-key columns (an array — composite means more than one) and the filter identifying one row. |
 | `createEngine(url, { sqlite })` | Per-connection pragmas: `foreignKeys` (defaults to **`true`**), `journalMode`, `busyTimeoutMs`, `synchronous`. Refused by SQLite ⇒ error. |
 
 `Result` terminals (async ones return a `Promise`):

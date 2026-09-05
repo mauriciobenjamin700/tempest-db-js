@@ -706,6 +706,69 @@ export function dbColumn(names: NameMap | null | undefined, prop: string): strin
   return names?.[prop] ?? prop;
 }
 
+/**
+ * Every primary-key column of a model, in declaration order.
+ *
+ * A composite key is a list of more than one name — which is why this returns an
+ * array and not a single name. Reading only the first entry is how a repository
+ * ends up filtering half a key and touching the wrong row.
+ *
+ * @param model The model class.
+ * @returns The primary-key column names (property names, not database names).
+ * @throws Error When the model declares no primary key.
+ */
+export function primaryKeysOf(model: ModelClass): string[] {
+  const keys: string[] = [];
+  for (const [name, col] of Object.entries(columnsOf(model))) {
+    if (col.flags.primaryKey) keys.push(name);
+  }
+  if (keys.length === 0) throw new Error(`${model.tablename} has no primary key`);
+  return keys;
+}
+
+/**
+ * Turn a primary-key argument into the filter that identifies exactly one row.
+ *
+ * A single-column key takes the bare value (or an object carrying it); a
+ * composite key **requires** the object, because a scalar cannot say which of the
+ * key columns it is. Passing a scalar for a composite key throws instead of
+ * silently matching on one column.
+ *
+ * @param model The model class.
+ * @param id The key: a scalar, or an object with every key column.
+ * @returns A filter object covering the whole key.
+ * @throws Error When the key is incomplete, or a scalar was given for a composite key.
+ */
+export function primaryKeyFilter(
+  model: ModelClass,
+  id: unknown,
+): Record<string, unknown> {
+  const keys = primaryKeysOf(model);
+  const asObject =
+    typeof id === "object" && id !== null && !Array.isArray(id) && !(id instanceof Date)
+      ? (id as Record<string, unknown>)
+      : null;
+  const first = keys[0] as string;
+  if (keys.length === 1) {
+    return { [first]: asObject && first in asObject ? asObject[first] : id };
+  }
+  if (asObject === null) {
+    throw new Error(
+      `${model.tablename} has a composite primary key (${keys.join(", ")}); pass an object like { ${keys.join(", ")} } instead of a scalar.`,
+    );
+  }
+  const filter: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (!(key in asObject)) {
+      throw new Error(
+        `${model.tablename} has a composite primary key (${keys.join(", ")}); the key is missing ${JSON.stringify(key)}.`,
+      );
+    }
+    filter[key] = asObject[key];
+  }
+  return filter;
+}
+
 /** Pull the static type out of a Column. */
 type ColType<C> = C extends Column<infer T, infer _F> ? T : never;
 

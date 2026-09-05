@@ -95,9 +95,47 @@ const withAuthor = await loadRelations(session, posts, {
 withAuthor[0].author; // UserRow | null
 ```
 
+## Chave primária composta
+
+Modelo com mais de uma coluna `primaryKey()` é identificado por **todas** elas.
+`getById` recebe um objeto com a chave inteira:
+
+```ts
+class OrderLine extends Model {
+  static override tablename = "order_lines";
+  orderId = column.integer().primaryKey();
+  lineNumber = column.integer().primaryKey();
+  sku = column.varchar(40).notNull();
+}
+
+const lines = new BaseRepository(OrderLine, session);
+const line = await lines.getById({ orderId: 1, lineNumber: 2 });
+```
+
+O mesmo vale para o active-record: `activeRecord(OrderLine, session).get({ orderId, lineNumber })`,
+e `update`/`delete`/`reload` filtram pela chave inteira.
+
+!!! danger "Escalar em chave composta é erro, não meia chave"
+
+    ```ts
+    await lines.getById(1);
+    // Error: order_lines has a composite primary key (orderId, lineNumber);
+    //        pass an object like { orderId, lineNumber } instead of a scalar.
+    ```
+
+    Um escalar não diz **qual** coluna da chave ele é. Antes disso valer um erro, o
+    filtro saía com metade da chave (`WHERE orderId = 1`) e devolvia — ou atualizava —
+    a linha errada quando o pedido tinha mais de uma linha.
+
+    Chave incompleta (`{ orderId: 1 }`) também lança, nomeando a coluna que falta.
+
+Chave de uma coluna continua aceitando o valor cru (`getById(7)`) **e** o objeto
+(`getById({ id: 7 })`).
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — CRUD + paginação tipados.
 - `getById` lança `RecordNotFound`; `list` retorna `[]` (convenção 404).
+- Chave composta: `getById({ ... })` com a chave inteira; escalar lança.
 - `paginate` devolve itens + metadados, com `orderBy` tipado.
 - `PaginationFilter`/`PaginationResult` alinhados ao `tempest-fastapi-sdk`.

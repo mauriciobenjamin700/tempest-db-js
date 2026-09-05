@@ -26,6 +26,17 @@ project adopts [Semantic Versioning](https://semver.org/).
   `:memory:` database now throws instead of pretending. Passing `sqlite` to a
   PostgreSQL/MySQL engine throws (#28).
 
+### Fixed
+
+- **A composite primary key is now honored in full** by `BaseRepository` and
+  `activeRecord`. Both layers carried a copy of `primaryKeyOf` that returned the
+  **first** `primaryKey()` column and moved on: `getById`, `update`, `delete`, `reload`
+  and `save()`'s `ON CONFLICT` filtered on half the key and could read or write the
+  wrong row. Resolution now lives in one place — `primaryKeysOf` and
+  `primaryKeyFilter`, both exported — `getById` accepts `{ orderId, lineNumber }`, and a
+  scalar for a composite key **throws** instead of matching half of it. A
+  single-column key still takes the bare value (#25).
+
 ## [0.8.0] — 2026-09-05
 
 `better-sqlite3` stopped being a promise: `EngineOptions.driver` and the

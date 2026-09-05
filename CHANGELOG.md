@@ -27,6 +27,17 @@ projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   `:memory:` agora lança em vez de fingir. `sqlite` num engine PostgreSQL/MySQL lança
   (#28).
 
+### Corrigido
+
+- **Chave primária composta é respeitada inteira** no `BaseRepository` e no
+  `activeRecord`. As duas camadas tinham uma cópia de `primaryKeyOf` que devolvia a
+  **primeira** coluna marcada `primaryKey()` e seguia: `getById`, `update`, `delete`,
+  `reload` e o `ON CONFLICT` do `save()` filtravam por metade da chave e podiam ler ou
+  escrever a linha errada. Agora a resolução mora num lugar só — `primaryKeysOf` e
+  `primaryKeyFilter`, ambos exportados —, `getById` aceita `{ orderId, lineNumber }`, e
+  um escalar em chave composta **lança** em vez de casar meia chave. Chave de uma
+  coluna continua aceitando o valor cru (#25).
+
 ## [0.8.0] — 2026-09-05
 
 O `better-sqlite3` deixou de ser promessa: `EngineOptions.driver` e o sufixo

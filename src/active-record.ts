@@ -14,18 +14,12 @@ import {
   type InferModel,
   type ModelClass,
   columnsOf,
+  primaryKeyFilter,
+  primaryKeysOf,
 } from "./index.js";
 import { insert } from "./mutations.js";
 import { del, update } from "./mutations.js";
 import { type WhereInput, select } from "./query.js";
-
-/** Find the single primary-key column name of a model. */
-function primaryKeyOf(model: ModelClass): string {
-  for (const [name, col] of Object.entries(columnsOf(model))) {
-    if (col.flags.primaryKey) return name;
-  }
-  throw new Error(`${model.tablename} has no primary key`);
-}
 
 /**
  * An opt-in active-record wrapper around a single row.
@@ -36,7 +30,7 @@ function primaryKeyOf(model: ModelClass): string {
  * @typeParam C - the model class.
  */
 export class ActiveRecord<C extends ModelClass> {
-  private readonly pk: string;
+  private readonly pks: string[];
 
   constructor(
     private readonly model: C,
@@ -44,16 +38,24 @@ export class ActiveRecord<C extends ModelClass> {
     /** The current field values (a plain, typed row). */
     public data: InferModel<C>,
   ) {
-    this.pk = primaryKeyOf(model);
+    this.pks = primaryKeysOf(model);
   }
 
-  /** The primary-key value of the wrapped row. */
-  private pkValue(): unknown {
-    return (this.data as Record<string, unknown>)[this.pk];
+  /**
+   * The primary-key values of the wrapped row, as an object.
+   *
+   * Composite keys are the reason this is an object and not a value: identifying
+   * the row by one column of a two-column key hits the wrong row.
+   */
+  private pkValue(): Record<string, unknown> {
+    const row = this.data as Record<string, unknown>;
+    const key: Record<string, unknown> = {};
+    for (const name of this.pks) key[name] = row[name];
+    return key;
   }
 
   private pkFilter(): WhereInput<InferModel<C>> {
-    return { [this.pk]: this.pkValue() } as WhereInput<InferModel<C>>;
+    return this.pkValue() as WhereInput<InferModel<C>>;
   }
 
   /**
@@ -70,14 +72,14 @@ export class ActiveRecord<C extends ModelClass> {
     const rowData = this.data as Record<string, unknown>;
     const setPatch: Record<string, unknown> = {};
     for (const c of Object.keys(rowData)) {
-      if (c !== this.pk && c in cols) setPatch[c] = rowData[c];
+      if (!this.pks.includes(c) && c in cols) setPatch[c] = rowData[c];
     }
     const saved = await this.session
       .execute(
         insert(this.model)
           .values(this.data as InferInsert<C>)
           .onConflictDoUpdate(
-            [this.pk] as (keyof InferModel<C> & string)[],
+            this.pks as (keyof InferModel<C> & string)[],
             setPatch as Partial<InferModel<C>>,
           )
           .returning(),
@@ -158,14 +160,13 @@ export function activeRecord<C extends ModelClass>(
   model: C,
   session: AsyncSession,
 ): ActiveRecordManager<C> {
-  const pk = primaryKeyOf(model);
+  primaryKeysOf(model);
   return {
     wrap: (row) => new ActiveRecord(model, session, row),
     create: (data) => new ActiveRecord(model, session, data as unknown as InferModel<C>),
     async get(id) {
-      const row = await session
-        .execute(select(model).where({ [pk]: id } as WhereInput<InferModel<C>>))
-        .first();
+      const filter = primaryKeyFilter(model, id) as WhereInput<InferModel<C>>;
+      const row = await session.execute(select(model).where(filter)).first();
       return row === null ? null : new ActiveRecord(model, session, row as InferModel<C>);
     },
   };

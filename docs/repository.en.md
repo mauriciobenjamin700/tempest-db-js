@@ -95,9 +95,47 @@ const withAuthor = await loadRelations(session, posts, {
 withAuthor[0].author; // UserRow | null
 ```
 
+## Composite primary keys
+
+A model with more than one `primaryKey()` column is identified by **all** of them.
+`getById` takes an object carrying the whole key:
+
+```ts
+class OrderLine extends Model {
+  static override tablename = "order_lines";
+  orderId = column.integer().primaryKey();
+  lineNumber = column.integer().primaryKey();
+  sku = column.varchar(40).notNull();
+}
+
+const lines = new BaseRepository(OrderLine, session);
+const line = await lines.getById({ orderId: 1, lineNumber: 2 });
+```
+
+The same holds for active-record: `activeRecord(OrderLine, session).get({ orderId, lineNumber })`,
+and `update`/`delete`/`reload` filter on the whole key.
+
+!!! danger "A scalar for a composite key is an error, not half a key"
+
+    ```ts
+    await lines.getById(1);
+    // Error: order_lines has a composite primary key (orderId, lineNumber);
+    //        pass an object like { orderId, lineNumber } instead of a scalar.
+    ```
+
+    A scalar cannot say **which** key column it is. Before this threw, the filter went
+    out with half the key (`WHERE orderId = 1`) and returned — or updated — the wrong
+    row whenever the order had more than one line.
+
+    An incomplete key (`{ orderId: 1 }`) throws too, naming the missing column.
+
+A single-column key still takes the bare value (`getById(7)`) **and** the object
+(`getById({ id: 7 })`).
+
 ## Recap
 
 - `new BaseRepository(Model, session)` — typed CRUD + pagination.
 - `getById` throws `RecordNotFound`; `list` returns `[]` (404 convention).
+- Composite keys: `getById({ ... })` with the whole key; a scalar throws.
 - `paginate` returns items + metadata, with a typed `orderBy`.
 - `PaginationFilter`/`PaginationResult` aligned with `tempest-fastapi-sdk`.

@@ -13,9 +13,10 @@ import {
   type InferModel,
   type ModelClass,
   type WhereInput,
-  columnsOf,
   del,
   insert,
+  primaryKeyFilter,
+  primaryKeysOf,
   select,
   update,
 } from "./index.js";
@@ -40,18 +41,10 @@ export interface PaginationResult<Row> {
 
 /** Raised by single-record lookups (`getById`) when nothing matches (404). */
 export class RecordNotFound extends Error {
-  constructor(table: string, id: unknown) {
-    super(`${table} not found for id ${JSON.stringify(id)}`);
+  constructor(table: string, key: unknown) {
+    super(`${table} not found for key ${JSON.stringify(key)}`);
     this.name = "RecordNotFound";
   }
-}
-
-/** Find the single primary-key column name of a model. */
-function primaryKeyOf(model: ModelClass): string {
-  for (const [name, col] of Object.entries(columnsOf(model))) {
-    if (col.flags.primaryKey) return name;
-  }
-  throw new Error(`${model.tablename} has no primary key`);
 }
 
 /**
@@ -60,13 +53,13 @@ function primaryKeyOf(model: ModelClass): string {
  * @typeParam C - the model class.
  */
 export class BaseRepository<C extends ModelClass> {
-  private readonly pk: string;
+  private readonly pks: string[];
 
   constructor(
     protected readonly model: C,
     protected readonly session: AsyncSession,
   ) {
-    this.pk = primaryKeyOf(model);
+    this.pks = primaryKeysOf(model);
   }
 
   /** All rows matching `filters` (or everything). Empty list when none match. */
@@ -81,17 +74,33 @@ export class BaseRepository<C extends ModelClass> {
     return this.session.execute(query).first();
   }
 
-  /** A single row by primary key, or `null`. */
+  /**
+   * A single row by primary key, or `null`.
+   *
+   * @param id The key — a bare value for a single-column key, an object
+   *   (`{ orderId, lineNumber }`) for a composite one.
+   * @returns The row, or `null` when nothing matches.
+   * @throws Error When a scalar is given for a composite key, or the key is
+   *   incomplete.
+   */
   async getByIdOrNull(id: unknown): Promise<InferModel<C> | null> {
-    return this.session
-      .execute(select(this.model).where({ [this.pk]: id } as WhereInput<InferModel<C>>))
-      .first();
+    const filter = primaryKeyFilter(this.model, id) as WhereInput<InferModel<C>>;
+    return this.session.execute(select(this.model).where(filter)).first();
   }
 
-  /** A single row by primary key; throws `RecordNotFound` when absent. */
+  /**
+   * A single row by primary key; throws `RecordNotFound` when absent.
+   *
+   * @param id The key — see {@link getByIdOrNull}.
+   * @returns The row.
+   * @throws RecordNotFound When no row carries that key.
+   */
   async getById(id: unknown): Promise<InferModel<C>> {
-    const row = await this.getByIdOrNull(id);
-    if (row === null) throw new RecordNotFound(this.model.tablename, id);
+    const filter = primaryKeyFilter(this.model, id);
+    const row = await this.session
+      .execute(select(this.model).where(filter as WhereInput<InferModel<C>>))
+      .first();
+    if (row === null) throw new RecordNotFound(this.model.tablename, filter);
     return row;
   }
 
@@ -103,8 +112,8 @@ export class BaseRepository<C extends ModelClass> {
   /** How many rows match `filters` (or the whole table). */
   async count(filters?: WhereInput<InferModel<C>>): Promise<number> {
     const query = filters
-      ? select(this.model, [this.pk as keyof InferModel<C> & string]).where(filters)
-      : select(this.model, [this.pk as keyof InferModel<C> & string]);
+      ? select(this.model, [this.pks[0] as keyof InferModel<C> & string]).where(filters)
+      : select(this.model, [this.pks[0] as keyof InferModel<C> & string]);
     return (await this.session.execute(query).all()).length;
   }
 
