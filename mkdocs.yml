@@ -94,6 +94,7 @@ plugins:
             Nomes de coluna: Column names
             Colunas array do PostgreSQL: PostgreSQL array columns
             Comparação case-insensitive: Case-insensitive comparison
+            Busca de texto: Text search
             SQL cru em runtime: Raw SQL at runtime
             Expressões no where: Expressions in where
             "MySQL: o que muda": "MySQL: what changes"
@@ -174,6 +175,7 @@ nav:
       - Nomes de coluna: recipes/naming.md
       - Colunas array do PostgreSQL: recipes/arrays.md
       - Comparação case-insensitive: recipes/case-insensitive.md
+      - Busca de texto: recipes/text-search.md
       - SQL cru em runtime: recipes/raw-sql.md
       - Expressões no where: recipes/expressions.md
       - "MySQL: o que muda": recipes/mysql.md

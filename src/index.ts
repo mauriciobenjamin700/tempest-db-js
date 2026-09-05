@@ -986,6 +986,17 @@ export {
 } from "./integrity.js";
 
 export {
+  type ContainsOptions,
+  contains,
+  escapeLike,
+  fullText,
+  fullTextRank,
+  type TextSearchLanguage,
+  type TextSearchOptions,
+  tokenize,
+} from "./search.js";
+
+export {
   BaseRepository,
   type CursorPage,
   type CursorPaginationFilter,
